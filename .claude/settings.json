@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"/Users/dannychen/Documents/Claude Code/Speed Part Search\" && if ! git diff --quiet || ! git diff --cached --quiet || [ -n \"$(git ls-files --others --exclude-standard)\" ]; then git add -A && git commit -m \"auto: sync changes from Claude Code\" && git push origin main; fi 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "同步到 GitHub..."
+          }
+        ]
+      }
+    ]
+  }
+}
