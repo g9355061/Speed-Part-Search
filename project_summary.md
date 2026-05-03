@@ -1,0 +1,624 @@
+# Project Summary — Speed Part Search
+
+> 最後更新：2026-05-02（單料查詢 UX 修正 + Mouser exact MPN + 廠商對照表真實 API 名稱 + Cloudflare tunnel + 防休眠到 06:00）
+
+## 1. 目標
+
+建立一個可以輸入電子零件料號、跨多家供應商比價的網站。
+第一版只串 **DigiKey**，第二版加入 **Mouser**；架構設計可無痛繼續加入 Arrow / Avnet。
+
+## 2. 技術棧
+
+| 層 | 技術 |
+| --- | --- |
+| 框架 | Next.js 14（App Router） |
+| 語言 | TypeScript |
+| 後端 | Next.js API Routes（Node runtime） |
+| 前端 | React + 原生 CSS（無 UI library） |
+| 測試 | tsx + node:assert（無框架） |
+| 儲存 | 無資料庫；token 用 in-memory 快取 |
+
+選型原則：最簡單穩定、單一 repo、單一啟動指令、零外部相依。
+
+## 3. 已完成的功能
+
+### 2026-05-02 新增 — 單料查詢中文化、BOM 採購欄位、MFR 模糊比對與 Excel 表頭整理
+
+- [x] **單料查詢首頁整體中文化與採購欄位重整**（`src/app/page.tsx`, `src/components/Hero.tsx`, `src/components/SupplierTable.tsx`, `src/components/PriceBreaks.tsx`, `src/components/ComparisonChart.tsx`, `src/components/Header.tsx`, `src/components/Footer.tsx`）
+  - 首頁 Hero、搜尋按鈕、熱門/最近、Header/Footer、供應商比較、階梯價、規格摘要等 UI 字串改為中文
+  - 單料查詢新增可手動輸入 `Qty`，上方搜尋列與下方 Price Breaks 共用同一個數量 state
+  - `Supplier comparison` 表格改為 BOM 採購視角欄位：`供應商 / 需求 / 庫存 / MPQ / 報價明細 / 總價 / 平均單價 / 狀態 / 連結`
+  - 單料查詢的單價、排序、Best/最低單價、Chart 與 Price Breaks 皆依輸入數量對應階梯價
+  - 若需求量大於供應商庫存，單料查詢用「現有庫存」對應階梯價並計算總價；庫存 0 不參與最低價比較
+  - `lowest / Lowest unit price` 改為更醒目的 `最低單價`
+  - 狀態顯示：`完全滿足` 使用綠色、`部分滿足` 使用黃色、`供貨限制` 使用紫色
+  - 表格表頭與內容置中對齊，`平均單價 @數量` 拆成兩行顯示
+  - 移除供應商名稱旁重複的 `最低單價` 與 `供貨限制` badge，只保留資料來源提示 `即時 / 示範`
+
+- [x] **BOM Batch / BOM Batch - MFR 採購彙總欄位**（`src/app/batch/page.tsx`, `src/app/batch-manufacturer/page.tsx`, `src/app/globals.css`）
+  - 在固定欄位區新增 `最低供應商` 與 `滿足狀態`
+  - `最低供應商` 依各供應商平均單價比較；庫存 0 不可成為最低供應商
+  - `滿足狀態` 顯示 `完全滿足 / 部分滿足`
+  - 若最低平均單價相同且滿足狀態相同，多個供應商會一起顯示，例如 `DigiKey / Mouser HK`
+  - `攤平單價` 全面改名為 `平均單價`
+  - `MFR mismatch / Not found / Found` 改為中文：`廠商不一致 / 平台沒有這顆料 / 找到了`
+  - `Restricted / 受限` 改為 `供貨限制`
+  - 固定欄位與數量欄置中對齊，維持橫向捲動時的可讀性
+
+- [x] **Excel 欄位偵測與數量解析強化**（`src/app/batch/page.tsx`, `src/app/batch-manufacturer/page.tsx`）
+  - Manufacturer 欄位支援新增 `MFG`
+  - 數量欄位支援新增 `Shortage`
+  - `Shortage` 欄若為負數或括號負數，例如 `-100` / `(100)`，會轉為需求數量 `100`
+  - 一般 BOM Batch 與 BOM Batch - MFR 兩頁同步套用
+
+- [x] **MFR 廠商比對升級：alias + fuzzy + 疑似同廠商**（`src/app/batch-manufacturer/page.tsx`）
+  - 仍維持「先精準比對 MPN，再比對廠商」的安全順序
+  - 廠商 normalize 移除大小寫、標點、公司尾綴（Inc / Corp / Ltd / Co. 等）
+  - 新增分級結果：
+    - exact / alias / 高相似度：`找到了`
+    - 相似度 82%~92%：`疑似同廠商`
+    - 低於 82%：`廠商不一致`
+  - `疑似同廠商` 可納入最低供應商比較；`廠商不一致` 不納入最低供應商
+  - 報價明細顯示 API MFR 與相似度，方便人工覆核
+  - 新增常見品牌/事業部 alias：
+    - Skyworks = Skyworks Solutions
+    - Hirose Electric = Hirose Connector
+    - JST / Japan Solderless Terminals = JST Automotive
+    - Samsung = Samsung Electro-Mechanics
+    - Panasonic = Panasonic Industry
+    - Murata = Murata Electronics / Murata Manufacturing
+    - KOA Speer = KOA Speer Electronics
+    - Vishay = Vishay Dale
+  - 新增完整詞包含規則，處理 `KOA Speer` vs `KOA Speer Electronics`、`Skyworks` vs `Skyworks Solutions` 這類同品牌命名
+
+- [x] **新增第四頁：廠商對照表 + 可編輯 mapping 資料庫**（`src/app/manufacturer-mapping/page.tsx`, `src/app/api/manufacturer-mapping/route.ts`, `src/lib/manufacturers.ts`, `src/data/manufacturer-aliases.json`, `src/components/Header.tsx`）
+  - Header 新增第四個分頁 `廠商對照表`
+  - 以 API 系統標準名為主，顯示目前哪些 BOM/API 廠商名稱會被視為同一家公司
+  - 原本寫死在 `manufacturers.ts` 的 alias 表改為讀取 `src/data/manufacturer-aliases.json`
+  - 新增 `/api/manufacturer-mapping`：
+    - `GET` 回傳目前 alias map 與分組 rows
+    - `POST` 將編輯後的 alias map 寫回 JSON 檔
+  - 每一列最右側新增獨立 `編輯` 按鈕
+  - 點某一家廠商的 `編輯` 後，只會開啟該列操作：
+    - 新增同家公司名稱
+    - 刪除單一 alias 名稱
+    - 刪除整組廠商對照
+  - 新增/刪除會套用同一套 normalize 規則（大小寫、標點、Inc/Corp/Ltd/Co 等尾綴）後儲存
+  - 已整理目前常見 mapping，作為後續人工校正與資料學習的基礎
+
+- [x] **熱門搜尋資料來源確認**（`src/lib/mockData.ts`, `src/components/Hero.tsx`）
+  - 首頁 `熱門：STM32 / ESP32 / MOSFET...` 目前來自 `TRENDING_TAGS` mock data，不是 DigiKey/Mouser API
+  - DigiKey / Mouser 公開 API 目前主要提供關鍵字/料號搜尋、產品、庫存、價格等資料，未提供全站熱門搜尋排行 endpoint
+  - 後續若要顯示真實熱門搜尋，建議改由本系統自己的搜尋紀錄統計產生
+
+- [x] **Excel 匯出格式升級**（`src/app/batch/page.tsx`, `src/app/batch-manufacturer/page.tsx`）
+  - 匯出 Excel 加入 `最低供應商`、`滿足狀態`
+  - 匯出欄位取消 `交期` 與 `URL / 連結`
+  - Excel 表頭改為兩層結構：
+    - 第一列合併欄顯示 `DigiKey / Mouser HK / Mouser VN`
+    - 第二列顯示 `Stock / MPQ / 報價 / 總價 / 平均單價 / 狀態`
+  - AutoFilter 改放第二列表頭，避免供應商群組列被當成欄位名稱
+  - 匯出狀態同步使用中文：`找到了 / 平台沒有這顆料 / 廠商不一致 / 疑似同廠商 / 供貨限制`
+
+- [x] **Cloudflare tunnel 與本機服務重啟**
+  - 本機 Next dev server 維持 `http://localhost:5280`
+  - 重啟 Cloudflare quick tunnel，最新測試網址：
+    - `https://pools-surname-shed-indexes.trycloudflare.com/`
+  - 已開 macOS `caffeinate -dimsu` 防休眠到 `2026-05-03 06:00 EDT`，到時會自動結束並恢復原本睡眠行為
+  - 已確認首頁 `/`、`/batch`、`/batch-manufacturer` 經 Cloudflare 都回 `200 OK`
+
+- [x] **2026-05-02 晚間追加：單料查詢 UX 與結果判斷修正**（`src/app/page.tsx`, `src/components/Hero.tsx`, `src/components/SupplierTable.tsx`, `src/components/ComparisonChart.tsx`, `src/components/PriceBreaks.tsx`, `src/app/globals.css`）
+  - Qty 預設值改為空白；未輸入數量按查詢時顯示 `請輸入數量`，不送 API
+  - Qty input 取消瀏覽器上下調整 spinner，保留手動輸入
+  - 複製貼上料號時自動 trim 前後空白，手動輸入時移除開頭空白
+  - 搜尋結束後自動清空料號與數量欄位
+  - 庫存 `0` 不再顯示 `完全滿足`；改顯示 `沒有庫存`
+  - 庫存 `0` 時平均單價比較不再顯示 `+Infinity%`；改顯示 `沒有庫存`
+  - 單料查詢新增 exact MPN 過濾：API 回傳相近料號不再當作同一顆料
+  - 若 API 沒有精準 MPN，顯示 `平台沒有這顆料`；若精準 MPN 有找到但庫存為 0，才顯示 `沒有庫存`
+  - 同一最低平均單價且都有庫存時，所有最低供應商都顯示 `最低單價`，表格背景與比較圖同步標綠
+
+- [x] **2026-05-02 晚間追加：Mouser HK / VN exact MPN 規則統一**（`src/lib/suppliers/mouser/index.ts`）
+  - Mouser adapter 原本會接受有 `MouserPartNumber` 的相近搜尋結果，導致 HK/VN 與 Excel exact 判斷不一致
+  - 改為只接受 `ManufacturerPartNumber` normalize 後與查詢料號完全相同的結果
+  - 已確認案例：
+    - `LFCN-4400+`：Mouser HK = `供貨限制`，Mouser VN = exact found
+    - `LP5907MFX-2.5/NOPB`：Mouser HK = `供貨限制`，Mouser VN = exact found
+    - `TPS27081A`：Mouser HK/VN = `平台沒有這顆料`
+    - `TPS27081ADDCR`：Mouser HK = `供貨限制`，Mouser VN = exact found
+
+- [x] **2026-05-02 晚間追加：廠商對照表改用真實 API 顯示名稱**（`src/data/manufacturer-aliases.json`, `src/data/manufacturer-display-names.json`, `src/app/manufacturer-mapping/page.tsx`）
+  - 確認 `API 系統標準名` 原先部分是 normalize/人工整理後的 canonical，不一定是 API 原字串
+  - 新增 `manufacturer-display-names.json`，畫面優先顯示真實 API 廠商名稱格式
+  - 修正顯示名稱，例如：
+    - `Hirose Connector`
+    - `KOA Speer Electronics, Inc.`
+    - `Murata Electronics`
+    - `Samsung Electro-Mechanics`
+    - `Skyworks Solutions, Inc.`
+    - `onsemi`
+  - 修正 mapping：
+    - `Nexperia Usa / NXP / NXP Semiconductors / NXP Usa Inc` 合併到同一組 `NXP Semiconductors`
+    - 移除先前不正確的獨立 `Nexperia Usa` 群組
+    - `Vishay / Vishay Dale / Vishay / Draloric` 確認都是 API 可能回傳的名稱，可視為同一家公司；建議顯示標準名使用較通用的 `Vishay`
+  - BOM Batch - MFR 的 `Manufacturer / FMG` sticky 欄位改為置中對齊
+
+- [x] **驗證**
+  - 多次執行 `npx tsc --noEmit` 通過
+  - `curl -I http://localhost:5280/` 回 `200 OK`
+  - `curl -I http://localhost:5280/batch` 回 `200 OK`
+  - `curl -I http://localhost:5280/batch-manufacturer` 回 `200 OK`
+  - `curl http://localhost:5280/api/manufacturer-mapping` 正常回傳 alias JSON
+  - `curl http://localhost:5280/manufacturer-mapping` 可看到逐列 `編輯`
+  - `curl -I https://nails-professionals-searching-properties.trycloudflare.com/` 回 `200 OK`
+  - `curl -I https://nails-professionals-searching-properties.trycloudflare.com/batch` 回 `200 OK`
+  - `curl -I https://nails-professionals-searching-properties.trycloudflare.com/batch-manufacturer` 回 `200 OK`
+  - `curl -I https://nails-professionals-searching-properties.trycloudflare.com/manufacturer-mapping` 回 `200 OK`
+  - `curl -I https://pools-surname-shed-indexes.trycloudflare.com/` 回 `200 OK`
+
+### 2026-05-01（深夜）新增 — BOM Manufacturer 比對、Mouser US 移除與匯出格式整理
+
+- [x] **新增第三頁：BOM Batch - Manufacturer**（`src/app/batch-manufacturer/page.tsx`）
+  - 新增 `/batch-manufacturer` 頁面，與原本 `/batch` 分開
+  - 上傳檔支援 `Part Number / MPN / 料號`、`Quantity / Qty / 數量`、`Manufacturer / MFR / FMG / Maker / Brand / 廠商 / 製造商 / 品牌`
+  - 左側固定欄位改為 `# / 料號 (MPN) / Manufacturer / FMG / 數量`
+  - 橫向捲動到 DigiKey / Mouser HK / Mouser VN 時，仍可看到料號、廠商與數量
+  - 頁面標題與 nav 新增 `BOM Batch - MFR`
+
+- [x] **料號 + 廠商比對邏輯**
+  - 先用 normalized MPN 做精準料號比對，避免 API 回傳相近料號被誤判
+  - 若料號相符但 BOM 廠商與 API 廠商不同，狀態顯示 `MFR mismatch`
+  - `MFR mismatch` 使用橘色 badge / 橘色底，不算正式 `Found`
+  - 報價明細下方顯示 API 回傳廠商名稱，方便人工確認
+  - 修正 bug：開始查詢時必須保留 `manufacturer` 欄位傳入 `runBatch()`，否則會永遠無法比對廠商
+  - 增加顯示層保護：即使舊 state 內是 `found`，若 BOM 廠商與 API 廠商不符，畫面仍轉成 `MFR mismatch`
+
+- [x] **BOM Batch 供應商調整：取消 Mouser US**
+  - `/batch` 只保留 `DigiKey / Mouser HK / Mouser VN`
+  - `/batch-manufacturer` 只保留 `DigiKey / Mouser HK / Mouser VN`
+  - 單顆料首頁查詢也取消 Mouser US，只查 `DigiKey / Mouser HK / Mouser VN`
+  - Supplier registry 取消載入 Mouser US adapter，避免多餘 API 消耗與畫面干擾
+
+- [x] **Mouser HK / VN 報價邏輯整理**
+  - Mouser HK 與 VN 使用各自 API key 與 supplier label
+  - MPQ 解析支援英文 `Standard Pack Qty` 與中文 `標準包裝數量`
+  - Mouser TR / CT 報價顯示保留 TR、CT 拆分，但若 API 階梯價相同，TR / CT 兩段使用同一個總數量階梯單價
+  - 庫存為 0 時不顯示總價，避免缺貨品項被誤認為可採購總額
+
+- [x] **階梯價 hover 修正**
+  - Batch 與單顆料查詢的 price breaks hover 改為 fixed positioning
+  - 避免被 table overflow 裁切，並自動依畫面上下空間決定往上或往下展開
+  - 移除瀏覽器原生 `title` tooltip，避免同時出現第二個灰色階梯價框
+  - Hover popover 只高亮目前用到的階梯價，不常駐改變整格顏色
+
+- [x] **Excel 匯出格式整理**
+  - 匯出 Excel 參考 `SpeedPart_template.xlsx` 的藍色表頭與分區配色，但不完全複製
+  - 欄高依報價明細內容自動調整，避免 `TR / CT` 多行文字被截掉
+  - MPQ 欄只顯示數字，不再顯示 `MOQ:1 MPQ:3000`
+  - 取消 MOQ 顯示，網頁與 Excel 都以 MPQ 數字為主
+  - 所有 `攤平單價` 改為小數點 4 位
+  - 所有 `總價` 改為小數點 4 位，Excel download 同步套用 4 位格式
+
+- [x] **Batch 操作 UX**
+  - 新增「停止搜尋」：批次查詢中可停止，尚未處理的料號標示為 `Skipped`
+  - 新增「重新上傳」：只清空目前結果、停止狀態與錯誤訊息，不會自動跳出選檔案視窗
+  - `重新上傳` 行為同步套用在 `/batch` 與 `/batch-manufacturer`
+
+- [x] **API 成功提示行為**
+  - API 成功回傳時不再顯示大型 toast
+  - 只有某個供應商達到使用上限或 auth/key 問題時才顯示提示
+  - DigiKey 超限維持友善訊息，說明台灣時間 08:00 重置
+
+- [x] **Cloudflare 與本機開發環境**
+  - 本機 dev server 使用 `http://localhost:5280`
+  - Cloudflare tunnel 已開到 `https://spouse-anonymous-tree-matches.trycloudflare.com/`
+  - 已確認 `/batch-manufacturer` 經 localhost 與 Cloudflare 都回 `200 OK`
+  - 注意：開發中不要在 dev server 跑著時執行 `npm run build`，曾造成 `.next` dev chunk 缺檔（`Cannot find module './948.js'`）
+  - 若出現該錯誤，處理方式：停止 dev server → `rm -rf .next` → 重新 `npm run dev`
+
+- [x] **驗證**
+  - `npx tsc --noEmit` 通過
+  - `curl -I http://localhost:5280/batch-manufacturer` 回 `200 OK`
+  - `curl -I https://spouse-anonymous-tree-matches.trycloudflare.com/batch-manufacturer` 回 `200 OK`
+
+### 2026-05-01 新增 — Mouser VN 並排查詢
+
+- [x] **Mouser VN 價格資料加入 Batch**（`src/lib/suppliers/mouser/index.ts`, `src/lib/suppliers/registry.ts`, `src/app/batch/page.tsx`）
+  - 新增 `MOUSER_VN_API_KEY`，與 Mouser US / HK key 分開管理
+  - Mouser adapter factory 目前建立 3 個 supplier：`Mouser`、`Mouser HK`、`Mouser VN`
+  - Registry 改為同時載入 `digikeyAdapter`, `mouserAdapter`, `mouserHkAdapter`, `mouserVnAdapter`
+  - Batch 查詢同時送 `digikey,mouser,mouser hk,mouser vn`
+  - Batch 結果表在 `Mouser HK` 右側新增 `Mouser VN` 區塊，欄位同 US/HK：庫存、MPQ、報價明細、總價、攤平單價、狀態、連結
+  - 匯出 Excel 同步新增 `MS VN Stock / MPQ / 報價 / 總價 / 攤平 / 交期 / 狀態 / URL`
+  - 實測 VN API key 可正常回資料；`SM06B-ULHK-1TA1-ETB(HF)` 回庫存、階梯價與 `Standard Pack Qty=1700`
+
+### 2026-04-30（晚）新增 — 搜尋加速、錯誤顯示與階梯價 UX
+
+- [x] **`/api/search` 支援指定供應商**（`src/app/api/search/route.ts`）
+  - 新增 `suppliers=digikey,mouser` query parameter
+  - 首頁與 Batch 可只查需要的 supplier，避免被已停用或不需要的 supplier 拖慢
+  - 無匹配供應商時回傳乾淨的 400 JSON error
+
+- [x] **Mouser 加速與去重**（`src/lib/suppliers/mouser/index.ts`）
+  - Mouser server throttle 從 2.4s/req 調整為預設 2.1s/req（約 28 req/min）
+  - 新增 `MOUSER_MIN_INTERVAL_MS` 可用環境變數調整節流
+  - 加入 15 分鐘 in-memory cache；重複 MPN 不再重打 Mouser
+  - 加入 in-flight de-dupe；兩個 worker 同時查同一顆料時只送一個 Mouser request
+  - cache `EMPTY_RESULT` / `RESTRICTED` / `NOT_FOUND`，避免 restricted 或找不到料號反覆消耗 API
+
+- [x] **Mouser HK 並排查詢**（`src/lib/suppliers/mouser/index.ts`, `src/lib/suppliers/registry.ts`, `src/app/batch/page.tsx`）
+  - Mouser adapter 改為 factory，可建立 `Mouser`（US）、`Mouser HK` 與 `Mouser VN` 等獨立 supplier
+  - 新增 `MOUSER_HK_API_KEY`，HK API key 與 US API key 分開管理
+  - Batch 結果表新增第三個供應商區塊 `Mouser HK`，欄位與 Mouser US 相同：庫存、MPQ、報價明細、總價、攤平單價、狀態、連結
+  - `/api/search?suppliers=mouser hk` 可單獨查 HK；Batch 後續擴充為同時查 `digikey,mouser,mouser hk,mouser vn`
+  - 實測 `SM06B-ULHK-1TA1-ETB(HF)`：Mouser HK 正常回庫存與報價；Mouser US 可獨立顯示每日上限
+
+- [x] **Mouser HK MPQ 修正**（`src/lib/suppliers/mouser/index.ts`）
+  - HK API 的標準包裝欄位名稱為中文 `標準包裝數量`，原本只抓英文 `Standard Pack Qty`，導致 MPQ 退回 MOQ=1
+  - `parseStandardPackQty()` 改為同時支援 `Standard Pack Qty` 與 `標準包裝數量`
+  - 實測 `SM06B-ULHK-1TA1-ETB(HF)`：MPQ 正確抓到 `1700`，variations 產生 `TR minQty=1700` + `CT minQty=1`
+
+- [x] **Batch 表格左側 sticky 欄位**（`src/app/batch/page.tsx`, `src/app/globals.css`）
+  - 橫向捲到 Mouser HK 時，左側 `#` / `料號 (MPN)` / `數量` 固定顯示
+  - 新增 `.sticky-col`, `.sticky-idx`, `.sticky-mpn`, `.sticky-qty` CSS
+  - `數量` sticky 欄右側加 border/shadow，與供應商資料區塊有清楚分隔
+
+- [x] **首頁 Search 支援 DigiKey + Mouser fallback**（`src/app/page.tsx`）
+  - 首頁搜尋改為同時查 `digikey,mouser`
+  - DigiKey 超限或失敗時，只顯示友善提示；若 Mouser 有資料仍正常顯示 Mouser live data
+  - 首頁 supplier table 可顯示 Mouser live row、price breaks、product URL
+  - toast 改為固定在 viewport 底部置中，且不自動消失，下一次搜尋時更新
+
+- [x] **Batch retry 與 supplier disable 行為修正**（`src/app/batch/page.tsx`）
+  - Retry 改為只重試失敗 supplier；DigiKey 已成功時不會因 Mouser retry 而重查 DigiKey
+  - DigiKey `401/403/429` 視為本批次不可恢復的 limit，立即停用 DigiKey；剩餘料號只查 Mouser
+  - DigiKey limit 顯示 `Limit / Resets TW 08:00`，不再顯示 raw `RATE_LIMITED` / `AUTH_FAILED`
+  - `AUTH_FAILED` 對所有 supplier 轉成友善 `Auth / Check API key` 狀態，避免整欄重複顯示 raw `AUTH_FAILED`
+  - `RESTRICTED` 成為獨立 `restricted` 狀態，badge 使用紫色，與 `Not found` 分開
+  - Batch warning 橫幅改為明確說明：「DigiKey 已達查詢上限，剩餘料號將只查 Mouser US / HK / VN；台灣 08:00 重置」
+
+- [x] **階梯價 hover UX**（`src/app/batch/page.tsx`, `src/components/SupplierTable.tsx`, `src/app/globals.css`）
+  - 首頁 Unit Price hover 顯示完整 price breaks
+  - Batch「報價明細」與「攤平單價」hover 顯示完整階梯價
+  - Batch popover 改用 fixed positioning，避免被表格 `overflow-x: auto` 裁掉
+  - Popover 內會高亮目前單價對應的階梯列；表格價格本身維持原樣，不常駐變色
+
+- [x] **驗證**
+  - `npx tsc --noEmit` 通過
+  - `npm test` 通過
+
+### 2026-04-30（晚）新增 — 供應商超額自動 Skip
+
+- [x] **供應商超額自動略過**（`src/app/batch/page.tsx`）
+  - 某供應商回傳 `RATE_LIMITED` / `AUTH_FAILED` 時加入 `disabled` 集合；DigiKey limit/auth 立即停用，Mouser transient rate limit 仍可短暫 retry
+  - 後續所有剩餘料號對該供應商直接回傳 `{ status: 'skipped' }`，不再發送 API 請求
+  - `disabled` 為 `Set<string>`，在 `runBatch` 內共享給 2 個並行 worker，JS 單執行緒保證讀寫無競爭
+  - `RowStatus` 新增 `'skipped'`；`StatusBadge` 顯示灰色 "Skipped" badge
+  - `SupplierCell` 的 `skipped` 狀態與 `notfound` 共用「—」顯示邏輯，不顯示錯誤色
+  - `exportResults` 對 `skipped` 輸出 `"Skipped"` 文字而非空白
+  - **警告橫幅**：任一供應商被停用後，結果表上方顯示橘黃色警告框：
+    - 例：「⚠️ DigiKey 已達查詢上限，本次批次已略過剩餘料號。DigiKey 每日額度將於台灣時間 08:00 重置。」
+  - 每次重新點「開始查詢」時自動清除 `disabledSuppliers` 狀態，從頭開始
+
+### 2026-04-30（下午）新增 — Mouser 整合 + Rate Limit 節流
+
+- [x] **Mouser Search API 整合**（`src/lib/suppliers/mouser/index.ts`）
+  - US API Key（`0e012cce-...`）；描述英文、庫存/報價正常
+  - HK Key（舊）：廠商限制（TI、Microchip 等回傳 `RestrictionMessage`）無法取得報價
+  - 解析 `Min`（MOQ）、`ProductAttributes["Standard Pack Qty"]`（MPQ）
+  - 自動建立 `variations: [TR(MPQ), CT(MOQ)]`，讓 Batch 頁可做 TR/CT 拆分報價
+  - `RestrictionMessage` 存在時 throw `RESTRICTED` error → 顯示「—」而非「⚠ 0」
+  - Server 端節流：**每請求間隔 2.4s（25 req/min）**，防止 Mouser 401/503
+
+- [x] **DigiKey Server 端節流**（`src/lib/suppliers/digikey/index.ts`）
+  - 每請求間隔 2.0s（30 req/min），防止 429
+  - 發現 DigiKey Production 每日上限為 **1,000 次**；重置時間 UTC 00:00（台灣 08:00）
+
+- [x] **Batch 頁面重寫 — 雙供應商並排**（`src/app/batch/page.tsx`）
+  - 新增 `SupplierData` 介面（per-supplier）與 `ResultRow { digikey, mouser }`
+  - `mapSupplier()` 轉換 API block → SupplierData（含缺料、拆分、總價計算）
+  - `searchBoth()` 單次 API 呼叫同時取 DK + MS 結果
+  - `SupplierCell` 組件 × 2（左 DigiKey 藍色、右 Mouser 琥珀色）
+  - Retry 邏輯：只重試需要 retry 的 supplier；DigiKey limit/auth 不重試，避免阻塞 Mouser
+
+- [x] **報價明細欄標籤統一為 TR / CT**
+  - 大包裝一律顯示 `TR × N`，散料顯示 `CT × N`（不論 packageType 是 TR/CT/OTHER）
+  - `calcSplit` 改為通用邏輯：找最大 `minQty` 為 TR，最小為 CT
+
+- [x] **MPQ 欄位簡化**
+  - 欄位標題：`MOQ/MPQ` → `MPQ`
+  - 儲存格：只顯示數字（有 MPQ 顯示 MPQ，否則顯示 MOQ）
+
+- [x] **Excel 解析支援 Demand 欄位**
+  - 數量欄新增偵測關鍵字：`demand`、`需求`、`需求量`（原有 Qty/Quantity/數量/PCS）
+
+- [x] **EMPTY_RESULT / RESTRICTED 顯示修正**
+  - `EMPTY_RESULT` / `NOT_FOUND` → 灰色 "Not found"（之前誤顯示紅色 error badge）
+  - `RESTRICTED` → 庫存欄顯示「—」（之前誤顯示「⚠ 0」）
+  - `SupplierError` 新增 `RESTRICTED` code
+
+- [x] **503 → RATE_LIMITED**（Mouser 過載時自動 retry，不再顯示 UPSTREAM_ERROR）
+
+### API Rate Limit 摘要
+
+| 供應商 | 限制 | 重置 | Server 節流 |
+|--------|------|------|-------------|
+| DigiKey | 1,000 次/天 | 每日 UTC 00:00（台灣 08:00） | 2.0s/req |
+| Mouser | ~30 req/min | 滾動 60 秒窗口 | 2.1s/req（可用 `MOUSER_MIN_INTERVAL_MS` 調整） |
+
+### Mouser 廠商限制說明
+
+以下廠商在 Mouser API 對非授權經銷商鎖定庫存/報價（`RestrictionMessage: "Not available for purchase by distributors"`）：
+- **Texas Instruments (TI)** — 所有 TI 料號
+- **Microchip** — 部分料號（如 24LC256T-I/SN）
+
+DigiKey 無此限制，TI / Microchip 料號在 DigiKey 完全正常。
+
+
+
+- [x] DigiKey OAuth 2.0 client_credentials flow
+- [x] Access token in-memory 快取（含 60 秒安全窗、避免並發重複取 token）
+- [x] DigiKey `/products/v4/search/keyword` 整合
+- [x] 統一的 `PartResult` 介面 + 欄位映射
+- [x] Supplier adapter pattern + registry
+- [x] `/api/search?partNumber=...` 並行查詢所有 supplier
+- [x] `/api/health` 顯示啟用的 supplier 與環境
+- [x] 前端搜尋頁，每家供應商獨立表格
+- [x] 錯誤分類：`AUTH_FAILED` / `NOT_FOUND` / `RATE_LIMITED` / `EMPTY_RESULT` / `CONFIG_MISSING` / `UPSTREAM_ERROR`
+- [x] `.env.example` + `README.md`
+- [x] 5 項單元測試（全部通過）
+- [x] **Claude Design "PartPrice" hi-fi UI 實作**（navy SaaS、Inter + JetBrains Mono、5 家供應商比較表、price break tabs、spec grid、bar chart、響應式 tablet/phone）
+- [x] DigiKey 真實資料覆蓋：搜尋送出 → DigiKey 列標 **Live**、其餘維持 **Demo**
+
+### 2026-04-30 新增
+
+- [x] **未串接供應商隱藏**：`mockData.ts` 只保留 DigiKey；搜尋前顯示空白提示，搜尋後只顯示有真實 API 資料的供應商（往後加入 adapter 再自動顯示）
+- [x] **搜尋框預設料號移除**（空白啟動）
+- [x] **Header 導覽加入路由連結**（Search / BOM Batch，使用 `usePathname` 標示 active）
+- [x] **BOM Batch Search 頁面**（`/batch`）
+  - 拖放或點擊上傳 `.xlsx` / `.xls` / `.csv`
+  - 自動偵測欄位（Part Number / MPN / 料號；Quantity / Qty / 數量 / PCS，無此欄預設 1）
+  - 「下載範本」產生標準 Excel 範本
+  - 並行查詢（2 workers）、針對可恢復 rate limit 自動 retry；不可恢復的 auth/limit 會停用該 supplier
+  - 即時進度條；查詢完成後可「匯出結果」為 Excel
+- [x] **xlsx 靜態 import 修正**：改為 `import * as XLSX from 'xlsx'` + `next.config.js` 加 `transpilePackages: ['xlsx']`，解決 Next.js chunk 載入失敗
+- [x] **DigiKey Variation 全量 Price Breaks**
+  - 原本只取 `ProductVariations[0]`（可能是 TR 捲軸）；改為合併所有 variation 的 price breaks，每個數量點取最低單價
+  - `PartResult` 新增 `variations` 欄位（`packageType: TR/CT/DKR/OTHER`、`minQty`、`breaks`）
+  - `types.ts` 新增 `PackagingVariation` 介面
+- [x] **MPQ + MOQ 分包報價**
+  - 原先只在包裝型態辨識為 `TR + CT` 時拆分；DigiKey 有些料號 variation 會全部回 `OTHER`，但仍有 `minQty 1` 與較大 MPQ（例如 4,500）
+  - 現在改用 `minQty` 通用判斷：較大包裝當 `MPQ`，最小可買包裝當 `MOQ`
+  - 當需求量 ≥ MPQ 時，自動計算：MPQ 整包數 × MPQ 價 + MOQ 零切餘數 × MOQ 價
+  - 報價明細欄展開顯示各行（e.g. `MPQ × 4,500 @ $0.2695` + `MOQ × 2,355 @ $0.2883`）
+  - 缺料時 effectiveQty = stock，TR+CT split 以可購買量為準
+- [x] **總價計算修正**：缺料（stock < qty）時 totalCost = unitPrice × stock（不是 × qty）
+- [x] **攤平單價**：totalCost ÷ 實際可買數量（缺料用 stock，充足用 qty）
+- [x] **庫存不足警示**：缺料列橘黃底色 + 庫存欄 `⚠ 2,291`；表頭摘要顯示「⚠ X 筆庫存不足」
+- [x] **MOQ/MPQ 欄位**
+  - BOM 結果表在「庫存」後新增 `MOQ/MPQ`
+  - 顯示最小可買量 `MOQ` 與整包/卷帶量 `MPQ`
+  - 匯出 Excel 同步新增 `MOQ/MPQ` 欄位
+- [x] **供應商群組表頭**
+  - BOM 結果表 header 改成兩層：左側固定 `# / 料號 / 數量`，右側上層供應商群組目前為 `DigiKey`
+  - `DigiKey` header 使用淡 navy 背景與主色文字，方便之後平行加入 Mouser / Arrow / Avnet 等供應商區塊
+- [x] **API 非 JSON 防呆**
+  - 若 `/api/search` 意外回 HTML（例如 Next dev cache 造成 500 error page），前端不再直接 `resp.json()` 爆出 `Unexpected token '<'`
+  - 改先檢查 `content-type`，非 `application/json` 時顯示乾淨的 API error
+- [x] **Icon 型別修正**
+  - `Icon.tsx` 的自訂 `stroke?: number` 與 `React.SVGProps<SVGSVGElement>` 原生 `stroke?: string` 衝突
+  - 改為 `Omit<React.SVGProps<SVGSVGElement>, 'name' | 'stroke'>`，避免 TypeScript build 失敗
+
+## 4. 專案結構
+
+```
+Speed Part Search/
+├── package.json                          # 新增 xlsx 依賴
+├── tsconfig.json
+├── next.config.js                        # 新增 transpilePackages: ['xlsx']
+├── .env.example
+├── .gitignore
+├── README.md
+├── project_summary.md
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx, page.tsx, globals.css
+│   │   ├── batch/
+│   │   │   └── page.tsx                  # BOM Batch Search（DigiKey + Mouser US/HK/VN 並排）
+│   │   └── api/
+│   │       ├── search/route.ts           # GET /api/search?partNumber=...
+│   │       └── health/route.ts           # GET /api/health
+│   ├── components/
+│   │   ├── Icon.tsx
+│   │   ├── Header.tsx
+│   │   ├── SubBar.tsx, Hero.tsx, ProductCard.tsx
+│   │   ├── SupplierTable.tsx, PriceBreaks.tsx
+│   │   ├── SpecGrid.tsx, ComparisonChart.tsx, Footer.tsx
+│   └── lib/
+│       ├── mockData.ts                   # SUPPLIERS 只保留 DigiKey
+│       └── suppliers/
+│           ├── types.ts                  # PackagingVariation + RESTRICTED error code
+│           ├── registry.ts               # [digikeyAdapter, mouserAdapter, mouserHkAdapter, mouserVnAdapter]
+│           ├── digikey/
+│           │   ├── token.ts
+│           │   └── index.ts              # 節流 2s/req + variations[]
+│           └── mouser/
+│               └── index.ts              # 節流 2.4s/req + MPQ + RESTRICTED 偵測
+└── tests/
+    └── digikey.test.ts
+```
+
+## 5. PartResult 統一資料模型
+
+任何 supplier 都必須回傳這個結構（前端不用知道 supplier 差異）：
+
+```ts
+{
+  supplier: string                  // "DigiKey"
+  manufacturerPartNumber: string
+  supplierPartNumber: string
+  manufacturer: string
+  description: string
+  quantityAvailable: number
+  unitPrice: number | null
+  currency: string                  // "USD"
+  priceBreaks: { quantity, unitPrice, currency }[]  // 所有 variation 合併後最低價
+  variations?: PackagingVariation[] // 各封裝型態的原始 breaks（TR/CT/DKR/OTHER）
+  productUrl: string
+  leadTimeDays: number | null
+  availabilityStatus: string | null  // "Active" / "Obsolete" / ...
+  lastUpdated: string                // ISO timestamp
+}
+
+interface PackagingVariation {
+  packageType: 'TR' | 'CT' | 'DKR' | 'OTHER'
+  minQty: number
+  breaks: { quantity, unitPrice, currency }[]
+}
+```
+
+## 6. 安全與設定
+
+- Client Secret 只存在於 `.env`、只在 server side 讀取，前端永遠看不到。
+- `.env` 已加入 `.gitignore`。
+- 前端只打自己的後端 `/api/*`，不會直接連 DigiKey。
+
+`.env` 必填欄位：
+```
+DIGIKEY_CLIENT_ID
+DIGIKEY_CLIENT_SECRET
+DIGIKEY_ENV=sandbox          # 或 production
+DIGIKEY_LOCALE_SITE=US
+DIGIKEY_LOCALE_LANGUAGE=en
+DIGIKEY_LOCALE_CURRENCY=USD
+```
+
+## 7. 測試狀態
+
+| 項目 | 結果 |
+| --- | --- |
+| `npm install` | ✅ |
+| `npm test` | ✅ 5/5 通過（mock fetch） |
+| `npm run dev` | ✅ 正常啟動於 http://localhost:5280 |
+| `/api/health` | ✅ 回 `{ ok: true, hasCredentials: true, digikeyEnv: "sandbox" }` |
+| OAuth `/v1/oauth2/token` | ✅ HTTP 200，access_token 拿得到 |
+| Search `/products/v4/search/keyword` | ❌ HTTP 403（DigiKey 端權限問題，下節說明） |
+
+## 8. 目前阻擋（Blocker）
+
+DigiKey Sandbox app 顯示：
+- `sandbox-Quote`：Enabled
+- `sandbox-ProductInformation V4`：Enabled
+
+但 V4 Search / Product Details 端點全部回傳：
+```json
+{
+  "status": 403,
+  "detail": "The supplied client credentials are not authorized to perform this request."
+}
+```
+
+測試 Quote API (V4) 時，則會回傳 `Three legged OAuth failed.`，因為 Quote API 需要真實使用者登入（3-legged OAuth），不適用我們 Server-to-Server 的 `client_credentials` 模式。
+
+### 最終解決方案：直接使用 Production 環境
+經過反覆交叉測試，證實問題出在 **DigiKey Sandbox 系統存在權限配置 Bug，導致合法的 2-legged OAuth 請求也被 403 阻擋**。
+
+**解法：**
+1. 放棄有 Bug 且不常維護的 Sandbox。
+2. 在 DigiKey Portal 建立 `Production App`，並勾選 **`Product Information V4`**（不帶 sandbox- 前綴）。
+3. 將 `.env` 中的 `DIGIKEY_ENV` 設為 `production`。
+4. 使用正式環境的 Client ID 與 Client Secret 重新獲取 Token。
+5. **結果：成功取得 `200 OK` 並抓回真實的零件資料。**
+
+> **備註**：在建立新的 Production App 後，DigiKey 的 API Gateway 同步大約需要 5-10 分鐘，期間內會回傳 `401 Invalid clientId`，此為正常現象，等待片刻即可。
+
+### 特殊坑洞：Next.js 14 Aggressive Fetch Caching 導致的 401 錯誤
+在成功切換至正式環境後，測試中曾遇到一個非常隱蔽的 Bug：API 會一直回傳 `"Bearer token is expired"` 導致 401 錯誤。
+經過排查，發現原因出在 Next.js 14 對原生 `fetch` 實作了極度激進的快取機制：
+- **問題**：Next.js 甚至將取得 Token 的 `POST` 請求也進行了快取。當重啟伺服器並戳 API 時，Next.js 沒有發送真正的網路請求，而是直接從快取吐出一個早就過期的舊 Token。
+- **解法**：在所有呼叫 DigiKey API 的 `fetch` 選項中（包含 `v1/oauth2/token` 與 `search` 端點），必須明確加上 **`cache: 'no-store'`**，強制 Next.js 每次都發送真實的網路請求，確保取得最新 Token 並抓回正確資料。
+
+## 9. 擴充新供應商（Mouser / Arrow / Avnet）的步驟
+
+未來只要：
+
+1. 建 `src/lib/suppliers/{name}/index.ts`，實作：
+   ```ts
+   export const xxxAdapter: SupplierAdapter = {
+     name: 'Mouser',
+     async search({ partNumber }) {
+       // 呼叫該家 API、把結果 map 成 PartResult[]
+       // 失敗時 throw new SupplierError(...)
+     }
+   };
+   ```
+2. 在 `src/lib/suppliers/registry.ts` 把新 adapter 推進 `adapters` 陣列。
+3. 完成。`/api/search` 會自動並行查詢、前端會自動為每家畫一個表格。
+
+不必改前端、不必改 API route、不必改型別。
+
+## 10. UI 設計實作（PartPrice / Claude Design）
+
+來源：Anthropic Claude Design 匯出包 `Showcase.html` 設計稿（user 用 AI design tool 設計後 export）。
+設計稿原本為 prototype HTML/CSS/JS，已 pixel-perfect 重建為 Next.js + TypeScript components。
+
+### 設計系統 tokens（globals.css）
+- **色**：白底 + cool-gray 中性色 + deep navy `#0B2545` 為主色 + signal green `#0B6E3F`（best price 高亮）+ amber 警示
+- **字型**：Inter（UI）+ JetBrains Mono（料號、價格、所有數字）
+- **半徑/陰影**：4–6px radii、hairline border、小陰影；無漸層、無 pill 過圓
+- **資訊密度**：高（Bloomberg Terminal 風格）；tabular-nums 確保價格欄對齊
+
+### 區塊 → 組件對應
+
+| 設計區塊 | 組件 |
+| --- | --- |
+| 56px sticky header（logo + nav + quick lookup + 5/5 API pill + bell + avatar） | `Header.tsx` |
+| 38px sub-bar（breadcrumb + Sources/Refreshed/FX） | `SubBar.tsx` |
+| Hero（H1 navy accent + MPN 搜尋框 + ⌘K 鍵帽 + trending chips + recent 行 + IC chip 插圖） | `Hero.tsx` |
+| 左欄 Product Card（chip SVG + MPN mono + Manufacturer + 描述 + LQFP/RoHS/Active/REACH pills + Datasheet/Watch） | `ProductCard.tsx` |
+| 右欄 Supplier Comparison Table（可排序、stock bar、lead-time fast 變綠、price vs best %、price-break sparkline、updated pulse、cart/external 列動作、**Best/Live/Demo 徽章**） | `SupplierTable.tsx` |
+| Price Breaks（5 supplier tabs + 6 qty 階梯，click cell 切 qty 並連動下方 chart） | `PriceBreaks.tsx` |
+| Spec Grid（8 格：Voltage/Package/Temp/Lifecycle/Flash/SRAM/Speed/I/O） | `SpecGrid.tsx` |
+| Comparison Chart（@ qty 橫向 bar，best 變綠、其他 navy） | `ComparisonChart.tsx` |
+| Footer（4 欄連結 + bottom strip） | `Footer.tsx` |
+| Toast（成功/錯誤兩色，搜尋完成或失敗時提示） | inline in `page.tsx` |
+
+### 響應式
+- **Desktop ≥980px**：1280 max-width，product card + table 雙欄、spec 4 欄、price break 6 欄
+- **Tablet ≤980px**：sidebar collapse、hero 單欄、illu 隱藏、price break → 3 欄、spec → 2 欄
+- **Phone ≤640px**：nav / api-pill / hero illu 全隱藏、所有 grid 退化單欄、表格 padding 縮小
+
+### 設計 ↔ 真實資料銜接
+- 預設用 prototype 的 mock data（5 家供應商完整資料），畫面立刻是「滿的」
+- 搜尋送出時打 `/api/search?partNumber=...`：
+  - DigiKey 成功 → DigiKey 那一列的 stock / price / breaks / updated / productUrl 全部換成真實值，徽章變 **Live**
+  - DigiKey 失敗（403 / 404 / 429 / EMPTY） → 錯誤 toast 顯示 code & message，DigiKey 列標 **Demo**
+  - 其他 4 家（Mouser/Arrow/Avnet/Newark）目前固定 **Demo**，等 adapter 加入 registry 才會自動變 Live
+- "Best price" 計算用 `priceAtQty(qty)`，會跟著 price-break tab 的 qty 即時變化
+
+### 刻意未實作
+- 設計稿的 **DesignCanvas zoom/pan** 包裝（純展示工具，非產品頁）
+- **TweaksPanel**（accent / density 切換 — 開發期 affordance，user 看不到價值）
+
+## 11. 已知限制 / 未來工作
+
+- Token 快取為 process 記憶體；多實例部署需要改 Redis。
+- DigiKey Production API rate limit 低（1,000 次/天），Batch 並行數限制為 2 workers + retry 3 次，大型 BOM（>50 筆）查詢時間較長；超額後自動 Skip 剩餘料號並顯示警告。
+- Batch 頁面無法儲存查詢歷史；重新整理即清空。
+- 無歷史價格、無使用者帳號。
+- 沒做 i18n（介面是中文＋英文混合）。
+- DigiKey Sandbox 環境存在已知的 403 Bug，開發與測試皆須使用 Production App（`DIGIKEY_ENV=production`）。
+- Mouser 對 TI / Microchip 等大廠有廠商限制，這些料號 DigiKey 才有報價。
+- 待加入供應商：Arrow / Avnet / Newark（Arrow 有 TI 授權，可補足 Mouser 缺口）。
+
+## 12. 啟動
+
+```bash
+cd Speed Part Search
+npm install
+cp .env.example .env       # 填入 DigiKey 憑證
+npm run dev                # http://localhost:5280
+npm test                   # 跑單元測試
+curl "http://localhost:5280/api/health"
+curl "http://localhost:5280/api/search?partNumber=NE555P"
+```
