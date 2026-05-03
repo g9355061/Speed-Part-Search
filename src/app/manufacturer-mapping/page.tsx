@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { MANUFACTURER_ALIASES, normalizeManufacturer } from '@/lib/manufacturers';
@@ -38,7 +38,7 @@ function rowsFromAliases(aliases: AliasMap): MappingRow[] {
     .sort((a, b) => a.canonical.localeCompare(b.canonical));
 }
 
-export default function ManufacturerMappingPage() {
+function ManufacturerMappingContent() {
   const searchParams = useSearchParams();
   const bomParam = searchParams.get('bom');
   const apiParam = searchParams.get('api');
@@ -365,5 +365,13 @@ export default function ManufacturerMappingPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function ManufacturerMappingPage() {
+  return (
+    <Suspense>
+      <ManufacturerMappingContent />
+    </Suspense>
   );
 }
