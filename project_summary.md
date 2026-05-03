@@ -1,5 +1,143 @@
 # Project Summary — Speed Part Search
 
+> 最後更新：2026-05-03（登入系統、使用者管理、SMTP 設定）
+
+### 2026-05-03 — 登入系統、帳號申請、管理員後台
+
+- [x] **完整登入流程**
+  - 所有頁面需登入才能存取，未登入自動跳轉 `/login`（Next.js middleware 攔截）
+  - 登入使用 NextAuth.js v4 + CredentialsProvider（Email + 密碼）
+  - Session 以 JWT 儲存，role（admin / user）與 id 帶入 token
+
+- [x] **帳號申請與管理員審核**
+  - 申請頁 `/register`：填姓名、Email、部門/角色（採購、業務、工程、研發、品保、生產、管理、其他）、密碼
+  - 申請後狀態為 `pending`，需管理員核准才能登入
+  - 管理後台 `/admin/users`（僅管理員可見）：列出所有使用者，可執行核准、拒絕、停用、刪除
+  - 刪除前有內嵌確認列防止誤刪；管理員帳號不可刪除
+
+- [x] **忘記密碼流程**
+  - `/forgot-password`：輸入 Email → 產生 token（1 小時有效）
+  - 若有設定 SMTP：自動發送重設 Email
+  - 若無 SMTP：重設連結印在 server console（`[Email] Reset link for ...`）
+  - `/reset-password?token=xxx`：輸入新密碼，成功後跳轉登入頁
+
+- [x] **個人變更密碼 `/account/change-password`**
+  - 需驗證目前密碼才能設定新密碼
+  - 成功後顯示確認畫面，1.5 秒自動跳回主頁
+
+- [x] **Header 使用者選單**
+  - 右上角頭像點擊展開：顯示姓名 / Email、變更密碼、登出
+  - 管理員額外顯示「使用者管理」導覽連結
+
+- [x] **系統管理員（已預設建立）**
+
+  | Email | 預設密碼 |
+  |---|---|
+  | `weili_chang@yangshin.com` | `SpeedPart@2026!` |
+  | `g9355061@gmail.com` | `SpeedPart@2026!` |
+
+  > 首次啟動時自動建立；若帳號已存在則不會覆蓋
+
+- [x] **技術細節**
+  - 資料庫：SQLite（`better-sqlite3`），路徑 `data/users.db`（已加入 `.gitignore`）
+  - 密碼雜湊：`bcryptjs`，cost factor 12
+  - 遷移：啟動時自動偵測並補上新欄位（`department`）
+  - `data/` 目錄未 commit；Railway 部署需掛載 Volume 或改用 PostgreSQL
+
+- [x] **SMTP Email 設定（忘記密碼 Email）**
+  - 目前 `.env` 尚未設定 SMTP，重設連結只印在 console
+  - 設定 Gmail SMTP 步驟：
+    1. 前往 [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) 產生 App 密碼（需開啟兩步驟驗證）
+    2. 在 `.env` 加入以下設定：
+       ```
+       SMTP_HOST=smtp.gmail.com
+       SMTP_PORT=587
+       SMTP_SECURE=false
+       SMTP_USER=your@gmail.com
+       SMTP_PASS=xxxx xxxx xxxx xxxx   # App 密碼，非 Google 帳號密碼
+       SMTP_FROM=Speed Part Search <your@gmail.com>
+       NEXTAUTH_URL=https://speed-part-search-production.up.railway.app
+       ```
+    3. 重啟 server 即生效
+  - Railway 部署同步在環境變數介面設定上述欄位
+
+- [x] **新增檔案一覽**
+  ```
+  src/
+  ├── lib/
+  │   ├── db.ts               # SQLite 初始化、schema、admin seed、migration
+  │   ├── auth-config.ts      # NextAuth options（CredentialsProvider + JWT callbacks）
+  │   └── email.ts            # nodemailer 封裝（SMTP 選配）
+  ├── types/
+  │   └── next-auth.d.ts      # Session / JWT 型別擴充（role, id）
+  ├── components/
+  │   └── Providers.tsx       # SessionProvider client wrapper
+  ├── middleware.ts            # 路由保護（須在 src/ 內，不是專案根目錄）
+  └── app/
+      ├── login/page.tsx
+      ├── register/page.tsx
+      ├── forgot-password/page.tsx
+      ├── reset-password/page.tsx
+      ├── account/
+      │   └── change-password/page.tsx
+      ├── admin/
+      │   └── users/page.tsx
+      └── api/
+          ├── auth/
+          │   ├── [...nextauth]/route.ts
+          │   ├── register/route.ts
+          │   ├── forgot-password/route.ts
+          │   └── reset-password/route.ts
+          ├── admin/
+          │   └── users/route.ts      # GET 列表、PATCH（核准/拒絕/停用/刪除）
+          └── account/
+              └── change-password/route.ts
+  ```
+
+---
+
+### 2026-05-03 — GitHub 上雲、Railway 部署、自動同步與 SSH 無密碼設定
+
+- [x] **網站修復：CONFIG_MISSING**
+  - ChatGPT 搬移檔案時意外刪除 `.env`，導致所有供應商顯示 `CONFIG_MISSING`
+  - 重建 `.env`（DigiKey + Mouser HK/VN 三組 API key），重啟 dev server 恢復正常
+
+- [x] **Git 清理：移除 `.next/` 與 `node_modules/`**
+  - 8,643 個暫存/建構檔案被誤 track，新增 `.gitignore` 並用 `git rm --cached -r` 移出 tracking
+  - git history 內含 109MB 大檔，用 orphan branch 技巧重建乾淨的單一 commit，徹底清除歷史
+
+- [x] **GitHub 初次上傳**
+  - 建立 repo `g9355061/Speed-Part-Search`，以 PAT token push 乾淨 codebase 到 `main`
+
+- [x] **Railway 部署**
+  - 修正 `package.json` start script：`next start -p ${PORT:-5280}`（Railway 需讀 `$PORT` 環境變數）
+  - 修正 `manufacturer-mapping/page.tsx`：加入 `export const dynamic = 'force-dynamic'` 與 `<Suspense>` wrapper（Next.js 14 production build 要求）
+  - 升級 Next.js `14.2.5` → `^14.2.35`（修復 CVE-2025-55184 / CVE-2025-67779 安全漏洞）
+  - Railway 成功 build，服務上線：`https://speed-part-search-production.up.railway.app`
+
+- [x] **Claude Code 自動同步 → GitHub → Railway**
+  - 在 `.claude/settings.json` 設定 Stop hook：每次 Claude Code 結束時自動 `git add -A && git commit && git push`
+  - Railway 連結 GitHub repo `main` 分支，push 後自動 redeploy
+  - 完整 pipeline：Claude Code 修改 → 自動 commit/push → Railway 自動部署
+
+- [x] **SSH 金鑰取代 PAT Token（永久解法）**
+  - 原 PAT token 因貼在對話中被 GitHub 自動撤銷
+  - 生成 `ed25519` SSH key pair，公鑰加入 GitHub（名稱：MacBook - Claude Code）
+  - `git remote` 改為 SSH URL，測試 `ssh -T git@github.com` 通過
+  - 未來 push 永不需要 token，也不會因 token 過期/洩漏失敗
+
+- [x] **Railway API Token（永久解法）**
+  - 在 Railway 建立 API Token「Claude Code CLI」
+  - 寫入 `~/.zshrc`（`export RAILWAY_TOKEN=...`），Railway CLI 自動讀取
+  - 未來不需要手動 `railway login`
+
+- [x] **驗證**
+  - `https://speed-part-search-production.up.railway.app` 回 `200 OK`
+  - SSH push 測試正常（`Everything up-to-date`）
+  - Railway logs 確認 server 以 `$PORT=8080` 正常啟動
+
+---
+
 > 最後更新：2026-05-02（單料查詢 UX 修正 + Mouser exact MPN + 廠商對照表真實 API 名稱 + Cloudflare tunnel + 防休眠到 06:00）
 
 ## 1. 目標
