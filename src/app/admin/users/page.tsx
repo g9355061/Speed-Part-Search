@@ -144,8 +144,8 @@ export default function AdminUsersPage() {
                             ? <span style={{ color: 'var(--text-4)' }}>本機</span>
                             : <span style={{ color: 'var(--text-4)' }}>—</span>}
                       </td>
-                      <td style={{ padding: '11px 14px' }}>
-                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      <td style={{ padding: '11px 14px', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', gap: 5 }}>
                           {user.status === 'pending' && (
                             <>
                               <Btn label="核准" color="var(--accent)" onClick={() => handleAction(user.id, 'approve')} />
