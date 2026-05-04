@@ -114,17 +114,17 @@ export default function AdminUsersPage() {
                 {users.map(user => (
                   <>
                     <tr key={user.id} style={{ borderBottom: '1px solid var(--hairline)' }}>
-                      <td style={{ padding: '11px 14px', fontSize: 13, fontWeight: 500 }}>{user.name}</td>
-                      <td style={{ padding: '11px 14px', fontSize: 12, color: 'var(--text-2)' }}>
+                      <td style={{ padding: '11px 14px', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>{user.name}</td>
+                      <td style={{ padding: '11px 14px', fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>
                         {user.department || <span style={{ color: 'var(--text-4)' }}>—</span>}
                       </td>
                       <td style={{ padding: '11px 14px', fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-2)' }}>{user.email}</td>
-                      <td style={{ padding: '11px 14px' }}>
+                      <td style={{ padding: '11px 14px', whiteSpace: 'nowrap' }}>
                         <span style={{ padding: '2px 8px', borderRadius: 999, background: user.role === 'admin' ? 'var(--primary-soft)' : 'var(--surface-2)', color: user.role === 'admin' ? 'var(--primary)' : 'var(--text-2)', fontWeight: 500, fontSize: 11 }}>
                           {user.role === 'admin' ? '管理員' : '一般用戶'}
                         </span>
                       </td>
-                      <td style={{ padding: '11px 14px' }}>
+                      <td style={{ padding: '11px 14px', whiteSpace: 'nowrap' }}>
                         <span style={{ padding: '3px 8px', borderRadius: 999, background: STATUS_BG[user.status], color: STATUS_COLOR[user.status], fontSize: 11.5, fontWeight: 600 }}>
                           {STATUS_LABEL[user.status]}
                         </span>

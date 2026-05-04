@@ -70,11 +70,6 @@ export function Header({ apiOnline, liveSourceCount, totalSourceCount }: Props) 
           <span className="dot"></span>
           API · {liveSourceCount}/{totalSourceCount} 來源 {apiOnline ? '在線' : '離線'}
         </span>
-        <button className="icon-btn" title="通知">
-          <Icon name="bell" size={16} />
-          <span className="badge"></span>
-        </button>
-
         {/* Avatar with dropdown menu */}
         <div ref={menuRef} style={{ position: 'relative' }}>
           <div

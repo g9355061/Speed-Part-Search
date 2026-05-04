@@ -105,7 +105,6 @@ export function Hero({ query, setQuery, qtyInput, setQtyInput, onSearch, loading
                 onChange={(e) => updateQty(e.target.value)}
               />
             </label>
-            <span className="kbd">⌘ K</span>
             <button type="submit" className="btn-primary" disabled={loading}>
               <Icon name="search" size={14} stroke={2.2} />
               {loading ? '查詢中…' : '查詢'}
