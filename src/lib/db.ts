@@ -35,7 +35,12 @@ export interface PasswordResetToken {
   created_at: string;
 }
 
-export type PublicUser = Omit<User, 'password_hash' | 'updated_at'>;
+export type PublicUser = Omit<User, 'password_hash' | 'updated_at'> & {
+  last_login_time?: string | null;
+  last_login_city?: string | null;
+  last_login_country?: string | null;
+  last_login_ip?: string | null;
+};
 
 const isPostgres = !!DATABASE_URL;
 let sqlite: Database.Database | undefined;
@@ -66,6 +71,16 @@ function getPool() {
 
 async function initPostgres() {
   const pg = getPool();
+  await pg.query(`
+    CREATE TABLE IF NOT EXISTS login_logs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      ip TEXT,
+      city TEXT,
+      country TEXT,
+      time TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
   await pg.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -100,6 +115,16 @@ async function initPostgres() {
 function initSqlite() {
   const db = getSqlite();
   db.exec(`
+    CREATE TABLE IF NOT EXISTS login_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      ip TEXT,
+      city TEXT,
+      country TEXT,
+      time TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -240,23 +265,52 @@ export async function createPendingUser(name: string, email: string, passwordHas
     .run(name, email, passwordHash, department);
 }
 
+export async function recordLoginLog(userId: number | string, ip: string, city: string | null, country: string | null) {
+  await ensureDb();
+  if (isPostgres) {
+    await getPool().query(
+      'INSERT INTO login_logs (user_id, ip, city, country) VALUES ($1, $2, $3, $4)',
+      [Number(userId), ip, city, country]
+    );
+    return;
+  }
+  getSqlite()
+    .prepare('INSERT INTO login_logs (user_id, ip, city, country) VALUES (?, ?, ?, ?)')
+    .run(userId, ip, city, country);
+}
+
 export async function listUsers() {
   await ensureDb();
   if (isPostgres) {
     const result = await getPool().query(`
-      SELECT id, name, email, role, department, status, created_at
-      FROM users
-      ORDER BY created_at DESC
+      SELECT u.id, u.name, u.email, u.role, u.department, u.status, u.created_at,
+             l.ip AS last_login_ip, l.city AS last_login_city, l.country AS last_login_country,
+             l.time AS last_login_time
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT ip, city, country, time FROM login_logs
+        WHERE user_id = u.id ORDER BY time DESC LIMIT 1
+      ) l ON true
+      ORDER BY u.created_at DESC
     `);
     return result.rows.map((user) => ({
       ...user,
       created_at: new Date(user.created_at).toISOString(),
+      last_login_time: user.last_login_time ? new Date(user.last_login_time).toISOString() : null,
     })) as PublicUser[];
   }
 
-  return getSqlite()
-    .prepare('SELECT id, name, email, role, department, status, created_at FROM users ORDER BY created_at DESC')
-    .all() as PublicUser[];
+  return getSqlite().prepare(`
+    SELECT u.id, u.name, u.email, u.role, u.department, u.status, u.created_at,
+           l.ip AS last_login_ip, l.city AS last_login_city, l.country AS last_login_country,
+           l.time AS last_login_time
+    FROM users u
+    LEFT JOIN (
+      SELECT user_id, ip, city, country, MAX(time) AS time
+      FROM login_logs GROUP BY user_id
+    ) l ON l.user_id = u.id
+    ORDER BY u.created_at DESC
+  `).all() as PublicUser[];
 }
 
 export async function setUserStatus(id: number | string, status: User['status']) {

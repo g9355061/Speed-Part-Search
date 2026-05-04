@@ -13,6 +13,10 @@ interface UserRow {
   department: string;
   status: 'pending' | 'active' | 'rejected';
   created_at: string;
+  last_login_time: string | null;
+  last_login_city: string | null;
+  last_login_country: string | null;
+  last_login_ip: string | null;
 }
 
 const STATUS_LABEL: Record<string, string> = { pending: '待審核', active: '已核准', rejected: '已拒絕' };
@@ -98,14 +102,14 @@ export default function AdminUsersPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
-                  {['姓名', '部門', 'Email', '角色', '狀態', '申請時間', '操作'].map(h => (
+                  {['姓名', '部門', 'Email', '角色', '狀態', '申請時間', '最近登入', '登入地點', '操作'].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11.5, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.03em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0 && (
-                  <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>尚無使用者</td></tr>
+                  <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>尚無使用者</td></tr>
                 )}
                 {users.map(user => (
                   <>
@@ -127,6 +131,18 @@ export default function AdminUsersPage() {
                       </td>
                       <td style={{ padding: '11px 14px', fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
                         {new Date(user.created_at).toLocaleDateString('zh-TW')}
+                      </td>
+                      <td style={{ padding: '11px 14px', fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+                        {user.last_login_time
+                          ? new Date(user.last_login_time).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                          : <span style={{ color: 'var(--text-4)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '11px 14px', fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>
+                        {user.last_login_city || user.last_login_country
+                          ? <span title={user.last_login_ip ?? ''}>{[user.last_login_city, user.last_login_country].filter(Boolean).join(', ')}</span>
+                          : user.last_login_time
+                            ? <span style={{ color: 'var(--text-4)' }}>本機</span>
+                            : <span style={{ color: 'var(--text-4)' }}>—</span>}
                       </td>
                       <td style={{ padding: '11px 14px' }}>
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
@@ -159,7 +175,7 @@ export default function AdminUsersPage() {
                     {/* Inline feedback row */}
                     {actionMsg?.id === user.id && (
                       <tr key={`msg-${user.id}`}>
-                        <td colSpan={7} style={{ padding: '8px 14px', background: actionMsg.isTemp ? 'var(--warn-soft)' : actionMsg.isError ? '#FFF0F0' : 'var(--surface-2)' }}>
+                        <td colSpan={9} style={{ padding: '8px 14px', background: actionMsg.isTemp ? 'var(--warn-soft)' : actionMsg.isError ? '#FFF0F0' : 'var(--surface-2)' }}>
                           <span style={{ fontSize: 12, color: actionMsg.isTemp ? 'var(--warn)' : actionMsg.isError ? 'var(--danger)' : 'var(--text-2)', fontFamily: actionMsg.isTemp ? 'var(--font-mono)' : undefined }}>
                             {actionMsg.msg}
                           </span>
@@ -170,7 +186,7 @@ export default function AdminUsersPage() {
                     {/* Inline delete confirm row */}
                     {confirmDelete === user.id && (
                       <tr key={`del-${user.id}`}>
-                        <td colSpan={7} style={{ padding: '10px 14px', background: '#FFF0F0', borderBottom: '1px solid #FECACA' }}>
+                        <td colSpan={9} style={{ padding: '10px 14px', background: '#FFF0F0', borderBottom: '1px solid #FECACA' }}>
                           <span style={{ fontSize: 13, color: 'var(--danger)', marginRight: 16 }}>
                             確定要永久刪除 <strong>{user.name}</strong> 的帳號？此操作無法復原。
                           </span>
