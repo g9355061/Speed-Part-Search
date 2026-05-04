@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['xlsx', 'xlsx-js-style'],
   experimental: {
-    serverComponentsExternalPackages: ['better-sqlite3', 'bcryptjs'],
+    serverComponentsExternalPackages: ['better-sqlite3', 'bcryptjs', 'geoip-lite'],
   },
 };
 
