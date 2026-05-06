@@ -20,6 +20,12 @@ export interface PriceBreak {
   price: number;
 }
 
+export interface MarketplaceInfo {
+  supplierName: string;
+  stockQty: number;
+  minQty: number;
+}
+
 export interface Supplier {
   id: string;
   name: string;
@@ -37,6 +43,7 @@ export interface Supplier {
   productUrl?: string;
   isLive?: boolean;
   errorMsg?: string;
+  marketplaceVariations?: MarketplaceInfo[];
 }
 
 export const PART_DATA: PartInfo = {

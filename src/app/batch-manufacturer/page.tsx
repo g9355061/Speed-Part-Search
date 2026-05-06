@@ -19,6 +19,13 @@ interface PriceSplitLine {
   subtotal: number;
 }
 
+interface ApiMarketplaceVariation {
+  supplierName: string;
+  stockQty: number;
+  minQty: number;
+  breaks: ApiPriceBreak[];
+}
+
 interface SupplierData {
   status: RowStatus;
   shortage?: boolean;
@@ -35,6 +42,7 @@ interface SupplierData {
   bomManufacturer?: string;
   split?: PriceSplitLine[];
   totalCost?: number;
+  marketplaceVariations?: ApiMarketplaceVariation[];
 }
 
 interface ResultRow extends BomRow {
@@ -59,6 +67,7 @@ interface ApiPartResult {
   currency: string;
   priceBreaks: ApiPriceBreak[];
   variations?: ApiVariation[];
+  marketplaceVariations?: ApiMarketplaceVariation[];
   productUrl: string;
   leadTimeDays?: number | null;
 }
@@ -220,6 +229,7 @@ function mapSupplier(block: ApiSupplierBlock | undefined, qty: number, bomMpn: s
     errorMsg: mfrMatch.reason,
     ...(splitResult ? { split: splitResult.split } : {}),
     totalCost,
+    ...(r.marketplaceVariations?.length ? { marketplaceVariations: r.marketplaceVariations } : {}),
   };
 }
 
@@ -804,6 +814,13 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
         <span style={{ color: display.shortage ? 'var(--warn)' : 'inherit' }}>
           {display.shortage ? '⚠ ' : ''}{display.stock?.toLocaleString() ?? '—'}
         </span>
+        {display.marketplaceVariations?.map((mv, i) => (
+          <div key={i} style={{ marginTop: 3, fontSize: 10, color: 'var(--amber, #b45309)', lineHeight: 1.3, textAlign: 'right' }}>
+            <span title="商城產品（外部供應商）">🏪</span> {mv.stockQty.toLocaleString()}
+            <div style={{ color: 'var(--text-4)', fontSize: 9.5 }}>{mv.supplierName}</div>
+            <div style={{ color: 'var(--text-4)', fontSize: 9.5 }}>MOQ {mv.minQty.toLocaleString()}</div>
+          </div>
+        ))}
       </td>
       {/* MPQ */}
       <td style={{ ...mono, textAlign: 'right', background: rowBg }}>

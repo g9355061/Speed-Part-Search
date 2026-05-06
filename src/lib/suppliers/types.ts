@@ -10,6 +10,13 @@ export interface PackagingVariation {
   breaks: PriceBreak[];
 }
 
+export interface MarketplaceVariation {
+  supplierName: string;
+  stockQty: number;
+  minQty: number;
+  breaks: PriceBreak[];
+}
+
 export interface PartResult {
   supplier: string;
   manufacturerPartNumber: string;
@@ -21,6 +28,7 @@ export interface PartResult {
   currency: string;
   priceBreaks: PriceBreak[];
   variations?: PackagingVariation[];
+  marketplaceVariations?: MarketplaceVariation[];
   productUrl: string;
   leadTimeDays?: number | null;
   availabilityStatus?: string | null;

@@ -19,6 +19,12 @@ import {
 } from '@/lib/mockData';
 
 interface ApiPriceBreak { quantity: number; unitPrice: number; currency: string }
+interface ApiMarketplaceVariation {
+  supplierName: string;
+  stockQty: number;
+  minQty: number;
+  breaks: ApiPriceBreak[];
+}
 interface ApiPartResult {
   supplier: string;
   manufacturerPartNumber: string;
@@ -29,6 +35,7 @@ interface ApiPartResult {
   unitPrice: number | null;
   currency: string;
   priceBreaks: ApiPriceBreak[];
+  marketplaceVariations?: ApiMarketplaceVariation[];
   productUrl: string;
   leadTimeDays?: number | null;
   availabilityStatus?: string | null;
@@ -96,6 +103,9 @@ function supplierFromResult(result: ApiPartResult): Supplier {
     breaks,
     productUrl: result.productUrl,
     isLive: true,
+    ...(result.marketplaceVariations?.length
+      ? { marketplaceVariations: result.marketplaceVariations.map((mv) => ({ supplierName: mv.supplierName, stockQty: mv.stockQty, minQty: mv.minQty })) }
+      : {}),
   };
 }
 

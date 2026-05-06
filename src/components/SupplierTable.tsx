@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Icon } from './Icon';
-import { priceAtQty, type Supplier } from '@/lib/mockData';
+import { priceAtQty, type Supplier, type MarketplaceInfo } from '@/lib/mockData';
 
 export type SortKey = 'name' | 'stock' | 'moq' | 'leadDays' | 'unitPrice' | 'updatedSec';
 export type SortDir = 'asc' | 'desc';
@@ -117,6 +117,13 @@ export function SupplierTable({ suppliers, sortKey, sortDir, onSort, bestIds, qt
                     <div className="track">
                       <div className={'fill' + (s.stock < 2000 ? ' low' : '')} style={{ width: stockPct + '%' }}></div>
                     </div>
+                    {s.marketplaceVariations?.map((mv: MarketplaceInfo, i: number) => (
+                      <div key={i} style={{ marginTop: 4, fontSize: 10, color: '#b45309', lineHeight: 1.3 }}>
+                        <span title="商城產品（外部供應商）">🏪</span> {fmtNum(mv.stockQty)}
+                        <div style={{ color: '#888', fontSize: 9.5 }}>{mv.supplierName}</div>
+                        <div style={{ color: '#888', fontSize: 9.5 }}>MOQ {fmtNum(mv.minQty)}</div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </td>

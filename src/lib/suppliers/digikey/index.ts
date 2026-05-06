@@ -1,4 +1,5 @@
 import {
+  MarketplaceVariation,
   PackagingVariation,
   PartResult,
   PriceBreak,
@@ -21,6 +22,8 @@ interface DKVariation {
   QuantityAvailableforPackageType?: number;
   MinimumOrderQuantity?: number;
   StandardPricing?: DKPriceBreak[];
+  MarketPlace?: boolean;
+  Supplier?: { Id?: number; Name?: string };
 }
 
 interface DKProduct {
@@ -99,9 +102,25 @@ function buildVariations(p: DKProduct, currency: string): PackagingVariation[] {
     }));
 }
 
+function buildMarketplaceVariations(p: DKProduct, currency: string): MarketplaceVariation[] {
+  return (p.ProductVariations ?? [])
+    .filter((v) => v.MarketPlace === true && v.StandardPricing?.length)
+    .map((v) => ({
+      supplierName: v.Supplier?.Name ?? 'Marketplace',
+      stockQty: v.QuantityAvailableforPackageType ?? 0,
+      minQty: v.MinimumOrderQuantity ?? v.StandardPricing![0].BreakQuantity,
+      breaks: v.StandardPricing!.map((b) => ({
+        quantity: b.BreakQuantity,
+        unitPrice: b.UnitPrice,
+        currency,
+      })),
+    }));
+}
+
 function mapProduct(p: DKProduct, currency: string): PartResult {
   const priceBreaks = pickPriceBreaks(p, currency);
   const variations = buildVariations(p, currency);
+  const marketplaceVariations = buildMarketplaceVariations(p, currency);
   return {
     supplier: SUPPLIER,
     manufacturerPartNumber: p.ManufacturerProductNumber ?? '',
@@ -119,6 +138,7 @@ function mapProduct(p: DKProduct, currency: string): PartResult {
     currency,
     priceBreaks,
     variations,
+    ...(marketplaceVariations.length ? { marketplaceVariations } : {}),
     productUrl: p.ProductUrl
       ? p.ProductUrl.startsWith('http')
         ? p.ProductUrl
