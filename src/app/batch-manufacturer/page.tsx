@@ -809,7 +809,7 @@ function bestOfferSummary(r: ResultRow, aliases?: Record<string, string>): { sup
   };
 }
 
-function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierData; qty: number; name: string; bomManufacturer?: string; aliases?: Record<string, string> }) {
+function SupplierCell({ s, qty, name, bomManufacturer, aliases, showExternalStock = false }: { s: SupplierData; qty: number; name: string; bomManufacturer?: string; aliases?: Record<string, string>; showExternalStock?: boolean }) {
   const display = effectiveSupplierData(s, bomManufacturer, aliases);
   const isSearching = s.status === 'searching';
   const divisor = display.shortage ? (display.stock ?? 0) : qty;
@@ -822,7 +822,7 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
   if (display.status === 'pending' || isSearching) {
     return (
       <>
-        <td colSpan={6} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
+        <td colSpan={showExternalStock ? 6 : 5} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
           {isSearching ? '查詢中…' : '—'}
         </td>
         <td style={{ textAlign: 'center', background: rowBg }}>
@@ -840,7 +840,7 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
       '—';
     return (
       <>
-        <td colSpan={6} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
+        <td colSpan={showExternalStock ? 6 : 5} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
           {emptyLabel}
         </td>
         <td style={{ textAlign: 'center', background: rowBg }}>
@@ -863,14 +863,16 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
                 {display.shortage ? '⚠ ' : ''}{display.stock?.toLocaleString() ?? '—'}
               </span>
             </td>
-            {/* 外部Stock */}
-            <td style={{ ...mono, textAlign: 'right', background: rowBg }}>
-              {externalQty > 0 ? (
-                <span style={{ color: '#b45309' }}>
-                  🏪 {externalQty.toLocaleString()}
-                </span>
-              ) : <span style={dim}>—</span>}
-            </td>
+            {/* 外部Stock — DigiKey only */}
+            {showExternalStock && (
+              <td style={{ ...mono, textAlign: 'right', background: rowBg }}>
+                {externalQty > 0 ? (
+                  <span style={{ color: '#b45309' }}>
+                    🏪 {externalQty.toLocaleString()}
+                  </span>
+                ) : <span style={dim}>—</span>}
+              </td>
+            )}
           </>
         );
       })()}
@@ -1248,7 +1250,7 @@ export default function BatchPage() {
 	                      <td className="sticky-col sticky-qty-mfr" style={{ textAlign: 'center', ...mono }}>{r.qty.toLocaleString()}</td>
 	                      <td className="sticky-col sticky-best-mfr" style={{ textAlign: 'center' }}><span style={{ fontSize: 12 }}>{summary.supplier}</span></td>
 	                      <td className="sticky-col sticky-fulfill-mfr" style={{ textAlign: 'center' }}><span style={{ fontSize: 12, color: summary.fulfillment === '部分滿足' ? 'var(--warn)' : 'var(--accent)' }}>{summary.fulfillment}</span></td>
-	                      <SupplierCell s={r.digikey} qty={r.qty} name="DK" bomManufacturer={r.manufacturer} aliases={dynamicAliases} />
+	                      <SupplierCell s={r.digikey} qty={r.qty} name="DK" bomManufacturer={r.manufacturer} aliases={dynamicAliases} showExternalStock />
 	                      <SupplierCell s={r.mouserHk} qty={r.qty} name="HK" bomManufacturer={r.manufacturer} aliases={dynamicAliases} />
 	                      <SupplierCell s={r.mouserVn} qty={r.qty} name="VN" bomManufacturer={r.manufacturer} aliases={dynamicAliases} />
                           </>

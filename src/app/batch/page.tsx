@@ -750,7 +750,7 @@ function bestOfferSummary(r: ResultRow): { supplier: string; fulfillment: string
   };
 }
 
-function SupplierCell({ s, qty, name }: { s: SupplierData; qty: number; name: string }) {
+function SupplierCell({ s, qty, name, showExternalStock = false }: { s: SupplierData; qty: number; name: string; showExternalStock?: boolean }) {
   const isSearching = s.status === 'searching';
   const divisor = s.shortage ? (s.stock ?? 0) : qty;
   const avg = s.totalCost != null && divisor > 0 ? s.totalCost / divisor : null;
@@ -759,7 +759,7 @@ function SupplierCell({ s, qty, name }: { s: SupplierData; qty: number; name: st
   if (s.status === 'pending' || isSearching) {
     return (
       <>
-        <td colSpan={6} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
+        <td colSpan={showExternalStock ? 6 : 5} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
           {isSearching ? '查詢中…' : '—'}
         </td>
         <td style={{ textAlign: 'center', background: rowBg }}>
@@ -777,7 +777,7 @@ function SupplierCell({ s, qty, name }: { s: SupplierData; qty: number; name: st
       '—';
     return (
       <>
-        <td colSpan={6} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
+        <td colSpan={showExternalStock ? 6 : 5} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
           {emptyLabel}
         </td>
         <td style={{ textAlign: 'center', background: rowBg }}>
@@ -800,14 +800,16 @@ function SupplierCell({ s, qty, name }: { s: SupplierData; qty: number; name: st
                 {s.shortage ? '⚠ ' : ''}{s.stock?.toLocaleString() ?? '—'}
               </span>
             </td>
-            {/* 外部Stock */}
-            <td style={{ ...mono, textAlign: 'right', background: rowBg }}>
-              {externalQty > 0 ? (
-                <span style={{ color: '#b45309' }}>
-                  🏪 {externalQty.toLocaleString()}
-                </span>
-              ) : <span style={dim}>—</span>}
-            </td>
+            {/* 外部Stock — DigiKey only */}
+            {showExternalStock && (
+              <td style={{ ...mono, textAlign: 'right', background: rowBg }}>
+                {externalQty > 0 ? (
+                  <span style={{ color: '#b45309' }}>
+                    🏪 {externalQty.toLocaleString()}
+                  </span>
+                ) : <span style={dim}>—</span>}
+              </td>
+            )}
           </>
         );
       })()}
@@ -1140,7 +1142,7 @@ export default function BatchPage() {
 	                      <td className="sticky-col sticky-qty" style={{ textAlign: 'center', ...mono }}>{r.qty.toLocaleString()}</td>
 	                      <td className="sticky-col sticky-best" style={{ textAlign: 'center' }}><span style={{ fontSize: 12 }}>{summary.supplier}</span></td>
 	                      <td className="sticky-col sticky-fulfill" style={{ textAlign: 'center' }}><span style={{ fontSize: 12, color: summary.fulfillment === '部分滿足' ? 'var(--warn)' : 'var(--accent)' }}>{summary.fulfillment}</span></td>
-	                      <SupplierCell s={r.digikey} qty={r.qty} name="DK" />
+	                      <SupplierCell s={r.digikey} qty={r.qty} name="DK" showExternalStock />
 	                      <SupplierCell s={r.mouserHk} qty={r.qty} name="HK" />
 	                      <SupplierCell s={r.mouserVn} qty={r.qty} name="VN" />
                           </>
