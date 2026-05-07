@@ -453,16 +453,16 @@ const THIN_BORDER = {
 };
 
 const SUPPLIER_EXPORT_GROUPS = [
-  { start: 5, end: 10, header: '1565C0', fill: 'F4F8FF' },
-  { start: 11, end: 16, header: 'EF6C00', fill: 'FFF3E8' },
-  { start: 17, end: 22, header: '047857', fill: 'ECFDF5' },
+  { start: 5, end: 12, header: '1565C0', fill: 'F4F8FF' },   // DigiKey (8 cols)
+  { start: 13, end: 18, header: 'EF6C00', fill: 'FFF3E8' },  // Mouser HK (6 cols)
+  { start: 19, end: 24, header: '047857', fill: 'ECFDF5' },  // Mouser VN (6 cols)
 ];
 
 const EXPORT_COL_WIDTHS = [
   26, 9, 20, 16, 14,
-  13, 18, 24, 12, 12, 14,
-  14, 18, 24, 12, 12, 14,
-  14, 18, 24, 12, 12, 14,
+  13, 8, 22, 12, 10, 14, 14, 14,  // DK: Stock MPQ 報價 料件總價 運費 含運總價 含運平均 狀態
+  14, 8, 22, 12, 12, 14,           // HK
+  14, 8, 22, 12, 12, 14,           // VN
 ];
 
 function exportCellStyle(fill: string, opts: { bold?: boolean; color?: string; align?: 'left' | 'center' | 'right'; numFmt?: string } = {}) {
@@ -476,7 +476,7 @@ function exportCellStyle(fill: string, opts: { bold?: boolean; color?: string; a
 }
 
 function estimatedRowHeight(values: unknown[]): number {
-  const detailColumns = [7, 13, 19];
+  const detailColumns = [7, 15, 21];
   const maxLines = Math.max(
     1,
     ...detailColumns.map((c) => {
@@ -494,24 +494,24 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
   ws['!cols'] = EXPORT_COL_WIDTHS.map((wch) => ({ wch }));
   ws['!rows'] = Array.from({ length: rowCount }, (_, i) => {
     if (i === 0 || i === 1) return { hpt: 26 };
-    const values = Array.from({ length: 23 }, (_, c) => ws[XLSX.utils.encode_cell({ r: i, c })]?.v ?? '');
+    const values = Array.from({ length: 25 }, (_, c) => ws[XLSX.utils.encode_cell({ r: i, c })]?.v ?? '');
     return { hpt: estimatedRowHeight(values) };
   });
-  ws['!autofilter'] = { ref: `A2:W${rowCount}` };
+  ws['!autofilter'] = { ref: `A2:Y${rowCount}` };
   ws['!merges'] = [
-    { s: { r: 0, c: 5 }, e: { r: 0, c: 10 } },
-    { s: { r: 0, c: 11 }, e: { r: 0, c: 16 } },
-    { s: { r: 0, c: 17 }, e: { r: 0, c: 22 } },
+    { s: { r: 0, c: 5 }, e: { r: 0, c: 12 } },   // DigiKey 8 cols
+    { s: { r: 0, c: 13 }, e: { r: 0, c: 18 } },   // Mouser HK 6 cols
+    { s: { r: 0, c: 19 }, e: { r: 0, c: 24 } },   // Mouser VN 6 cols
   ];
 
-  for (let c = 0; c <= 22; c++) {
+  for (let c = 0; c <= 24; c++) {
     const addr = XLSX.utils.encode_cell({ r: 0, c });
     const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
     if (ws[addr]) {
       ws[addr].s = exportCellStyle(group?.header ?? '263238', { bold: true, color: 'FFFFFF', align: 'center' });
     }
   }
-  for (let c = 0; c <= 22; c++) {
+  for (let c = 0; c <= 24; c++) {
     const addr = XLSX.utils.encode_cell({ r: 1, c });
     const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
     if (ws[addr]) {
@@ -520,28 +520,31 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
   }
 
   for (let r = 2; r < rowCount; r++) {
-    for (let c = 0; c <= 22; c++) {
+    for (let c = 0; c <= 24; c++) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) continue;
       const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
       const fill = group?.fill ?? (r % 2 === 0 ? 'FFFFFF' : 'FAFAFA');
-      const align = c === 0 || c === 2 || c === 3 || c === 4 || [7, 10, 13, 16, 19, 22].includes(c) ? 'left' : 'right';
-      const isTotal = [8, 14, 20].includes(c);
-      const isFlatUnit = [9, 15, 21].includes(c);
+      const align = c === 0 || c === 2 || c === 3 || c === 4 || [7, 12, 15, 18, 21, 24].includes(c) ? 'left' : 'right';
+      const isTotal = [8, 10, 16, 22].includes(c);   // 料件總價, 含運總價, HK總價, VN總價
+      const isFlatUnit = [11, 17, 23].includes(c);    // 含運平均, HK平均, VN平均
+      const isShipping = c === 9;                      // 運費 — empty, user fills
       ws[addr].s = exportCellStyle(fill, {
         align,
         numFmt: isFlatUnit
           ? '$#,##0.0000;[Red]-$#,##0.0000;-'
-          : isTotal ? '$#,##0.0000;[Red]-$#,##0.0000;-' : undefined,
+          : isTotal ? '$#,##0.0000;[Red]-$#,##0.0000;-'
+          : isShipping ? '$#,##0.00;[Red]-$#,##0.00;-'
+          : undefined,
       });
     }
 
-    for (const c of [10, 16, 22]) {
+    for (const c of [12, 18, 24]) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) continue;
       const status = String(ws[addr].v ?? '').toLowerCase();
       const fill =
-        status === '找到了' ? 'DFF3E3' :
+        status.startsWith('找到了') ? 'DFF3E3' :
         status === '疑似同廠商' ? 'E0EAFF' :
         status === '廠商不一致' ? 'FFE7C2' :
         status === 'restricted' ? 'F1E8FF' :
@@ -550,7 +553,7 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
         status === '平台沒有這顆料' ? 'FFF2CC' :
         'FAFAFA';
       const color =
-        status === '找到了' ? '0B6E3F' :
+        status.startsWith('找到了') ? '0B6E3F' :
         status === '疑似同廠商' ? '2255CC' :
         status === '廠商不一致' ? 'B45309' :
         status === 'restricted' ? '6D28D9' :
@@ -588,7 +591,8 @@ async function downloadTemplate() {
 }
 
 async function exportResults(rows: ResultRow[]) {
-  const sup = (s: SupplierData, qty: number) => {
+  // Mouser HK/VN: 6-col block
+  const supMouser = (s: SupplierData, qty: number) => {
     if (s.status === 'skipped') return ['', '', 'Skipped', '', '', 'Skipped'];
     if (s.status === 'restricted') return ['', '', '供貨限制', '', '', '供貨限制'];
     if (s.status === 'limited') return ['', '', s.errorMsg ?? 'Limit exceeded', '', '', 'Limit'];
@@ -602,26 +606,63 @@ async function exportResults(rows: ResultRow[]) {
     const divisor = s.shortage ? (s.stock ?? 0) : qty;
     const avg = s.totalCost != null && divisor > 0 ? s.totalCost / divisor : '';
     const mpq = s.mpq ?? s.moq ?? '';
+    return [s.stock ?? '', mpq, detail, s.totalCost != null ? s.totalCost : '', avg, statusLabel(s.status, s.errorMsg)];
+  };
+
+  // DigiKey: 8-col block (Stock, MPQ, 報價, 料件總價[I], 運費[J], 含運總價[K], 含運平均[L], 狀態[M])
+  // Col indices in Excel: F=5 Stock, G=6 MPQ, H=7 報價, I=8 料件總價, J=9 運費, K=10 含運總價, L=11 含運平均, M=12 狀態
+  const supDKValues = (s: SupplierData, qty: number) => {
+    if (s.status === 'skipped') return ['', '', 'Skipped', '', '', '', '', 'Skipped'];
+    if (s.status === 'restricted') return ['', '', '供貨限制', '', '', '', '', '供貨限制'];
+    if (s.status === 'limited') return ['', '', s.errorMsg ?? 'Limit exceeded', '', '', '', '', 'Limit'];
+    if (s.status === 'auth') return ['', '', s.errorMsg ?? 'Auth failed', '', '', '', '', 'Auth'];
+    const priceDetail = s.split
+      ? s.split.map((l) => `${l.label} @ $${l.unitPrice.toFixed(4)}`).join('\n')
+      : s.unitPrice != null ? `$${s.unitPrice.toFixed(4)}` : '';
+    const detail = s.status === 'mfr-mismatch' || s.status === 'mfr-suspect'
+      ? [priceDetail, `API MFR: ${s.apiManufacturer || '—'}`].filter(Boolean).join('\n')
+      : priceDetail;
+    const mpq = s.mpq ?? s.moq ?? '';
+    const hasMarketplace = (s.marketplaceVariations?.length ?? 0) > 0;
+    const statusText = statusLabel(s.status, s.errorMsg) + (hasMarketplace ? ' + 外部庫存' : '');
     return [
-      s.stock ?? '', mpq,
-      detail,
+      s.stock ?? '', mpq, detail,
       s.totalCost != null ? s.totalCost : '',
-      avg,
-      statusLabel(s.status, s.errorMsg),
+      '',   // 運費 — user fills manually
+      '',   // 含運總價 — formula placeholder
+      '',   // 含運平均 — formula placeholder
+      statusText,
     ];
   };
-	  const data = [
-	    ['', '', '', '', '', 'DigiKey', '', '', '', '', '', 'Mouser HK', '', '', '', '', '', 'Mouser VN', '', '', '', '', ''],
-	    ['MPN', 'Qty', 'Manufacturer / FMG', '最低供應商', '滿足狀態',
-	      'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態',
-	      'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態',
-	      'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態'],
-	    ...rows.map((r) => {
-        const summary = bestOfferSummary(r);
-        return [r.mpn, r.qty, r.manufacturer ?? '', summary.supplier, summary.fulfillment, ...sup(effectiveSupplierData(r.digikey, r.manufacturer), r.qty), ...sup(effectiveSupplierData(r.mouserHk, r.manufacturer), r.qty), ...sup(effectiveSupplierData(r.mouserVn, r.manufacturer), r.qty)];
-      }),
-	  ];
+
+  const dataRows = rows.map((r) => {
+    const summary = bestOfferSummary(r);
+    return [r.mpn, r.qty, r.manufacturer ?? '', summary.supplier, summary.fulfillment, ...supDKValues(effectiveSupplierData(r.digikey, r.manufacturer), r.qty), ...supMouser(effectiveSupplierData(r.mouserHk, r.manufacturer), r.qty), ...supMouser(effectiveSupplierData(r.mouserVn, r.manufacturer), r.qty)];
+  });
+
+  const data = [
+    ['', '', '', '', '', 'DigiKey', '', '', '', '', '', '', '', 'Mouser HK', '', '', '', '', '', 'Mouser VN', '', '', '', '', ''],
+    ['MPN', 'Qty', 'Manufacturer / FMG', '最低供應商', '滿足狀態',
+      'Stock', 'MPQ', '報價', '料件總價', '運費', '含運總價', '含運平均單價', '狀態',
+      'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態',
+      'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態'],
+    ...dataRows,
+  ];
+
   const ws = XLSX.utils.aoa_to_sheet(data);
+
+  // Insert formula cells for DigiKey 含運總價 (col K=10) and 含運平均 (col L=11)
+  for (let i = 0; i < dataRows.length; i++) {
+    const xlRow = i + 3; // 1-based: rows 1,2 are headers, data starts row 3
+    const iRef = `I${xlRow}`; // 料件總價
+    const jRef = `J${xlRow}`; // 運費
+    const kRef = `K${xlRow}`; // 含運總價
+    const bRef = `B${xlRow}`; // Qty
+
+    ws[`K${xlRow}`] = { t: 'n', f: `IF(${iRef}="","",${iRef}+IF(${jRef}="",0,${jRef}))` };
+    ws[`L${xlRow}`] = { t: 'n', f: `IF(OR(${kRef}="",${bRef}=0),"",${kRef}/${bRef})` };
+  }
+
   styleResultsSheet(ws, data.length);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Results');
@@ -865,6 +906,11 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
       {/* 狀態 */}
       <td style={{ textAlign: 'center', background: rowBg, verticalAlign: 'middle' }}>
         <StatusBadge status={display.status} errorMsg={display.errorMsg} />
+        {display.marketplaceVariations?.length ? (
+          <div style={{ marginTop: 3 }}>
+            <span className="badge badge-orange">外部庫存</span>
+          </div>
+        ) : null}
         {display.status === 'mfr-mismatch' && bomManufacturer && display.apiManufacturer && (
           <div style={{ marginTop: 6 }}>
             <a
