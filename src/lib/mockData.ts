@@ -33,6 +33,7 @@ export interface Supplier {
   status?: 'available' | 'restricted' | 'notfound' | 'nostock';
   stock: number;
   moq: number;
+  mpq?: number;
   leadTime: string;
   leadDays: number;
   unitPrice: number;

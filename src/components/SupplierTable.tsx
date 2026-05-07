@@ -127,7 +127,7 @@ export function SupplierTable({ suppliers, sortKey, sortDir, onSort, bestIds, qt
                   </div>
                 )}
               </td>
-              <td className="num center-cell">{isUnavailable ? <span className="dash">—</span> : s.moq}</td>
+              <td className="num center-cell">{isUnavailable ? <span className="dash">—</span> : (s.mpq ?? s.moq)}</td>
               <td className="center-cell">
                 {isUnavailable ? (
                   <span className="dash">—</span>

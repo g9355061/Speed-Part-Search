@@ -19,6 +19,7 @@ import {
 } from '@/lib/mockData';
 
 interface ApiPriceBreak { quantity: number; unitPrice: number; currency: string }
+interface ApiVariation { packageType: string; minQty: number; breaks: ApiPriceBreak[] }
 interface ApiMarketplaceVariation {
   supplierName: string;
   stockQty: number;
@@ -35,6 +36,7 @@ interface ApiPartResult {
   unitPrice: number | null;
   currency: string;
   priceBreaks: ApiPriceBreak[];
+  variations?: ApiVariation[];
   marketplaceVariations?: ApiMarketplaceVariation[];
   productUrl: string;
   leadTimeDays?: number | null;
@@ -87,13 +89,18 @@ function supplierFromResult(result: ApiPartResult): Supplier {
   const rel = relativeTime(result.lastUpdated);
   const leadDays = result.leadTimeDays ?? 0;
   const leadTime = leadDays === 0 ? 'Ships today' : `${Math.round(leadDays / 7)} weeks`;
+  const varMinQtys = (result.variations ?? []).map((v) => v.minQty).filter((n) => n > 0);
+  const moq = varMinQtys.length ? Math.min(...varMinQtys) : (breaks[0]?.qty ?? 1);
+  const mpqCandidate = varMinQtys.length ? Math.max(...varMinQtys) : undefined;
+  const mpq = mpqCandidate !== undefined && mpqCandidate !== moq ? mpqCandidate : undefined;
   return {
     id: meta.id,
     name: meta.name,
     region: meta.region,
     status: 'available',
     stock: result.quantityAvailable,
-    moq: breaks[0]?.qty ?? 1,
+    moq,
+    ...(mpq !== undefined ? { mpq } : {}),
     leadTime,
     leadDays,
     unitPrice: result.unitPrice ?? breaks[0]?.price ?? 0,
