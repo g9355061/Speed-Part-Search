@@ -660,7 +660,8 @@ async function exportResults(rows: ResultRow[]) {
     const bRef = `B${xlRow}`; // Qty
 
     ws[`K${xlRow}`] = { t: 'n', f: `IF(${iRef}="","",${iRef}+IF(${jRef}="",0,${jRef}))` };
-    ws[`L${xlRow}`] = { t: 'n', f: `IF(OR(${kRef}="",${bRef}=0),"",${kRef}/${bRef})` };
+    const fRef = `F${xlRow}`; // DK Stock
+    ws[`L${xlRow}`] = { t: 'n', f: `IF(OR(${kRef}="",${bRef}=0),"",${kRef}/IF(${fRef}<${bRef},${fRef},${bRef}))` };
   }
 
   styleResultsSheet(ws, data.length);

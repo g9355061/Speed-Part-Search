@@ -626,8 +626,9 @@ async function exportResults(rows: ResultRow[]) {
 
     // J = 含運總價: =IF(H="","",H+IF(I="",0,I))
     ws[`J${xlRow}`] = { t: 'n', f: `IF(${hRef}="","",${hRef}+IF(${iRef}="",0,${iRef}))` };
-    // K = 含運平均: =IF(OR(J="",B=0),"",J/B)
-    ws[`K${xlRow}`] = { t: 'n', f: `IF(OR(${jRef}="",${bRef}=0),"",${jRef}/${bRef})` };
+    const eRef = `E${xlRow}`; // DK Stock
+    // K = 含運平均: divide by stock when shortage, else by qty
+    ws[`K${xlRow}`] = { t: 'n', f: `IF(OR(${jRef}="",${bRef}=0),"",${jRef}/IF(${eRef}<${bRef},${eRef},${bRef}))` };
   }
 
   styleResultsSheet(ws, data.length);
