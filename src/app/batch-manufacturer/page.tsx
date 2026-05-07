@@ -453,16 +453,16 @@ const THIN_BORDER = {
 };
 
 const SUPPLIER_EXPORT_GROUPS = [
-  { start: 5, end: 12, header: '1565C0', fill: 'F4F8FF' },   // DigiKey (8 cols)
-  { start: 13, end: 18, header: 'EF6C00', fill: 'FFF3E8' },  // Mouser HK (6 cols)
-  { start: 19, end: 24, header: '047857', fill: 'ECFDF5' },  // Mouser VN (6 cols)
+  { start: 5, end: 13, header: '1565C0', fill: 'F4F8FF' },   // DigiKey (9 cols)
+  { start: 14, end: 19, header: 'EF6C00', fill: 'FFF3E8' },  // Mouser HK (6 cols)
+  { start: 20, end: 25, header: '047857', fill: 'ECFDF5' },  // Mouser VN (6 cols)
 ];
 
 const EXPORT_COL_WIDTHS = [
   26, 9, 20, 16, 14,
-  13, 8, 22, 12, 10, 14, 14, 14,  // DK: Stock MPQ 報價 料件總價 運費 含運總價 含運平均 狀態
-  14, 8, 22, 12, 12, 14,           // HK
-  14, 8, 22, 12, 12, 14,           // VN
+  13, 11, 8, 22, 12, 10, 14, 14, 14,  // DK: Stock 外部Stock MPQ 報價 料件總價 運費 含運總價 含運平均 狀態
+  14, 8, 22, 12, 12, 14,               // HK
+  14, 8, 22, 12, 12, 14,               // VN
 ];
 
 function exportCellStyle(fill: string, opts: { bold?: boolean; color?: string; align?: 'left' | 'center' | 'right'; numFmt?: string } = {}) {
@@ -476,7 +476,7 @@ function exportCellStyle(fill: string, opts: { bold?: boolean; color?: string; a
 }
 
 function estimatedRowHeight(values: unknown[]): number {
-  const detailColumns = [7, 15, 21];
+  const detailColumns = [8, 16, 22];
   const maxLines = Math.max(
     1,
     ...detailColumns.map((c) => {
@@ -494,24 +494,24 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
   ws['!cols'] = EXPORT_COL_WIDTHS.map((wch) => ({ wch }));
   ws['!rows'] = Array.from({ length: rowCount }, (_, i) => {
     if (i === 0 || i === 1) return { hpt: 26 };
-    const values = Array.from({ length: 25 }, (_, c) => ws[XLSX.utils.encode_cell({ r: i, c })]?.v ?? '');
+    const values = Array.from({ length: 26 }, (_, c) => ws[XLSX.utils.encode_cell({ r: i, c })]?.v ?? '');
     return { hpt: estimatedRowHeight(values) };
   });
-  ws['!autofilter'] = { ref: `A2:Y${rowCount}` };
+  ws['!autofilter'] = { ref: `A2:Z${rowCount}` };
   ws['!merges'] = [
-    { s: { r: 0, c: 5 }, e: { r: 0, c: 12 } },   // DigiKey 8 cols
-    { s: { r: 0, c: 13 }, e: { r: 0, c: 18 } },   // Mouser HK 6 cols
-    { s: { r: 0, c: 19 }, e: { r: 0, c: 24 } },   // Mouser VN 6 cols
+    { s: { r: 0, c: 5 }, e: { r: 0, c: 13 } },   // DigiKey 9 cols
+    { s: { r: 0, c: 14 }, e: { r: 0, c: 19 } },   // Mouser HK 6 cols
+    { s: { r: 0, c: 20 }, e: { r: 0, c: 25 } },   // Mouser VN 6 cols
   ];
 
-  for (let c = 0; c <= 24; c++) {
+  for (let c = 0; c <= 25; c++) {
     const addr = XLSX.utils.encode_cell({ r: 0, c });
     const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
     if (ws[addr]) {
       ws[addr].s = exportCellStyle(group?.header ?? '263238', { bold: true, color: 'FFFFFF', align: 'center' });
     }
   }
-  for (let c = 0; c <= 24; c++) {
+  for (let c = 0; c <= 25; c++) {
     const addr = XLSX.utils.encode_cell({ r: 1, c });
     const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
     if (ws[addr]) {
@@ -520,15 +520,15 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
   }
 
   for (let r = 2; r < rowCount; r++) {
-    for (let c = 0; c <= 24; c++) {
+    for (let c = 0; c <= 25; c++) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) continue;
       const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
       const fill = group?.fill ?? (r % 2 === 0 ? 'FFFFFF' : 'FAFAFA');
-      const align = c === 0 || c === 2 || c === 3 || c === 4 || [7, 12, 15, 18, 21, 24].includes(c) ? 'left' : 'right';
-      const isTotal = [8, 10, 16, 22].includes(c);   // 料件總價, 含運總價, HK總價, VN總價
-      const isFlatUnit = [11, 17, 23].includes(c);    // 含運平均, HK平均, VN平均
-      const isShipping = c === 9;                      // 運費 — empty, user fills
+      const align = c === 0 || c === 2 || c === 3 || c === 4 || [8, 13, 16, 19, 22, 25].includes(c) ? 'left' : 'right';
+      const isTotal = [9, 11, 17, 23].includes(c);   // 料件總價, 含運總價, HK總價, VN總價
+      const isFlatUnit = [12, 18, 24].includes(c);    // 含運平均, HK平均, VN平均
+      const isShipping = c === 10;                     // 運費 — empty, user fills
       ws[addr].s = exportCellStyle(fill, {
         align,
         numFmt: isFlatUnit
@@ -539,12 +539,12 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
       });
     }
 
-    for (const c of [12, 18, 24]) {
+    for (const c of [13, 19, 25]) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) continue;
       const status = String(ws[addr].v ?? '').toLowerCase();
       const fill =
-        status.startsWith('找到了') ? 'DFF3E3' :
+        status === '找到了' ? 'DFF3E3' :
         status === '疑似同廠商' ? 'E0EAFF' :
         status === '廠商不一致' ? 'FFE7C2' :
         status === 'restricted' ? 'F1E8FF' :
@@ -553,7 +553,7 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
         status === '平台沒有這顆料' ? 'FFF2CC' :
         'FAFAFA';
       const color =
-        status.startsWith('找到了') ? '0B6E3F' :
+        status === '找到了' ? '0B6E3F' :
         status === '疑似同廠商' ? '2255CC' :
         status === '廠商不一致' ? 'B45309' :
         status === 'restricted' ? '6D28D9' :
@@ -609,13 +609,15 @@ async function exportResults(rows: ResultRow[]) {
     return [s.stock ?? '', mpq, detail, s.totalCost != null ? s.totalCost : '', avg, statusLabel(s.status, s.errorMsg)];
   };
 
-  // DigiKey: 8-col block (Stock, MPQ, 報價, 料件總價[I], 運費[J], 含運總價[K], 含運平均[L], 狀態[M])
-  // Col indices in Excel: F=5 Stock, G=6 MPQ, H=7 報價, I=8 料件總價, J=9 運費, K=10 含運總價, L=11 含運平均, M=12 狀態
-  const supDKValues = (s: SupplierData, qty: number) => {
-    if (s.status === 'skipped') return ['', '', 'Skipped', '', '', '', '', 'Skipped'];
-    if (s.status === 'restricted') return ['', '', '供貨限制', '', '', '', '', '供貨限制'];
-    if (s.status === 'limited') return ['', '', s.errorMsg ?? 'Limit exceeded', '', '', '', '', 'Limit'];
-    if (s.status === 'auth') return ['', '', s.errorMsg ?? 'Auth failed', '', '', '', '', 'Auth'];
+  // DigiKey: 9-col block (Stock, 外部Stock, MPQ, 報價, 料件總價[J], 運費[K], 含運總價[L], 含運平均[M], 狀態[N])
+  // Col indices: F=5 Stock, G=6 外部Stock, H=7 MPQ, I=8 報價, J=9 料件總價, K=10 運費, L=11 含運總價, M=12 含運平均, N=13 狀態
+  const supDKValues = (s: SupplierData) => {
+    const externalQty = (s.marketplaceVariations ?? []).reduce((sum, mv) => sum + mv.stockQty, 0);
+    const totalStock = (s.stock ?? 0) + externalQty;
+    if (s.status === 'skipped') return ['', '', '', 'Skipped', '', '', '', '', 'Skipped'];
+    if (s.status === 'restricted') return ['', '', '', '供貨限制', '', '', '', '', '供貨限制'];
+    if (s.status === 'limited') return ['', '', '', s.errorMsg ?? 'Limit exceeded', '', '', '', '', 'Limit'];
+    if (s.status === 'auth') return ['', '', '', s.errorMsg ?? 'Auth failed', '', '', '', '', 'Auth'];
     const priceDetail = s.split
       ? s.split.map((l) => `${l.label} @ $${l.unitPrice.toFixed(4)}`).join('\n')
       : s.unitPrice != null ? `$${s.unitPrice.toFixed(4)}` : '';
@@ -623,27 +625,27 @@ async function exportResults(rows: ResultRow[]) {
       ? [priceDetail, `API MFR: ${s.apiManufacturer || '—'}`].filter(Boolean).join('\n')
       : priceDetail;
     const mpq = s.mpq ?? s.moq ?? '';
-    const hasMarketplace = (s.marketplaceVariations?.length ?? 0) > 0;
-    const statusText = statusLabel(s.status, s.errorMsg) + (hasMarketplace ? ' + 外部庫存' : '');
     return [
-      s.stock ?? '', mpq, detail,
+      totalStock || '',
+      externalQty > 0 ? externalQty : '',
+      mpq, detail,
       s.totalCost != null ? s.totalCost : '',
       '',   // 運費 — user fills manually
-      '',   // 含運總價 — formula placeholder
-      '',   // 含運平均 — formula placeholder
-      statusText,
+      '',   // 含運總價 — formula
+      '',   // 含運平均 — formula
+      statusLabel(s.status, s.errorMsg),
     ];
   };
 
   const dataRows = rows.map((r) => {
     const summary = bestOfferSummary(r);
-    return [r.mpn, r.qty, r.manufacturer ?? '', summary.supplier, summary.fulfillment, ...supDKValues(effectiveSupplierData(r.digikey, r.manufacturer), r.qty), ...supMouser(effectiveSupplierData(r.mouserHk, r.manufacturer), r.qty), ...supMouser(effectiveSupplierData(r.mouserVn, r.manufacturer), r.qty)];
+    return [r.mpn, r.qty, r.manufacturer ?? '', summary.supplier, summary.fulfillment, ...supDKValues(effectiveSupplierData(r.digikey, r.manufacturer)), ...supMouser(effectiveSupplierData(r.mouserHk, r.manufacturer), r.qty), ...supMouser(effectiveSupplierData(r.mouserVn, r.manufacturer), r.qty)];
   });
 
   const data = [
-    ['', '', '', '', '', 'DigiKey', '', '', '', '', '', '', '', 'Mouser HK', '', '', '', '', '', 'Mouser VN', '', '', '', '', ''],
+    ['', '', '', '', '', 'DigiKey', '', '', '', '', '', '', '', '', 'Mouser HK', '', '', '', '', '', 'Mouser VN', '', '', '', '', ''],
     ['MPN', 'Qty', 'Manufacturer / FMG', '最低供應商', '滿足狀態',
-      'Stock', 'MPQ', '報價', '料件總價', '運費', '含運總價', '含運平均單價', '狀態',
+      'Stock', '外部Stock', 'MPQ', '報價', '料件總價', '運費', '含運總價', '含運平均單價', '狀態',
       'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態',
       'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態'],
     ...dataRows,
@@ -651,17 +653,18 @@ async function exportResults(rows: ResultRow[]) {
 
   const ws = XLSX.utils.aoa_to_sheet(data);
 
-  // Insert formula cells for DigiKey 含運總價 (col K=10) and 含運平均 (col L=11)
+  // Formula cells: F=Stock(總), G=外部Stock, J=料件總價, K=運費, L=含運總價, M=含運平均
   for (let i = 0; i < dataRows.length; i++) {
-    const xlRow = i + 3; // 1-based: rows 1,2 are headers, data starts row 3
-    const iRef = `I${xlRow}`; // 料件總價
-    const jRef = `J${xlRow}`; // 運費
-    const kRef = `K${xlRow}`; // 含運總價
+    const xlRow = i + 3;
+    const fRef = `F${xlRow}`; // 總Stock
+    const gRef = `G${xlRow}`; // 外部Stock
+    const jRef = `J${xlRow}`; // 料件總價
+    const kRef = `K${xlRow}`; // 運費
+    const lRef = `L${xlRow}`; // 含運總價
     const bRef = `B${xlRow}`; // Qty
 
-    ws[`K${xlRow}`] = { t: 'n', f: `IF(${iRef}="","",${iRef}+IF(${jRef}="",0,${jRef}))` };
-    const fRef = `F${xlRow}`; // DK Stock
-    ws[`L${xlRow}`] = { t: 'n', f: `IF(OR(${kRef}="",${bRef}=0),"",${kRef}/IF(${fRef}<${bRef},${fRef},${bRef}))` };
+    ws[`L${xlRow}`] = { t: 'n', f: `IF(${jRef}="","",${jRef}+IF(${kRef}="",0,${kRef}))` };
+    ws[`M${xlRow}`] = { t: 'n', f: `IF(OR(${lRef}="",${bRef}=0),"",${lRef}/IF((${fRef}-${gRef})<${bRef},(${fRef}-${gRef}),${bRef}))` };
   }
 
   styleResultsSheet(ws, data.length);
@@ -820,7 +823,7 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
   if (display.status === 'pending' || isSearching) {
     return (
       <>
-        <td colSpan={5} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
+        <td colSpan={6} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
           {isSearching ? '查詢中…' : '—'}
         </td>
         <td style={{ textAlign: 'center', background: rowBg }}>
@@ -838,7 +841,7 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
       '—';
     return (
       <>
-        <td colSpan={5} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
+        <td colSpan={6} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
           {emptyLabel}
         </td>
         <td style={{ textAlign: 'center', background: rowBg }}>
@@ -851,19 +854,28 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
 
   return (
     <>
-      {/* Stock */}
-      <td style={{ ...mono, textAlign: 'right', background: rowBg, borderLeft: '2px solid var(--border)' }}>
-        <span style={{ color: display.shortage ? 'var(--warn)' : 'inherit' }}>
-          {display.shortage ? '⚠ ' : ''}{display.stock?.toLocaleString() ?? '—'}
-        </span>
-        {display.marketplaceVariations?.map((mv, i) => (
-          <div key={i} style={{ marginTop: 3, fontSize: 10, color: 'var(--amber, #b45309)', lineHeight: 1.3, textAlign: 'right' }}>
-            <span title="商城產品（外部供應商）">🏪</span> {mv.stockQty.toLocaleString()}
-            <div style={{ color: 'var(--text-4)', fontSize: 9.5 }}>{mv.supplierName}</div>
-            <div style={{ color: 'var(--text-4)', fontSize: 9.5 }}>MOQ {mv.minQty.toLocaleString()}</div>
-          </div>
-        ))}
-      </td>
+      {/* Stock (總) */}
+      {(() => {
+        const externalQty = (display.marketplaceVariations ?? []).reduce((sum, mv) => sum + mv.stockQty, 0);
+        const totalStock = (display.stock ?? 0) + externalQty;
+        return (
+          <>
+            <td style={{ ...mono, textAlign: 'right', background: rowBg, borderLeft: '2px solid var(--border)' }}>
+              <span style={{ color: display.shortage && externalQty === 0 ? 'var(--warn)' : 'inherit' }}>
+                {display.shortage && externalQty === 0 ? '⚠ ' : ''}{totalStock.toLocaleString()}
+              </span>
+            </td>
+            {/* 外部Stock */}
+            <td style={{ ...mono, textAlign: 'right', background: rowBg }}>
+              {externalQty > 0 ? (
+                <span style={{ color: '#b45309' }}>
+                  🏪 {externalQty.toLocaleString()}
+                </span>
+              ) : <span style={dim}>—</span>}
+            </td>
+          </>
+        );
+      })()}
       {/* MPQ */}
       <td style={{ ...mono, textAlign: 'right', background: rowBg }}>
         <span style={dim}>{(display.mpq ?? display.moq)?.toLocaleString() ?? '—'}</span>
@@ -907,11 +919,6 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
       {/* 狀態 */}
       <td style={{ textAlign: 'center', background: rowBg, verticalAlign: 'middle' }}>
         <StatusBadge status={display.status} errorMsg={display.errorMsg} />
-        {display.marketplaceVariations?.length ? (
-          <div style={{ marginTop: 3 }}>
-            <span className="badge badge-orange">外部庫存</span>
-          </div>
-        ) : null}
         {display.status === 'mfr-mismatch' && bomManufacturer && display.apiManufacturer && (
           <div style={{ marginTop: 6 }}>
             <a
@@ -1185,7 +1192,7 @@ export default function BatchPage() {
 	                    <th className="sticky-col sticky-qty-mfr" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
 	                    <th className="sticky-col sticky-best-mfr" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
 	                    <th className="sticky-col sticky-fulfill-mfr" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
-                    <th colSpan={7} style={{ background: '#e8eef7', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--primary)', borderBottom: '1px solid var(--border)' }}>
+                    <th colSpan={8} style={{ background: '#e8eef7', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--primary)', borderBottom: '1px solid var(--border)' }}>
                       DigiKey
                     </th>
 	                    <th colSpan={7} style={{ background: '#fef7ed', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#9a3412', borderBottom: '1px solid var(--border)' }}>
@@ -1205,6 +1212,7 @@ export default function BatchPage() {
 	                    <th className="sticky-col sticky-fulfill-mfr" style={{ textAlign: 'center' }}>滿足狀態</th>
                     {/* DK cols */}
                     <th style={{ width: 90, textAlign: 'right', borderLeft: '2px solid var(--border)' }}>庫存</th>
+                    <th style={{ width: 80, textAlign: 'right' }}>外部庫存</th>
                     <th style={{ width: 88, textAlign: 'right' }}>MPQ</th>
                     <th style={{ width: 190 }}>報價明細</th>
                     <th style={{ width: 100, textAlign: 'right' }}>總價</th>
