@@ -213,9 +213,17 @@ function createMouserAdapter(name: string, envKey: string): SupplierAdapter {
     }
 
     const targetPartNumber = normalizePartNumber(opts.partNumber);
-    const allParts = (data.SearchResults?.Parts ?? []).filter(
+    const apiParts = data.SearchResults?.Parts ?? [];
+    const exactParts = apiParts.filter(
       (p) => normalizePartNumber(p.ManufacturerPartNumber) === targetPartNumber
     );
+    const suffixParts = exactParts.length
+      ? []
+      : apiParts.filter((p) => {
+          const apiMpn = normalizePartNumber(p.ManufacturerPartNumber);
+          return apiMpn.startsWith(targetPartNumber) && apiMpn !== targetPartNumber;
+        });
+    const allParts = exactParts.length ? exactParts : suffixParts;
 
     if (!allParts.length) {
       throw new SupplierError(name, 'EMPTY_RESULT', `No results for "${opts.partNumber}" on ${name}`);

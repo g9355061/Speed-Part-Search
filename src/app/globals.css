@@ -630,11 +630,13 @@ thead .sticky-col {
 .sticky-mpn { left: 32px; min-width: 210px; width: 210px; }
 .sticky-qty { left: 242px; min-width: 72px; width: 72px; }
 .sticky-best { left: 314px; min-width: 120px; width: 120px; }
-.sticky-fulfill { left: 434px; min-width: 96px; width: 96px; box-shadow: 2px 0 0 var(--border); }
+.sticky-fulfill { left: 434px; min-width: 96px; width: 96px; }
+.sticky-candidate { left: 530px; min-width: 180px; width: 180px; box-shadow: 2px 0 0 var(--border); }
 .sticky-mfr { left: 242px; min-width: 150px; width: 150px; }
 .sticky-qty-mfr { left: 392px; min-width: 72px; width: 72px; }
 .sticky-best-mfr { left: 464px; min-width: 120px; width: 120px; }
-.sticky-fulfill-mfr { left: 584px; min-width: 96px; width: 96px; box-shadow: 2px 0 0 var(--border); }
+.sticky-fulfill-mfr { left: 584px; min-width: 96px; width: 96px; }
+.sticky-candidate-mfr { left: 680px; min-width: 180px; width: 180px; box-shadow: 2px 0 0 var(--border); }
 tbody tr:hover .sticky-col { background: var(--surface-2); }
 tbody tr.row-shortage .sticky-col,
 tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }

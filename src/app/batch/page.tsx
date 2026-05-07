@@ -33,6 +33,7 @@ interface SupplierData {
   split?: PriceSplitLine[];
   totalCost?: number;
   marketplaceVariations?: ApiMarketplaceVariation[];
+  suffixCandidates?: SuffixCandidate[];
 }
 
 interface ResultRow extends BomRow {
@@ -56,6 +57,8 @@ interface ApiMarketplaceVariation {
   breaks: ApiPriceBreak[];
 }
 interface ApiPartResult {
+  manufacturerPartNumber: string;
+  manufacturer: string;
   quantityAvailable: number;
   unitPrice: number | null;
   currency: string;
@@ -73,6 +76,15 @@ interface ApiSupplierBlock {
 interface ApiSearchResponse {
   partNumber: string;
   suppliers: ApiSupplierBlock[];
+}
+
+interface SuffixCandidate {
+  supplier: string;
+  manufacturerPartNumber: string;
+  suffix: string;
+  stock: number;
+  manufacturer?: string;
+  productUrl?: string;
 }
 
 /* ══════════════════════════════════════════
@@ -141,6 +153,43 @@ function leadLabel(days?: number | null): string {
   return `${Math.round(days / 7)}w`;
 }
 
+function normalizeMpn(value?: string): string {
+  return String(value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function displaySuffix(bomMpn: string, candidateMpn: string): string {
+  const escaped = bomMpn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rawSuffix = candidateMpn.replace(new RegExp(`^\\s*${escaped}`, 'i'), '').trim();
+  if (rawSuffix) return rawSuffix;
+  const target = normalizeMpn(bomMpn);
+  const candidate = normalizeMpn(candidateMpn);
+  return candidate.startsWith(target) ? candidate.slice(target.length) : '';
+}
+
+function findExactMpnResult(block: ApiSupplierBlock, bomMpn: string): ApiPartResult | undefined {
+  const target = normalizeMpn(bomMpn);
+  return block.results.find((r) => normalizeMpn(r.manufacturerPartNumber) === target);
+}
+
+function findSuffixCandidates(block: ApiSupplierBlock, bomMpn: string): SuffixCandidate[] {
+  const target = normalizeMpn(bomMpn);
+  if (!target) return [];
+  return block.results
+    .filter((r) => {
+      const apiMpn = normalizeMpn(r.manufacturerPartNumber);
+      return apiMpn.startsWith(target) && apiMpn !== target;
+    })
+    .slice(0, 3)
+    .map((r) => ({
+      supplier: block.supplier,
+      manufacturerPartNumber: r.manufacturerPartNumber,
+      suffix: displaySuffix(bomMpn, r.manufacturerPartNumber),
+      stock: r.quantityAvailable,
+      manufacturer: r.manufacturer,
+      productUrl: r.productUrl,
+    }));
+}
+
 function parseQuantityValue(value: unknown, isShortageColumn: boolean): number {
   const raw = String(value ?? '').trim();
   const numeric = typeof value === 'number'
@@ -151,7 +200,7 @@ function parseQuantityValue(value: unknown, isShortageColumn: boolean): number {
   return qty > 0 ? Math.round(qty) : 1;
 }
 
-function mapSupplier(block: ApiSupplierBlock | undefined, qty: number): SupplierData {
+function mapSupplier(block: ApiSupplierBlock | undefined, qty: number, bomMpn: string): SupplierData {
   if (!block) return { status: 'notfound' };
   if (block.error) {
     const supplier = block.supplier.toLowerCase();
@@ -175,8 +224,11 @@ function mapSupplier(block: ApiSupplierBlock | undefined, qty: number): Supplier
     }
     return { status: 'error', errorMsg: block.error.code };
   }
-  const r = block.results[0];
-  if (!r) return { status: 'notfound' };
+  const r = findExactMpnResult(block, bomMpn);
+  if (!r) {
+    const suffixCandidates = findSuffixCandidates(block, bomMpn);
+    return suffixCandidates.length ? { status: 'notfound', suffixCandidates } : { status: 'notfound' };
+  }
 
   const stock = r.quantityAvailable;
   const shortage = stock < qty;
@@ -254,10 +306,10 @@ async function searchBoth(
     const activeSuppliers = retrySuppliers.filter((s) => !disabled.has(s));
     if (!activeSuppliers.length) {
       return {
-        digikey: resolved.digikey ? mapSupplier(resolved.digikey, qty) : disabled.has('digikey') ? { status: 'limited', errorMsg: 'Resets TW 08:00' } : mapSupplier(resolved.digikey, qty),
+        digikey: resolved.digikey ? mapSupplier(resolved.digikey, qty, mpn) : disabled.has('digikey') ? { status: 'limited', errorMsg: 'Resets TW 08:00' } : mapSupplier(resolved.digikey, qty, mpn),
         mouser: { status: 'skipped' },
-        mouserHk: resolved.mouserHk ? mapSupplier(resolved.mouserHk, qty) : disabled.has('mouserHk') ? { status: 'skipped' } : mapSupplier(resolved.mouserHk, qty),
-        mouserVn: resolved.mouserVn ? mapSupplier(resolved.mouserVn, qty) : disabled.has('mouserVn') ? { status: 'skipped' } : mapSupplier(resolved.mouserVn, qty),
+        mouserHk: resolved.mouserHk ? mapSupplier(resolved.mouserHk, qty, mpn) : disabled.has('mouserHk') ? { status: 'skipped' } : mapSupplier(resolved.mouserHk, qty, mpn),
+        mouserVn: resolved.mouserVn ? mapSupplier(resolved.mouserVn, qty, mpn) : disabled.has('mouserVn') ? { status: 'skipped' } : mapSupplier(resolved.mouserVn, qty, mpn),
       };
     }
 
@@ -319,10 +371,10 @@ async function searchBoth(
       if (attempt < 2 && retrySuppliers.length > 0) continue;
 
       return {
-        digikey: (resolved.digikey ?? dk) ? mapSupplier(resolved.digikey ?? dk, qty) : disabled.has('digikey') ? { status: 'limited', errorMsg: 'Resets TW 08:00' } : mapSupplier(undefined, qty),
+        digikey: (resolved.digikey ?? dk) ? mapSupplier(resolved.digikey ?? dk, qty, mpn) : disabled.has('digikey') ? { status: 'limited', errorMsg: 'Resets TW 08:00' } : mapSupplier(undefined, qty, mpn),
         mouser:  { status: 'skipped' },
-        mouserHk: (resolved.mouserHk ?? mhk) ? mapSupplier(resolved.mouserHk ?? mhk, qty) : disabled.has('mouserHk') ? { status: 'skipped' } : mapSupplier(undefined, qty),
-        mouserVn: (resolved.mouserVn ?? mvn) ? mapSupplier(resolved.mouserVn ?? mvn, qty) : disabled.has('mouserVn') ? { status: 'skipped' } : mapSupplier(undefined, qty),
+        mouserHk: (resolved.mouserHk ?? mhk) ? mapSupplier(resolved.mouserHk ?? mhk, qty, mpn) : disabled.has('mouserHk') ? { status: 'skipped' } : mapSupplier(undefined, qty, mpn),
+        mouserVn: (resolved.mouserVn ?? mvn) ? mapSupplier(resolved.mouserVn ?? mvn, qty, mpn) : disabled.has('mouserVn') ? { status: 'skipped' } : mapSupplier(undefined, qty, mpn),
       };
     } catch {
       if (attempt === 2) return {
@@ -424,13 +476,13 @@ const THIN_BORDER = {
 };
 
 const SUPPLIER_EXPORT_GROUPS = [
-  { start: 4, end: 12, header: '1565C0', fill: 'F4F8FF' },   // DigiKey (9 cols)
-  { start: 13, end: 18, header: 'EF6C00', fill: 'FFF3E8' },  // Mouser HK (6 cols)
-  { start: 19, end: 24, header: '047857', fill: 'ECFDF5' },  // Mouser VN (6 cols)
+  { start: 5, end: 13, header: '1565C0', fill: 'F4F8FF' },   // DigiKey (9 cols)
+  { start: 14, end: 19, header: 'EF6C00', fill: 'FFF3E8' },  // Mouser HK (6 cols)
+  { start: 20, end: 25, header: '047857', fill: 'ECFDF5' },  // Mouser VN (6 cols)
 ];
 
 const EXPORT_COL_WIDTHS = [
-  26, 9, 16, 14,
+  26, 9, 16, 14, 28,
   13, 11, 8, 22, 12, 10, 14, 14, 14,  // DK: Stock 外部Stock MPQ 報價 料件總價 運費 含運總價 含運平均 狀態
   14, 8, 22, 12, 12, 14,               // HK
   14, 8, 22, 12, 12, 14,               // VN
@@ -447,7 +499,7 @@ function exportCellStyle(fill: string, opts: { bold?: boolean; color?: string; a
 }
 
 function estimatedRowHeight(values: unknown[]): number {
-  const detailColumns = [7, 15, 21];
+  const detailColumns = [4, 8, 16, 22];
   const maxLines = Math.max(
     1,
     ...detailColumns.map((c) => {
@@ -465,24 +517,24 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
   ws['!cols'] = EXPORT_COL_WIDTHS.map((wch) => ({ wch }));
   ws['!rows'] = Array.from({ length: rowCount }, (_, i) => {
     if (i === 0 || i === 1) return { hpt: 26 };
-    const values = Array.from({ length: 25 }, (_, c) => ws[XLSX.utils.encode_cell({ r: i, c })]?.v ?? '');
+    const values = Array.from({ length: 26 }, (_, c) => ws[XLSX.utils.encode_cell({ r: i, c })]?.v ?? '');
     return { hpt: estimatedRowHeight(values) };
   });
-  ws['!autofilter'] = { ref: `A2:Y${rowCount}` };
+  ws['!autofilter'] = { ref: `A2:Z${rowCount}` };
   ws['!merges'] = [
-    { s: { r: 0, c: 4 }, e: { r: 0, c: 12 } },   // DigiKey 9 cols
-    { s: { r: 0, c: 13 }, e: { r: 0, c: 18 } },   // Mouser HK 6 cols
-    { s: { r: 0, c: 19 }, e: { r: 0, c: 24 } },   // Mouser VN 6 cols
+    { s: { r: 0, c: 5 }, e: { r: 0, c: 13 } },   // DigiKey 9 cols
+    { s: { r: 0, c: 14 }, e: { r: 0, c: 19 } },   // Mouser HK 6 cols
+    { s: { r: 0, c: 20 }, e: { r: 0, c: 25 } },   // Mouser VN 6 cols
   ];
 
-  for (let c = 0; c <= 24; c++) {
+  for (let c = 0; c <= 25; c++) {
     const addr = XLSX.utils.encode_cell({ r: 0, c });
     const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
     if (ws[addr]) {
       ws[addr].s = exportCellStyle(group?.header ?? '263238', { bold: true, color: 'FFFFFF', align: 'center' });
     }
   }
-  for (let c = 0; c <= 24; c++) {
+  for (let c = 0; c <= 25; c++) {
     const addr = XLSX.utils.encode_cell({ r: 1, c });
     const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
     if (ws[addr]) {
@@ -491,15 +543,17 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
   }
 
   for (let r = 2; r < rowCount; r++) {
-    for (let c = 0; c <= 24; c++) {
+    for (let c = 0; c <= 25; c++) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) continue;
       const group = SUPPLIER_EXPORT_GROUPS.find((g) => c >= g.start && c <= g.end);
-      const fill = group?.fill ?? (r % 2 === 0 ? 'FFFFFF' : 'FAFAFA');
-      const align = c === 0 || c === 2 || c === 3 || [7, 12, 15, 18, 21, 24].includes(c) ? 'left' : 'right';
-      const isTotal = [8, 10, 16, 22].includes(c);   // 料件總價, 含運總價, HK總價, VN總價
-      const isFlatUnit = [11, 17, 23].includes(c);    // 含運平均, HK平均, VN平均
-      const isShipping = c === 9;                      // 運費 — empty, user fills
+      const dkStatus = String(ws[XLSX.utils.encode_cell({ r, c: 13 })]?.v ?? '');
+      const needsExternalShipping = c === 10 && dkStatus === '找到了/外部庫存';
+      const fill = needsExternalShipping ? 'FFE599' : group?.fill ?? (r % 2 === 0 ? 'FFFFFF' : 'FAFAFA');
+      const align = c === 0 || c === 2 || c === 3 || c === 4 || [8, 13, 16, 19, 22, 25].includes(c) ? 'left' : 'right';
+      const isTotal = [9, 11, 17, 23].includes(c);   // 料件總價, 含運總價, HK總價, VN總價
+      const isFlatUnit = [12, 18, 24].includes(c);    // 含運平均, HK平均, VN平均
+      const isShipping = c === 10;                     // 運費 — empty, user fills
       ws[addr].s = exportCellStyle(fill, {
         align,
         numFmt: isFlatUnit
@@ -510,7 +564,7 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
       });
     }
 
-    for (const c of [12, 18, 24]) {
+    for (const c of [13, 19, 25]) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) continue;
       const status = String(ws[addr].v ?? '').toLowerCase();
@@ -603,12 +657,12 @@ async function exportResults(rows: ResultRow[]) {
 
   const dataRows = rows.map((r) => {
     const summary = bestOfferSummary(r);
-    return [r.mpn, r.qty, summary.supplier, summary.fulfillment, ...supDKValues(r.digikey), ...supMouser(r.mouserHk, r.qty), ...supMouser(r.mouserVn, r.qty)];
+    return [r.mpn, r.qty, summary.supplier, summary.fulfillment, suffixCandidateSummary(r), ...supDKValues(r.digikey), ...supMouser(r.mouserHk, r.qty), ...supMouser(r.mouserVn, r.qty)];
   });
 
   const data = [
-    ['', '', '', '', 'DigiKey', '', '', '', '', '', '', '', '', 'Mouser HK', '', '', '', '', '', 'Mouser VN', '', '', '', '', ''],
-    ['MPN', 'Qty', '最低供應商', '滿足狀態',
+    ['', '', '', '', '', 'DigiKey', '', '', '', '', '', '', '', '', 'Mouser HK', '', '', '', '', '', 'Mouser VN', '', '', '', '', ''],
+    ['MPN', 'Qty', '最低供應商', '滿足狀態', '尾綴候選',
       'Stock', '外部Stock', 'MPQ', '報價', '料件總價', '運費', '含運總價', '含運平均單價', '狀態',
       'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態',
       'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態'],
@@ -617,18 +671,17 @@ async function exportResults(rows: ResultRow[]) {
 
   const ws = XLSX.utils.aoa_to_sheet(data);
 
-  // Formula cells: E=Stock(總), F=外部Stock, I=料件總價, J=運費, K=含運總價, L=含運平均
+  // Formula cells: F=Stock(總), G=外部Stock, J=料件總價, K=運費, L=含運總價, M=含運平均
   for (let i = 0; i < dataRows.length; i++) {
     const xlRow = i + 3;
-    const eRef = `E${xlRow}`; // 總Stock
-    const fRef = `F${xlRow}`; // 外部Stock
-    const iRef = `I${xlRow}`; // 料件總價
-    const jRef = `J${xlRow}`; // 運費
-    const kRef = `K${xlRow}`; // 含運總價
+    const fRef = `F${xlRow}`; // 總Stock
+    const jRef = `J${xlRow}`; // 料件總價
+    const kRef = `K${xlRow}`; // 運費
+    const lRef = `L${xlRow}`; // 含運總價
     const bRef = `B${xlRow}`; // Qty
 
-    ws[`K${xlRow}`] = { t: 'n', f: `IF(${iRef}="","",${iRef}+IF(${jRef}="",0,${jRef}))` };
-    ws[`L${xlRow}`] = { t: 'n', f: `IF(OR(${kRef}="",${bRef}=0),"",${kRef}/IF(${eRef}<${bRef},${eRef},${bRef}))` };
+    ws[`L${xlRow}`] = { t: 'n', f: `IF(${jRef}="","",${jRef}+IF(${kRef}="",0,${kRef}))` };
+    ws[`M${xlRow}`] = { t: 'n', f: `IF(OR(${lRef}="",${bRef}=0),"",${lRef}/IF(${fRef}<${bRef},${fRef},${bRef}))` };
   }
 
   styleResultsSheet(ws, data.length);
@@ -748,6 +801,40 @@ function bestOfferSummary(r: ResultRow): { supplier: string; fulfillment: string
     supplier: tied.map((item) => item.label).join(' / '),
     fulfillment: bestFulfillment ? '完全滿足' : '部分滿足',
   };
+}
+
+function suffixCandidateSummary(r: ResultRow): string {
+  const items = [
+    ...((r.digikey.suffixCandidates ?? []).map((c) => ({ ...c, supplier: SUPPLIER_LABELS.digikey }))),
+    ...((r.mouserHk.suffixCandidates ?? []).map((c) => ({ ...c, supplier: SUPPLIER_LABELS.mouserHk }))),
+    ...((r.mouserVn.suffixCandidates ?? []).map((c) => ({ ...c, supplier: SUPPLIER_LABELS.mouserVn }))),
+  ];
+  if (!items.length) return '—';
+  return items
+    .slice(0, 3)
+    .map((c) => `${c.supplier}: ${c.manufacturerPartNumber}${c.suffix ? ` (+${c.suffix})` : ''} / Stock ${c.stock.toLocaleString()}`)
+    .join('\n');
+}
+
+function SuffixCandidateCell({ row }: { row: ResultRow }) {
+  const text = suffixCandidateSummary(row);
+  const hasCandidates = text !== '—';
+  return (
+    <td className="sticky-col sticky-candidate" style={{ textAlign: 'left' }}>
+      <span
+        className="mono"
+        style={{
+          color: hasCandidates ? '#92400e' : 'var(--text-4)',
+          display: 'block',
+          fontSize: 11,
+          lineHeight: 1.35,
+          whiteSpace: 'pre-line',
+        }}
+      >
+        {text}
+      </span>
+    </td>
+  );
 }
 
 function SupplierCell({ s, qty, name, showExternalStock = false }: { s: SupplierData; qty: number; name: string; showExternalStock?: boolean }) {
@@ -1077,7 +1164,7 @@ export default function BatchPage() {
               </h3>
             </div>
             <div className="card-bd flush" style={{ overflowX: 'auto' }}>
-	              <table className="sup-tbl" style={{ minWidth: 2160 }}>
+	              <table className="sup-tbl" style={{ minWidth: 2340 }}>
                 <thead>
                   {/* supplier group header */}
                   <tr>
@@ -1086,6 +1173,7 @@ export default function BatchPage() {
                     <th className="sticky-col sticky-qty" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
                     <th className="sticky-col sticky-best" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
                     <th className="sticky-col sticky-fulfill" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
+                    <th className="sticky-col sticky-candidate" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
                     <th colSpan={8} style={{ background: '#e8eef7', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--primary)', borderBottom: '1px solid var(--border)' }}>
                       DigiKey
                     </th>
@@ -1103,6 +1191,7 @@ export default function BatchPage() {
                     <th className="sticky-col sticky-qty" style={{ textAlign: 'center' }}>數量</th>
                     <th className="sticky-col sticky-best" style={{ textAlign: 'center' }}>最低供應商</th>
                     <th className="sticky-col sticky-fulfill" style={{ textAlign: 'center' }}>滿足狀態</th>
+                    <th className="sticky-col sticky-candidate" style={{ textAlign: 'center' }}>尾綴候選</th>
                     {/* DK cols */}
                     <th style={{ width: 90, textAlign: 'right', borderLeft: '2px solid var(--border)' }}>庫存</th>
                     <th style={{ width: 80, textAlign: 'right' }}>外部庫存</th>
@@ -1142,6 +1231,7 @@ export default function BatchPage() {
 	                      <td className="sticky-col sticky-qty" style={{ textAlign: 'center', ...mono }}>{r.qty.toLocaleString()}</td>
 	                      <td className="sticky-col sticky-best" style={{ textAlign: 'center' }}><span style={{ fontSize: 12 }}>{summary.supplier}</span></td>
 	                      <td className="sticky-col sticky-fulfill" style={{ textAlign: 'center' }}><span style={{ fontSize: 12, color: summary.fulfillment === '部分滿足' ? 'var(--warn)' : 'var(--accent)' }}>{summary.fulfillment}</span></td>
+	                      <SuffixCandidateCell row={r} />
 	                      <SupplierCell s={r.digikey} qty={r.qty} name="DK" showExternalStock />
 	                      <SupplierCell s={r.mouserHk} qty={r.qty} name="HK" />
 	                      <SupplierCell s={r.mouserVn} qty={r.qty} name="VN" />
