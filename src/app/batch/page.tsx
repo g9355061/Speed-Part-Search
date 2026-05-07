@@ -581,7 +581,6 @@ async function exportResults(rows: ResultRow[]) {
   // Col indices: E=4 Stock, F=5 外部Stock, G=6 MPQ, H=7 報價, I=8 料件總價, J=9 運費, K=10 含運總價, L=11 含運平均, M=12 狀態
   const supDKValues = (s: SupplierData) => {
     const externalQty = (s.marketplaceVariations ?? []).reduce((sum, mv) => sum + mv.stockQty, 0);
-    const totalStock = (s.stock ?? 0) + externalQty;
     if (s.status === 'skipped') return ['', '', '', 'Skipped', '', '', '', '', 'Skipped'];
     if (s.status === 'restricted') return ['', '', '', '供貨限制', '', '', '', '', '供貨限制'];
     if (s.status === 'limited') return ['', '', '', s.errorMsg ?? 'Limit exceeded', '', '', '', '', 'Limit'];
@@ -591,7 +590,7 @@ async function exportResults(rows: ResultRow[]) {
       : s.unitPrice != null ? `$${s.unitPrice.toFixed(4)}` : '';
     const mpq = s.mpq ?? s.moq ?? '';
     return [
-      totalStock || '',
+      s.stock ?? '',
       externalQty > 0 ? externalQty : '',
       mpq, detail,
       s.totalCost != null ? s.totalCost : '',
@@ -629,8 +628,7 @@ async function exportResults(rows: ResultRow[]) {
     const bRef = `B${xlRow}`; // Qty
 
     ws[`K${xlRow}`] = { t: 'n', f: `IF(${iRef}="","",${iRef}+IF(${jRef}="",0,${jRef}))` };
-    // divisor = internal stock (E-F) when shortage, else qty
-    ws[`L${xlRow}`] = { t: 'n', f: `IF(OR(${kRef}="",${bRef}=0),"",${kRef}/IF((${eRef}-${fRef})<${bRef},(${eRef}-${fRef}),${bRef}))` };
+    ws[`L${xlRow}`] = { t: 'n', f: `IF(OR(${kRef}="",${bRef}=0),"",${kRef}/IF(${eRef}<${bRef},${eRef},${bRef}))` };
   }
 
   styleResultsSheet(ws, data.length);
@@ -792,16 +790,14 @@ function SupplierCell({ s, qty, name }: { s: SupplierData; qty: number; name: st
 
   return (
     <>
-      {/* Stock (總) */}
+      {/* Stock */}
       {(() => {
         const externalQty = (s.marketplaceVariations ?? []).reduce((sum, mv) => sum + mv.stockQty, 0);
-        const totalStock = (s.stock ?? 0) + externalQty;
-        const internalShortage = s.shortage;
         return (
           <>
             <td style={{ ...mono, textAlign: 'right', background: rowBg, borderLeft: '2px solid var(--border)' }}>
-              <span style={{ color: internalShortage && externalQty === 0 ? 'var(--warn)' : 'inherit' }}>
-                {internalShortage && externalQty === 0 ? '⚠ ' : ''}{totalStock.toLocaleString()}
+              <span style={{ color: s.shortage ? 'var(--warn)' : 'inherit' }}>
+                {s.shortage ? '⚠ ' : ''}{s.stock?.toLocaleString() ?? '—'}
               </span>
             </td>
             {/* 外部Stock */}
