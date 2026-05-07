@@ -597,7 +597,7 @@ async function exportResults(rows: ResultRow[]) {
       '',   // 運費 — user fills manually
       '',   // 含運總價 — formula
       '',   // 含運平均 — formula
-      statusLabel(s.status, s.errorMsg),
+      s.status === 'found' && externalQty > 0 ? '找到了/外部庫存' : statusLabel(s.status, s.errorMsg),
     ];
   };
 
