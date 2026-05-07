@@ -655,11 +655,11 @@ function statusLabel(status: RowStatus, errorMsg?: string): string {
   return map[status].label;
 }
 
-function StatusBadge({ status, errorMsg }: { status: RowStatus; errorMsg?: string }) {
+function StatusBadge({ status, errorMsg, hasExternalStock }: { status: RowStatus; errorMsg?: string; hasExternalStock?: boolean }) {
   const map: Record<RowStatus, { label: string; cls: string }> = {
     pending:   { label: statusLabel(status),    cls: 'badge-gray' },
     searching: { label: statusLabel(status),    cls: 'badge-blue' },
-    found:     { label: statusLabel(status),      cls: 'badge-green' },
+    found:     { label: hasExternalStock ? '找到了/外部庫存' : statusLabel(status), cls: 'badge-green' },
     notfound:  { label: statusLabel(status),  cls: 'badge-warn' },
     restricted:{ label: statusLabel(status), cls: 'badge-purple' },
     limited:   { label: statusLabel(status),      cls: 'badge-red' },
@@ -848,7 +848,7 @@ function SupplierCell({ s, qty, name }: { s: SupplierData; qty: number; name: st
       </td>
       {/* 狀態 */}
       <td style={{ textAlign: 'center', background: rowBg }}>
-        <StatusBadge status={s.status} />
+        <StatusBadge status={s.status} hasExternalStock={(s.marketplaceVariations?.length ?? 0) > 0} />
       </td>
       {/* 連結 */}
       <td style={{ textAlign: 'center', background: rowBg }}>

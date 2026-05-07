@@ -692,11 +692,11 @@ function statusLabel(status: RowStatus, errorMsg?: string): string {
   return map[status].label;
 }
 
-function StatusBadge({ status, errorMsg }: { status: RowStatus; errorMsg?: string }) {
+function StatusBadge({ status, errorMsg, hasExternalStock }: { status: RowStatus; errorMsg?: string; hasExternalStock?: boolean }) {
   const map: Record<RowStatus, { label: string; cls: string }> = {
 	    pending:   { label: statusLabel(status),    cls: 'badge-gray' },
 	    searching: { label: statusLabel(status),    cls: 'badge-blue' },
-	    found:     { label: statusLabel(status),      cls: 'badge-green' },
+	    found:     { label: hasExternalStock ? '找到了/外部庫存' : statusLabel(status), cls: 'badge-green' },
 	    'mfr-suspect': { label: statusLabel(status), cls: 'badge-blue' },
 	    'mfr-mismatch': { label: statusLabel(status), cls: 'badge-orange' },
 	    notfound:  { label: statusLabel(status),  cls: 'badge-warn' },
@@ -916,7 +916,7 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases }: { s: SupplierD
       </td>
       {/* 狀態 */}
       <td style={{ textAlign: 'center', background: rowBg, verticalAlign: 'middle' }}>
-        <StatusBadge status={display.status} errorMsg={display.errorMsg} />
+        <StatusBadge status={display.status} errorMsg={display.errorMsg} hasExternalStock={(display.marketplaceVariations?.length ?? 0) > 0} />
         {display.status === 'mfr-mismatch' && bomManufacturer && display.apiManufacturer && (
           <div style={{ marginTop: 6 }}>
             <a

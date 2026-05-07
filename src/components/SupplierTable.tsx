@@ -79,6 +79,7 @@ export function SupplierTable({ suppliers, sortKey, sortDir, onSort, bestIds, qt
           const totalCost = Number.isFinite(unitPriceAtQty) ? unitPriceAtQty * effectiveQty : null;
           const noStock = !isUnavailable && s.stock <= 0;
           const shortage = !isUnavailable && s.stock > 0 && s.stock < qty;
+          const hasExternalStock = (s.marketplaceVariations?.length ?? 0) > 0;
           const vsBest =
             isBest || !bestSupplier || isUnavailable || noStock || bestPriceAtQty <= 0 || !Number.isFinite(unitPriceAtQty)
               ? 0
@@ -178,9 +179,9 @@ export function SupplierTable({ suppliers, sortKey, sortDir, onSort, bestIds, qt
                   ) : noStock ? (
                     <span className="fulfill-flag none">沒有庫存</span>
                   ) : shortage ? (
-                    <span className="fulfill-flag partial">部分滿足</span>
+                    <span className="fulfill-flag partial">{hasExternalStock ? '部分滿足/外部庫存' : '部分滿足'}</span>
                   ) : (
-                    <span className="fulfill-flag full">完全滿足</span>
+                    <span className="fulfill-flag full">{hasExternalStock ? '完全滿足/外部庫存' : '完全滿足'}</span>
                   )}
                 </div>
               </td>
