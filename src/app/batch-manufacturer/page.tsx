@@ -1133,6 +1133,16 @@ export default function BatchPage() {
               <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
             </svg>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <svg width="22" height="18" viewBox="0 0 56 46" fill="none">
+              <circle cx="13" cy="10" r="10" fill="#CC2200" />
+              <circle cx="38" cy="19" r="7" fill="#CC2200" />
+              <line x1="13" y1="10" x2="38" y2="19" stroke="#CC2200" strokeWidth="4" strokeLinecap="round" />
+              <line x1="13" y1="10" x2="20" y2="36" stroke="#CC2200" strokeWidth="4" strokeLinecap="round" />
+              <circle cx="20" cy="38" r="5" fill="#CC2200" />
+            </svg>
+            <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: '0.06em', color: '#1a1a1a' }}>YAS</span>
+          </div>
           <div className="name">SpeedPart<span className="dot">.</span></div>
         </Link>
         <nav className="hdr-nav">
@@ -1257,7 +1267,7 @@ export default function BatchPage() {
                 </span>
               </h3>
             </div>
-            <div className="card-bd flush" style={{ overflowX: 'auto' }}>
+            <div className="card-bd flush" style={{ overflowX: 'auto', paddingBottom: 16 }}>
 	              <table className="sup-tbl" style={{ minWidth: 2520 }}>
                 <thead>
                   {/* supplier group header */}
