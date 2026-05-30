@@ -1,6 +1,38 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-30（市場報告可信度重構：移除硬編假資料、降級為情報佐證、新增 sourceStatus/extractionMethod/signalLevel 透明度欄位、schemaVersion 快取清除策略、前端矩陣文案與 badge 調整）
+> 最後更新：2026-05-30（完成管理員審核、手動匯入市場情報 Modal、六種情報信號層級徽章、調整對照矩陣欄位順序以防範誤導；市場報告可信度重構：移除硬編假資料、降級為情報佐證、新增 sourceStatus/extractionMethod/signalLevel 透明度欄位、schemaVersion 快取清除策略）
+
+---
+
+### 2026-05-30 — 市場報告管理審核與手動匯入重構
+
+- [x] **實作管理員審核工作流**
+  - 當登入身分為 admin 時，在下方「市場報告與產業情報佐證」面板中，為每筆狀態為 `auto_candidate` 或 `auto` 的卡片提供三項審核操作按鈕：
+    - 「確認為有效佐證」：呼叫 `/api/demand-forecast/market-reports/review` 傳送 `confirm_evidence`，將信號升級為 `confirmed_evidence` (有效佐證 🔵)。
+    - 「確認為市場風險」：呼叫 `/api/demand-forecast/market-reports/review` 傳送 `confirm_risk`，將信號升級為 `confirmed_risk` (確認風險 🔴)。
+    - 「忽略此情報」：呼叫 `/api/demand-forecast/market-reports/review` 傳送 `ignore`，將狀態變更為 `ignored` 🔘。
+  - 當情報已經過審核後，顯示審核者名稱、審核時間及可選填的審核備註。
+
+- [x] **實作人工手動匯入市場情報**
+  - 在列表面板頂部新增「人工匯入市場情報」按鈕（僅 admin 可見）。
+  - 點擊後開啟高質感 Modal 彈窗，提供完整的欄位表單：
+    - 情報來源 (必填)、情報標題 (必填)、原文網址 (必填)、發布日期 (選填)。
+    - 分析信心度 (高/中/低)、確認層級 (有效佐證/確認風險)。
+    - 涉及料件類別 (複選網格，涵蓋 C01 ~ C15，至少選一項)。
+    - 風險類型 (複選網格，涵蓋七種風險，至少選一項)。
+    - 中文摘要說明 (必填)、佐證證據原文 (必填)、管理員備註 (選填)。
+  - 呼叫全新 API 端點 `/api/demand-forecast/market-reports/manual` 將手動匯入數據寫入快取，並立即重新整理前端顯示。
+
+- [x] **重構六信號層級分流與對照矩陣調整**
+  - 對照矩陣中的 badge 信號層級由原先的四種擴展為這六種，且明確以文字與背景色呈現：
+    - `no_signal`（灰色「無情報」）
+    - `source_unavailable`（灰色「來源未取得」）
+    - `candidate`（藍色「有情報 (候選)」）
+    - `multi_source_candidate`（黃色「多來源 (候選)」）
+    - `confirmed_evidence`（藍色「有效佐證」）
+    - `confirmed_risk`（紅色「確認風險」）
+  - 前端與後端同步落實 `source_unavailable` 的處理，若所有來源均無法連線，類別將明確顯示「來源未取得」灰色 badge，避免使用者誤解。
+  - 調整對照矩陣的欄位順序以防範誤導：第一欄類別、第二欄 RSS、第三欄 生命週期、第四欄 實時通路庫存、第五欄 市場報告。將市場報告移至最後一欄，避免被當成主要判定來源。
 
 ---
 

@@ -312,6 +312,97 @@ export default function DemandForecastPage() {
   const [marketSourceResults, setMarketSourceResults] = useState<any[]>([]);
   const [loadingMarketReports, setLoadingMarketReports] = useState(false);
 
+  // 人工匯入市場情報彈窗狀態與表單欄位
+  const [showManualImportModal, setShowManualImportModal] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const [importSource, setImportSource] = useState('');
+  const [importTitle, setImportTitle] = useState('');
+  const [importUrl, setImportUrl] = useState('');
+  const [importPublishedAt, setImportPublishedAt] = useState('');
+  const [importCategoryIds, setImportCategoryIds] = useState<string[]>([]);
+  const [importRiskTypes, setImportRiskTypes] = useState<string[]>([]);
+  const [importSummaryZh, setImportSummaryZh] = useState('');
+  const [importEvidenceText, setImportEvidenceText] = useState('');
+  const [importConfidence, setImportConfidence] = useState<'low' | 'medium' | 'high'>('high');
+  const [importSignalLevel, setImportSignalLevel] = useState<'confirmed_evidence' | 'confirmed_risk'>('confirmed_evidence');
+  const [importNotes, setImportNotes] = useState('');
+
+  const fetchMarketReports = () => {
+    setLoadingMarketReports(true);
+    fetch('/api/demand-forecast/market-reports')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.reports) {
+          setMarketReports(json.reports);
+        }
+        if (json.sourceResults) {
+          setMarketSourceResults(json.sourceResults);
+        }
+      })
+      .catch((err) => console.error('Failed to load market reports:', err))
+      .finally(() => setLoadingMarketReports(false));
+  };
+
+  const handleOpenImportModal = () => {
+    setImportSource('');
+    setImportTitle('');
+    setImportUrl('');
+    setImportPublishedAt('');
+    setImportCategoryIds([]);
+    setImportRiskTypes([]);
+    setImportSummaryZh('');
+    setImportEvidenceText('');
+    setImportConfidence('high');
+    setImportSignalLevel('confirmed_evidence');
+    setImportNotes('');
+    setImportError(null);
+    setShowManualImportModal(true);
+  };
+
+  const handleManualImportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importSource || !importTitle || !importUrl || importCategoryIds.length === 0 || importRiskTypes.length === 0 || !importSummaryZh || !importEvidenceText) {
+      setImportError('請填寫所有必填欄位，並至少選擇一個料件類別與風險類型。');
+      return;
+    }
+    setImporting(true);
+    setImportError(null);
+    try {
+      const resp = await fetch('/api/demand-forecast/market-reports/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: importSource,
+          title: importTitle,
+          url: importUrl,
+          publishedAt: importPublishedAt ? new Date(importPublishedAt).toISOString() : null,
+          categoryIds: importCategoryIds,
+          riskTypes: importRiskTypes,
+          summaryZh: importSummaryZh,
+          evidenceText: importEvidenceText,
+          confidence: importConfidence,
+          signalLevel: importSignalLevel,
+          notes: importNotes,
+        }),
+      });
+
+      if (resp.ok) {
+        setShowManualImportModal(false);
+        fetchMarketReports();
+      } else {
+        const errJson = await resp.json();
+        setImportError(errJson.error || '匯入失敗');
+      }
+    } catch (err: any) {
+      setImportError(`連線錯誤: ${err.message}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+
   const handleMatrixClick = (categoryId: string, targetId: string) => {
     setCategory(categoryId);
     setTimeout(() => {
@@ -369,19 +460,7 @@ export default function DemandForecastPage() {
     loadThresholds();
     
     // 載入市場報告 (產業情報佐證)
-    setLoadingMarketReports(true);
-    fetch('/api/demand-forecast/market-reports')
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.reports) {
-          setMarketReports(json.reports);
-        }
-        if (json.sourceResults) {
-          setMarketSourceResults(json.sourceResults);
-        }
-      })
-      .catch((err) => console.error('Failed to load market reports:', err))
-      .finally(() => setLoadingMarketReports(false));
+    fetchMarketReports();
 
     fetch('/api/health')
       .then((resp) => resp.json())
@@ -390,40 +469,71 @@ export default function DemandForecastPage() {
   }, []);
 
   // 情報佐證信號 (非風險判定)
-  type MarketSignalLevel = 'none' | 'info' | 'multi_source' | 'confirmed_risk';
+  type MarketSignalLevel =
+    | 'no_signal'
+    | 'source_unavailable'
+    | 'candidate'
+    | 'multi_source_candidate'
+    | 'confirmed_evidence'
+    | 'confirmed_risk';
+
   const categoryMarketSignal = useMemo(() => {
     const result: Record<string, MarketSignalLevel> = {};
+    const hasAnyOkSource = marketSourceResults.some((sr: any) => sr.sourceStatus === 'ok');
+
     for (const cat of DEMAND_CATEGORIES) {
-      result[cat.categoryId] = 'none';
-    }
-    const catReportMap: Record<string, any[]> = {};
-    for (const rep of marketReports) {
-      for (const catId of rep.categoryIds) {
-        if (!catReportMap[catId]) catReportMap[catId] = [];
-        catReportMap[catId].push(rep);
+      const catId = cat.categoryId;
+
+      // Filter reports for this category that are not ignored
+      const catReports = marketReports.filter(
+        (r: any) => r.categoryIds.includes(catId) && r.status !== 'ignored'
+      );
+
+      // If no ok sources, it's source_unavailable (only if there are source results, i.e. not loading empty)
+      if (marketSourceResults.length > 0 && !hasAnyOkSource) {
+        result[catId] = 'source_unavailable';
+        continue;
       }
-    }
-    for (const [catId, reps] of Object.entries(catReportMap)) {
+
+      if (catReports.length === 0) {
+        result[catId] = 'no_signal';
+        continue;
+      }
+
       // Check for confirmed risk first (admin-confirmed only)
-      const confirmedRisk = reps.find(
+      const confirmedRisk = catReports.find(
         (r: any) => r.status === 'confirmed' && r.signalLevel === 'confirmed_risk'
       );
       if (confirmedRisk) {
         result[catId] = 'confirmed_risk';
         continue;
       }
+
+      // Check for confirmed evidence
+      const confirmedEvidence = catReports.find(
+        (r: any) => r.status === 'confirmed' && r.signalLevel === 'confirmed_evidence'
+      );
+      if (confirmedEvidence) {
+        result[catId] = 'confirmed_evidence';
+        continue;
+      }
+
       // Count unique auto sources
-      const autoReports = reps.filter((r: any) => r.status === 'auto' || r.status === 'confirmed');
-      if (autoReports.length === 0) continue;
-      const uniqueSources = new Set(autoReports.map((r: any) => r.source));
+      const candidateReports = catReports.filter(
+        (r: any) => r.status === 'auto_candidate' || r.status === 'auto'
+      );
+      const uniqueSources = new Set(candidateReports.map((r: any) => r.source));
+
       if (uniqueSources.size >= 2) {
-        result[catId] = 'multi_source';
+        result[catId] = 'multi_source_candidate';
       } else if (uniqueSources.size === 1) {
-        result[catId] = 'info';
+        result[catId] = 'candidate';
+      } else {
+        result[catId] = 'no_signal';
       }
     }
     return result;
-  }, [marketReports]);
+  }, [marketReports, marketSourceResults]);
 
   const fallbackParts: ForecastPart[] = BENCHMARK_PARTS.map((part) => ({
     ...part,
@@ -636,30 +746,30 @@ export default function DemandForecastPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '24%' }}>料件類別與安全/補貨門檻</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '19%' }}>
-                      <div>市場報告 / 產業情報佐證</div>
-                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        自動擷取公開情報，僅供佐證參考，不作為主判定
-                      </div>
-                    </th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '19%' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '20%' }}>料件類別與安全/補貨門檻</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
                       <div>RSS 新聞監測</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         14 天內 ≥2 則含缺料關鍵字新聞 → 風險
                       </div>
                     </th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '19%' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
                       <div>生命週期公告 (PCN/EOL)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         14 天內 ≥2 則含 EOL/PCN/停產關鍵字 → 風險
                       </div>
                     </th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '19%' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
                       <div>實時通路庫存 (API)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         🔴 庫存=0、(庫存 &lt; 補貨水位 且 最短交期 &gt;= 20週) 或 7天庫存暴跌 &gt; 80%<br />
                         🟡 庫存 &lt; 安全水位、交期 &gt;= 12週 或觸發 7天趨勢警示 (量/價/交期/供應商)
+                      </div>
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
+                      <div>市場報告 / 產業情報佐證</div>
+                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
+                        自動擷取公開情報，僅供佐證參考，不作為主判定
                       </div>
                     </th>
                   </tr>
@@ -679,7 +789,7 @@ export default function DemandForecastPage() {
                     const apiRiskLevel: 'high' | 'medium' | 'none' = apiSummary === '有缺料風險' ? 'high' : apiSummary === '中風險' ? 'medium' : 'none';
                     
                     // Determine Market Signal level (情報佐證, not risk)
-                    const marketSignal = categoryMarketSignal[cat.categoryId] || 'none';
+                    const marketSignal = categoryMarketSignal[cat.categoryId] || 'no_signal';
                     
                     return (
                       <tr key={cat.categoryId} style={{ borderTop: '1px solid var(--hairline)', background: '#fff' }}>
@@ -699,14 +809,6 @@ export default function DemandForecastPage() {
                             <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="安全水位 (Safety Stock)：維持生產不中斷的底線緩衝庫存。低於此數值會直接觸發中風險 (🟡)。">安全水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{catThresholds.minStock.toLocaleString()}</span> |{' '}
                             <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="補貨水位 (Reorder Point)：啟動採購補貨流程的預警庫存線。介於補貨與安全水位之間時，僅在補貨交期拉長時觸發警示。">補貨水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{catThresholds.lowStock.toLocaleString()}</span> 顆
                           </div>
-                        </td>
-                        <td
-                          className="matrix-cell-interactive"
-                          title="點擊跳轉查看該類別的市場情報佐證"
-                          onClick={() => handleMatrixClick(cat.categoryId, 'market-reports-panel')}
-                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
-                        >
-                          <MarketSignalBadge level={marketSignal} />
                         </td>
                         <td
                           className="matrix-cell-interactive"
@@ -737,6 +839,14 @@ export default function DemandForecastPage() {
                               尚未查詢
                             </span>
                           )}
+                        </td>
+                        <td
+                          className="matrix-cell-interactive"
+                          title="點擊跳轉查看該類別的市場情報佐證"
+                          onClick={() => handleMatrixClick(cat.categoryId, 'market-reports-panel')}
+                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
+                        >
+                          <MarketSignalBadge level={marketSignal} />
                         </td>
                       </tr>
                     );
@@ -802,6 +912,9 @@ export default function DemandForecastPage() {
             reports={marketReports}
             sourceResults={marketSourceResults}
             onSelectCategory={setCategory}
+            isAdmin={isAdmin}
+            onOpenImportModal={handleOpenImportModal}
+            onRefresh={fetchMarketReports}
           />
         </section>
 
@@ -1261,6 +1374,317 @@ export default function DemandForecastPage() {
           </div>
         </div>
       )}
+
+      {/* Modal Dialog for Manual Market Intelligence Import */}
+      {showManualImportModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            backdropFilter: 'blur(16px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+          onClick={() => {
+            if (!importing) {
+              setShowManualImportModal(false);
+            }
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+              width: '90%',
+              maxWidth: 800,
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              border: '1px solid var(--border)',
+              overflow: 'hidden',
+              animation: 'modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '18px 24px',
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--surface-2)',
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                ➕ 人工匯入市場情報 / 產業情報
+              </h3>
+              <button
+                disabled={importing}
+                onClick={() => setShowManualImportModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  color: 'var(--text-3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 18,
+                  fontWeight: 'bold',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Form Content */}
+            <form onSubmit={handleManualImportSubmit} style={{ display: 'flex', flexDirection: 'column', overflow: 'auto', flex: 1 }}>
+              <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {importError && (
+                  <div style={{ border: '1px solid #F5C2C7', background: '#FFF5F5', color: '#B42318', borderRadius: 8, padding: '10px 12px', fontSize: 13 }}>
+                    ⚠️ {importError}
+                  </div>
+                )}
+
+                {/* Row 1: Source & Title */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>情報來源 <span style={{ color: '#B42318' }}>*</span></label>
+                    <input
+                      required
+                      type="text"
+                      placeholder="例如: TTI MarketEYE, Fusion Worldwide..."
+                      value={importSource}
+                      onChange={(e) => setImportSource(e.target.value)}
+                      style={{ width: '100%', height: 36, border: '1px solid var(--border)', borderRadius: 6, padding: '0 10px', fontSize: 13 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>情報標題 <span style={{ color: '#B42318' }}>*</span></label>
+                    <input
+                      required
+                      type="text"
+                      placeholder="請輸入此情報的簡短標題"
+                      value={importTitle}
+                      onChange={(e) => setImportTitle(e.target.value)}
+                      style={{ width: '100%', height: 36, border: '1px solid var(--border)', borderRadius: 6, padding: '0 10px', fontSize: 13 }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 2: URL & Published At */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>原文網址 <span style={{ color: '#B42318' }}>*</span></label>
+                    <input
+                      required
+                      type="url"
+                      placeholder="請輸入此情報的來源 URL"
+                      value={importUrl}
+                      onChange={(e) => setImportUrl(e.target.value)}
+                      style={{ width: '100%', height: 36, border: '1px solid var(--border)', borderRadius: 6, padding: '0 10px', fontSize: 13 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>發布日期</label>
+                    <input
+                      type="date"
+                      value={importPublishedAt}
+                      onChange={(e) => setImportPublishedAt(e.target.value)}
+                      style={{ width: '100%', height: 36, border: '1px solid var(--border)', borderRadius: 6, padding: '0 10px', fontSize: 13 }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 3: Confidence & Signal Level */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>分析信心度</label>
+                    <select
+                      value={importConfidence}
+                      onChange={(e) => setImportConfidence(e.target.value as any)}
+                      style={{ width: '100%', height: 36, border: '1px solid var(--border)', borderRadius: 6, padding: '0 10px', fontSize: 13, background: '#fff' }}
+                    >
+                      <option value="high">🎯 高信心度</option>
+                      <option value="medium">🎯 中信心度</option>
+                      <option value="low">🎯 低信心度</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>信號確認層級</label>
+                    <select
+                      value={importSignalLevel}
+                      onChange={(e) => setImportSignalLevel(e.target.value as any)}
+                      style={{ width: '100%', height: 36, border: '1px solid var(--border)', borderRadius: 6, padding: '0 10px', fontSize: 13, background: '#fff' }}
+                    >
+                      <option value="confirmed_evidence">🔵 有效佐證 (Confirmed Evidence)</option>
+                      <option value="confirmed_risk">🔴 確認風險 (Confirmed Risk)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Categories Checkboxes Grid */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>
+                    涉及料件類別 (至少選一項) <span style={{ color: '#B42318' }}>*</span>
+                  </label>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                    gap: '8px 12px',
+                    padding: 12,
+                    background: 'var(--surface-2)',
+                    borderRadius: 8,
+                    border: '1px solid var(--border)',
+                    maxHeight: 160,
+                    overflowY: 'auto',
+                  }}>
+                    {DEMAND_CATEGORIES.map((cat) => (
+                      <label key={cat.categoryId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={importCategoryIds.includes(cat.categoryId)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setImportCategoryIds([...importCategoryIds, cat.categoryId]);
+                            } else {
+                              setImportCategoryIds(importCategoryIds.filter(id => id !== cat.categoryId));
+                            }
+                          }}
+                        />
+                        <span>{categoryNumber(cat.categoryId)} - {cat.category}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Risk Types Checkboxes Grid */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>
+                    風險類型 (至少選一項) <span style={{ color: '#B42318' }}>*</span>
+                  </label>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                    gap: '8px 12px',
+                    padding: 12,
+                    background: 'var(--surface-2)',
+                    borderRadius: 8,
+                    border: '1px solid var(--border)',
+                  }}>
+                    {[
+                      { value: 'lead_time_increase', label: '交期拉長' },
+                      { value: 'allocation', label: '產能配給 (Allocation)' },
+                      { value: 'price_increase', label: '價格調漲' },
+                      { value: 'demand_surge', label: '需求暴增' },
+                      { value: 'constrained_supply', label: '供貨吃緊' },
+                      { value: 'geopolitical', label: '地緣政治風險' },
+                      { value: 'lifecycle', label: '生命週期 EOL/PCN' },
+                    ].map((rt) => (
+                      <label key={rt.value} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={importRiskTypes.includes(rt.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setImportRiskTypes([...importRiskTypes, rt.value]);
+                            } else {
+                              setImportRiskTypes(importRiskTypes.filter(type => type !== rt.value));
+                            }
+                          }}
+                        />
+                        <span>{rt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Chinese Summary */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>中文摘要說明 <span style={{ color: '#B42318' }}>*</span></label>
+                  <textarea
+                    required
+                    placeholder="請輸入情報中文分析與說明摘要"
+                    value={importSummaryZh}
+                    onChange={(e) => setImportSummaryZh(e.target.value)}
+                    style={{ width: '100%', minHeight: 60, border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, resize: 'vertical' }}
+                  />
+                </div>
+
+                {/* Evidence原文 */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>佐證證據原文 (英文/關鍵句) <span style={{ color: '#B42318' }}>*</span></label>
+                  <textarea
+                    required
+                    placeholder="請貼上原文報告中具體的佐證段落字句"
+                    value={importEvidenceText}
+                    onChange={(e) => setImportEvidenceText(e.target.value)}
+                    style={{ width: '100%', minHeight: 60, border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 13, resize: 'vertical' }}
+                  />
+                </div>
+
+                {/* Admin notes */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6, color: 'var(--text-2)' }}>管理員審核備註 (選填)</label>
+                  <input
+                    type="text"
+                    placeholder="例如: 經與專案經理確認、此現貨價格屬實..."
+                    value={importNotes}
+                    onChange={(e) => setImportNotes(e.target.value)}
+                    style={{ width: '100%', height: 36, border: '1px solid var(--border)', borderRadius: 6, padding: '0 10px', fontSize: 13 }}
+                  />
+                </div>
+              </div>
+
+              {/* Footer Actions */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '16px 24px',
+                  borderTop: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={importing}
+                  onClick={() => setShowManualImportModal(false)}
+                  className="btn"
+                  style={{ fontSize: 13, height: 36, padding: '0 16px' }}
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={importing}
+                  className="btn-primary"
+                  style={{ fontSize: 13, height: 36, padding: '0 20px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  {importing ? '匯入中...' : '確認匯入'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1619,14 +2043,16 @@ const RISK_TYPE_LABELS: Record<string, string> = {
 };
 
 const SIGNAL_BADGE_CONFIG = {
-  none: { bg: '#F2F4F7', color: '#475467', dot: '#98A2B3', text: '無情報' },
-  info: { bg: '#EFF8FF', color: '#175CD3', dot: '#2E90FA', text: '有情報' },
-  multi_source: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', text: '多來源佐證' },
+  no_signal: { bg: '#F2F4F7', color: '#475467', dot: '#98A2B3', text: '無情報' },
+  source_unavailable: { bg: '#F9FAFB', color: '#667085', dot: '#D0D5DD', text: '來源未取得' },
+  candidate: { bg: '#EFF8FF', color: '#175CD3', dot: '#2E90FA', text: '有情報 (候選)' },
+  multi_source_candidate: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', text: '多來源 (候選)' },
+  confirmed_evidence: { bg: '#EEF4FF', color: '#3538CD', dot: '#6172F3', text: '有效佐證' },
   confirmed_risk: { bg: '#FFF1F0', color: '#B42318', dot: '#D92D20', text: '確認風險' },
 };
 
-function MarketSignalBadge({ level }: { level: 'none' | 'info' | 'multi_source' | 'confirmed_risk' }) {
-  const config = SIGNAL_BADGE_CONFIG[level] || SIGNAL_BADGE_CONFIG.none;
+function MarketSignalBadge({ level }: { level: keyof typeof SIGNAL_BADGE_CONFIG }) {
+  const config = SIGNAL_BADGE_CONFIG[level] || SIGNAL_BADGE_CONFIG.no_signal;
   return (
     <span
       style={{
@@ -1703,7 +2129,7 @@ function MarketReportsCategoryPanel({
       <div style={{ display: 'grid', gap: 8 }}>
         {items.map((item) => {
           const selected = category === item.categoryId;
-          const signal = (item.signal || 'none') as 'none' | 'info' | 'multi_source' | 'confirmed_risk';
+          const signal = (item.signal || 'no_signal') as keyof typeof SIGNAL_BADGE_CONFIG;
           return (
             <button
               key={item.categoryId}
@@ -1749,12 +2175,18 @@ function MarketReportsListPanel({
   reports,
   sourceResults,
   onSelectCategory,
+  isAdmin,
+  onOpenImportModal,
+  onRefresh,
 }: {
   id: string;
   category: string;
   reports: any[];
   sourceResults: any[];
   onSelectCategory: (cat: string) => void;
+  isAdmin: boolean;
+  onOpenImportModal: () => void;
+  onRefresh: () => void;
 }) {
   const toneStyle = {
     bg: '#F8FAFC',
@@ -1776,6 +2208,25 @@ function MarketReportsListPanel({
 
   const hasAnyReports = reports.length > 0;
 
+  const handleReview = async (reportId: string, action: string) => {
+    const notes = prompt('可輸入審核備註 (非必填)：') || '';
+    try {
+      const resp = await fetch('/api/demand-forecast/market-reports/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId, action, notes }),
+      });
+      if (resp.ok) {
+        onRefresh();
+      } else {
+        const errJson = await resp.json();
+        alert(`操作失敗: ${errJson.error || '未知錯誤'}`);
+      }
+    } catch (e: any) {
+      alert(`連線錯誤: ${e.message}`);
+    }
+  };
+
   return (
     <section
       id={id}
@@ -1787,9 +2238,35 @@ function MarketReportsListPanel({
         padding: 16,
       }}
     >
-      <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: toneStyle.title }}>
-        市場情報佐證：{selectedCategoryLabel}
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 12px', flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: toneStyle.title }}>
+          市場情報佐證：{selectedCategoryLabel}
+        </h2>
+        {isAdmin && (
+          <button
+            onClick={onOpenImportModal}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '6px 12px',
+              borderRadius: 6,
+              background: toneStyle.accent,
+              color: '#fff',
+              border: 'none',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(99, 102, 241, 0.15)',
+              transition: 'background 0.15s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#4F46E5')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = toneStyle.accent)}
+          >
+            ➕ 人工匯入市場情報
+          </button>
+        )}
+      </div>
 
       {/* Source Status Summary */}
       {sourceResults.length > 0 && (
@@ -1837,14 +2314,14 @@ function MarketReportsListPanel({
           const fetchDate = report.fetchedAt
             ? new Date(report.fetchedAt).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
             : '';
-          const signalLevel = report.signalLevel || 'info';
-          const statusText = report.status === 'confirmed' ? '已確認' : '自動擷取，尚未人工確認';
-          const extractionMethod = (report.extractionMethod || 'html') as string;
+          const signalLevel = report.signalLevel || 'candidate';
+          const statusText = report.status === 'confirmed' ? '已確認' : report.status === 'ignored' ? '已忽略' : '自動擷取，尚未人工確認';
+          const extractionMethod = (report.extractionMethod || 'html_scrape') as string;
           const extractionLabel = ({
-            html: 'HTML 擷取',
-            rss: 'RSS 解析',
-            pdf: 'PDF 解析',
-            manual: '人工輸入',
+            html_scrape: 'HTML 擷取',
+            rss_parse: 'RSS 解析',
+            pdf_extract: 'PDF 解析',
+            manual_input: '人工輸入',
             fallback_empty: '無資料',
           } as Record<string, string>)[extractionMethod] || extractionMethod;
           const sourceStatusInfo = SOURCE_STATUS_LABELS[report.sourceStatus] || { text: report.sourceStatus || '未知', color: '#475467' };
@@ -1935,10 +2412,26 @@ function MarketReportsListPanel({
                 <span>⏰ 擷取: {fetchDate}</span>
                 <span>🔧 方式: {extractionLabel}</span>
                 <span style={{ color: sourceStatusInfo.color }}>⚙️ 來源: {sourceStatusInfo.text}</span>
-                <span style={{ color: report.status === 'confirmed' ? '#027A48' : '#B54708' }}>
-                  {report.status === 'confirmed' ? '✅' : '⚠️'} {statusText}
+                <span style={{ color: report.status === 'confirmed' ? '#027A48' : report.status === 'ignored' ? '#475467' : '#B54708' }}>
+                  {report.status === 'confirmed' ? '✅' : report.status === 'ignored' ? '🔘' : '⚠️'} {statusText}
                 </span>
               </div>
+
+              {/* Review notes and reviewer */}
+              {(report.notes || report.reviewedBy) && (
+                <div style={{
+                  fontSize: 10, color: '#B54708', background: '#FFFAEB',
+                  padding: '6px 8px', borderRadius: 6, border: '1px solid #FEDF89',
+                  marginTop: 2, display: 'flex', flexDirection: 'column', gap: 2,
+                }}>
+                  {report.reviewedBy && (
+                    <span>👤 審核者: {report.reviewedBy} {report.reviewedAt ? `(時間: ${new Date(report.reviewedAt).toLocaleString('zh-TW')})` : ''}</span>
+                  )}
+                  {report.notes && (
+                    <span>📝 備註: {report.notes}</span>
+                  )}
+                </div>
+              )}
 
               {/* Risk types */}
               {report.riskTypes && report.riskTypes.length > 0 && (
@@ -1952,6 +2445,50 @@ function MarketReportsListPanel({
                       {RISK_TYPE_LABELS[rt] || rt}
                     </span>
                   ))}
+                </div>
+              )}
+
+              {/* Admin Actions */}
+              {isAdmin && (report.status === 'auto_candidate' || report.status === 'auto') && (
+                <div style={{
+                  display: 'flex',
+                  gap: 8,
+                  marginTop: 6,
+                  padding: '8px 10px',
+                  background: 'var(--surface-2)',
+                  borderRadius: 6,
+                  border: '1px dashed var(--border)',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)' }}>管理員審核：</span>
+                  <button
+                    onClick={() => handleReview(report.id, 'confirm_evidence')}
+                    style={{
+                      padding: '4px 8px', borderRadius: 4, background: '#EFF8FF', color: '#175CD3',
+                      border: '1px solid #B2DDFF', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    🔵 確認為有效佐證
+                  </button>
+                  <button
+                    onClick={() => handleReview(report.id, 'confirm_risk')}
+                    style={{
+                      padding: '4px 8px', borderRadius: 4, background: '#FFF1F0', color: '#B42318',
+                      border: '1px solid #FECDCA', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    🔴 確認為市場風險
+                  </button>
+                  <button
+                    onClick={() => handleReview(report.id, 'ignore')}
+                    style={{
+                      padding: '4px 8px', borderRadius: 4, background: '#F2F4F7', color: '#475467',
+                      border: '1px solid #D0D5DD', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    🔘 忽略此情報
+                  </button>
                 </div>
               )}
 
