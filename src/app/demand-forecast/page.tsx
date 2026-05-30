@@ -6,6 +6,129 @@ import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
 import { BENCHMARK_PARTS, DEMAND_CATEGORIES } from '@/lib/demand-forecast/benchmark';
 
+// --- Client-side translation utilities ---
+const clientTranslationCache = new Map<string, string>();
+
+function looksLikeEnglish(text: string): boolean {
+  if (!text) return false;
+  // Count ASCII letter chars vs total length (excluding spaces/punctuation)
+  const letters = text.replace(/[^a-zA-Z\u4e00-\u9fff]/g, '');
+  if (!letters) return false;
+  const asciiLetters = letters.replace(/[^a-zA-Z]/g, '').length;
+  return asciiLetters / letters.length > 0.5;
+}
+
+async function translateBatchClient(texts: string[]): Promise<Map<string, string>> {
+  const results = new Map<string, string>();
+  const toTranslate: string[] = [];
+
+  for (const t of texts) {
+    const cleaned = t.trim();
+    if (!cleaned) continue;
+    if (clientTranslationCache.has(cleaned)) {
+      results.set(cleaned, clientTranslationCache.get(cleaned)!);
+    } else if (looksLikeEnglish(cleaned)) {
+      toTranslate.push(cleaned);
+    }
+  }
+
+  // Batch translate in chunks of 8 to avoid overly long URLs
+  const chunkSize = 8;
+  for (let i = 0; i < toTranslate.length; i += chunkSize) {
+    const chunk = toTranslate.slice(i, i + chunkSize);
+    try {
+      // Concatenate with delimiter for batch translation
+      const delimiter = '\n\n###SPLIT###\n\n';
+      const combined = chunk.join(delimiter);
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(combined)}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      const translated = (json[0] as any[]).map((item: any) => item[0]).join('');
+      // Split back
+      const parts = translated.split(/\s*###SPLIT###\s*/);
+      for (let j = 0; j < chunk.length; j++) {
+        const result = parts[j]?.trim() || chunk[j];
+        clientTranslationCache.set(chunk[j], result);
+        results.set(chunk[j], result);
+      }
+    } catch (err) {
+      console.error('[CLIENT_TRANSLATOR] Batch failed:', err);
+      // Fallback: try one-by-one
+      for (const text of chunk) {
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text)}`;
+          const resp = await fetch(url);
+          if (!resp.ok) continue;
+          const json = await resp.json();
+          const translated = (json[0] as any[]).map((item: any) => item[0]).join('');
+          if (translated) {
+            clientTranslationCache.set(text, translated);
+            results.set(text, translated);
+          }
+        } catch { /* skip individual failures */ }
+      }
+    }
+    // Small delay between batches
+    if (i + chunkSize < toTranslate.length) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  return results;
+}
+
+function useClientTranslatedNews(news: ForecastNews[]): ForecastNews[] {
+  const [translated, setTranslated] = useState<ForecastNews[]>(news);
+
+  useEffect(() => {
+    if (!news.length) { setTranslated(news); return; }
+
+    // Check if any titles/snippets need client-side translation
+    const needsTranslation = news.some(
+      (n) => (looksLikeEnglish(n.titleZh || n.title)) || (looksLikeEnglish(n.snippetZh || n.snippet))
+    );
+
+    if (!needsTranslation) {
+      setTranslated(news);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      // Collect all texts that need translation
+      const allTexts: string[] = [];
+      for (const n of news) {
+        if (looksLikeEnglish(n.titleZh || n.title)) allTexts.push((n.titleZh || n.title).trim());
+        if (looksLikeEnglish(n.snippetZh || n.snippet)) allTexts.push((n.snippetZh || n.snippet).trim());
+      }
+
+      const unique = [...new Set(allTexts)];
+      const translations = await translateBatchClient(unique);
+
+      if (cancelled) return;
+
+      const updated = news.map((n) => {
+        const titleKey = (n.titleZh || n.title).trim();
+        const snippetKey = (n.snippetZh || n.snippet).trim();
+        return {
+          ...n,
+          titleZh: translations.get(titleKey) || n.titleZh || n.title,
+          snippetZh: translations.get(snippetKey) || n.snippetZh || n.snippet,
+        };
+      });
+      setTranslated(updated);
+    })();
+
+    return () => { cancelled = true; };
+  }, [news]);
+
+  return translated;
+}
+
+// --- End client-side translation utilities ---
+
 interface ForecastPart {
   categoryId: string;
   category: string;
@@ -274,6 +397,11 @@ export default function DemandForecastPage() {
     if (category === 'all') return riskNews;
     return riskNews.filter((item) => item.categoryIds.includes(category));
   }, [data?.lifecycleNews, category]);
+
+  // Client-side translation: translate any remaining English titles/snippets
+  const translatedDisplayNews = useClientTranslatedNews(displayNews);
+  const translatedDisplayLifecycleNews = useClientTranslatedNews(displayLifecycleNews);
+
   const selectedCategoryLabel = category === 'all'
     ? '全部類別'
     : categoryName(category, DEMAND_CATEGORIES.find((item) => item.categoryId === category)?.category ?? category);
@@ -393,7 +521,7 @@ export default function DemandForecastPage() {
           <NewsPanel
             title={`RSS 缺料新聞：${selectedCategoryLabel}`}
             tone="shortage"
-            items={displayNews}
+            items={translatedDisplayNews}
             emptyText={category === 'all' ? '目前沒有缺料相關新聞。' : '此類別無缺料相關新聞。'}
             badge="缺料訊號"
           />
@@ -411,7 +539,7 @@ export default function DemandForecastPage() {
           <NewsPanel
             title={`生命週期風險：${selectedCategoryLabel}`}
             tone="lifecycle"
-            items={displayLifecycleNews}
+            items={translatedDisplayLifecycleNews}
             emptyText={category === 'all' ? '目前沒有抓到 PCN / EOL / NRND 訊號。' : '這個類別目前沒有對應的 PCN / EOL / NRND 訊號。'}
             badge="PCN / EOL"
           />
