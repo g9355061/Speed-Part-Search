@@ -1,6 +1,6 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-30（基準料件狀態與風險矩陣優化）
+> 最後更新：2026-05-30（基準料件狀態與風險矩陣優化及中文新聞翻譯連結）
 
 ---
 
@@ -22,10 +22,13 @@
 - [x] **新增「需求預測風險對照矩陣」面板**
   - **需求與優化**：在頁面最上方（三種查詢方式的最上面）新增一個多維度風險對照矩陣表格，橫軸為「RSS 新聞監測」、「生命週期公告 (PCN/EOL)」、「實時通路庫存 (API)」，縱軸為 15 個料件類別。
   - **呈現方式**：橫向比對 15 個料件類別在三個預警管道中的風險狀態（標示為「正常」、「有缺料風險/有異動風險」或「尚未查詢」），讓用戶能一眼辨識出跨管道的綜合缺料風險。
+- [x] **新增「自動中文網頁翻譯」超連結跳轉**
+  - **需求與優化**：缺料與 EOL 新聞來源皆為國外英文電子媒體。為了方便採購人員閱讀，將新聞卡片標題連結重寫為透過 Google 翻譯代理伺服器開啟的繁體中文跳轉連結。
+  - **呈現方式**：點選新聞標題時，直接彈出已翻譯為繁體中文的英文新聞網頁；同時，保留下方「原文」按鈕指向原始英文網址，供使用者隨時切換對照。
 - [x] **修改檔案**
   - `src/lib/demand-forecast/benchmark.ts`：更新這 35 顆基準料件的 MPN、MFR 與產品描述。
   - `src/app/api/demand-forecast/route.ts`：實作漸進式快取，並調整 `summarizePart` 與預設 placeholder 判定，使其輸出正確的狀態。
-  - `src/app/demand-forecast/page.tsx`：前端 `ForecastPart` 介面新增型別宣告，修改 `useMemo` 中的 Mapping 邏輯，並更新 `RiskBadge` 的對應渲染。新增 `RiskCellBadge` 元件並在頁面最上方渲染「需求預測風險對照矩陣」表格。
+  - `src/app/demand-forecast/page.tsx`：前端 `ForecastPart` 介面新增型別宣告，修改 `useMemo` 中的 Mapping 邏輯，並更新 `RiskBadge` 的對應渲染。新增 `RiskCellBadge` 元件並在頁面最上方渲染「需求預測風險對照矩陣」表格。修改 `NewsPanel` 新聞標題超連結以支援 Google 翻譯跳轉。
 
 ---
 

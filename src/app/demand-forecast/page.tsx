@@ -576,7 +576,7 @@ function NewsPanel({ title, tone, items, emptyText, badge }: { title: string; to
       <div style={{ display: 'grid', gap: 8 }}>
         {items.slice(0, 18).map((item, idx) => (
           <div key={`${item.link}-${idx}`} style={{ border: `1px solid ${toneStyle.border}`, borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
-            <a href={item.link} target="_blank" rel="noreferrer" title="開啟原始新聞" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+            <a href={`https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(item.link)}`} target="_blank" rel="noreferrer" title="開啟中文翻譯新聞" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
                 <strong style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.35 }}>{item.titleZh || item.title}</strong>
                 <span style={{ whiteSpace: 'nowrap', fontSize: 11, color: toneStyle.title, background: toneStyle.soft, borderRadius: 999, padding: '2px 7px', fontWeight: 700 }}>{badge}</span>
