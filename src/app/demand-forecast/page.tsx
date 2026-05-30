@@ -79,52 +79,61 @@ async function translateBatchClient(texts: string[]): Promise<Map<string, string
 }
 
 function useClientTranslatedNews(news: ForecastNews[]): ForecastNews[] {
-  const [translated, setTranslated] = useState<ForecastNews[]>(news);
+  const [translated, setTranslated] = useState<ForecastNews[]>([]);
+  const [sourceRef, setSourceRef] = useState<ForecastNews[]>([]);
 
+  // Always sync with upstream news first
   useEffect(() => {
-    if (!news.length) { setTranslated(news); return; }
+    if (!news.length) { setTranslated([]); setSourceRef([]); return; }
+
+    // If news reference changed, reset to show the raw news immediately
+    setTranslated(news);
+    setSourceRef(news);
 
     // Check if any titles/snippets need client-side translation
     const needsTranslation = news.some(
       (n) => (looksLikeEnglish(n.titleZh || n.title)) || (looksLikeEnglish(n.snippetZh || n.snippet))
     );
 
-    if (!needsTranslation) {
-      setTranslated(news);
-      return;
-    }
+    if (!needsTranslation) return;
 
     let cancelled = false;
 
     (async () => {
-      // Collect all texts that need translation
-      const allTexts: string[] = [];
-      for (const n of news) {
-        if (looksLikeEnglish(n.titleZh || n.title)) allTexts.push((n.titleZh || n.title).trim());
-        if (looksLikeEnglish(n.snippetZh || n.snippet)) allTexts.push((n.snippetZh || n.snippet).trim());
+      try {
+        // Collect all texts that need translation
+        const allTexts: string[] = [];
+        for (const n of news) {
+          if (looksLikeEnglish(n.titleZh || n.title)) allTexts.push((n.titleZh || n.title).trim());
+          if (looksLikeEnglish(n.snippetZh || n.snippet)) allTexts.push((n.snippetZh || n.snippet).trim());
+        }
+
+        const unique = [...new Set(allTexts)];
+        const translations = await translateBatchClient(unique);
+
+        if (cancelled) return;
+
+        const updated = news.map((n) => {
+          const titleKey = (n.titleZh || n.title).trim();
+          const snippetKey = (n.snippetZh || n.snippet).trim();
+          return {
+            ...n,
+            titleZh: translations.get(titleKey) || n.titleZh || n.title,
+            snippetZh: translations.get(snippetKey) || n.snippetZh || n.snippet,
+          };
+        });
+        setTranslated(updated);
+      } catch (err) {
+        console.error('[CLIENT_TRANSLATOR] Translation failed, keeping original:', err);
+        // On error, keep original news - already set above
       }
-
-      const unique = [...new Set(allTexts)];
-      const translations = await translateBatchClient(unique);
-
-      if (cancelled) return;
-
-      const updated = news.map((n) => {
-        const titleKey = (n.titleZh || n.title).trim();
-        const snippetKey = (n.snippetZh || n.snippet).trim();
-        return {
-          ...n,
-          titleZh: translations.get(titleKey) || n.titleZh || n.title,
-          snippetZh: translations.get(snippetKey) || n.snippetZh || n.snippet,
-        };
-      });
-      setTranslated(updated);
     })();
 
     return () => { cancelled = true; };
   }, [news]);
 
-  return translated;
+  // If translated is empty but news has data, always fallback to news
+  return translated.length > 0 ? translated : news;
 }
 
 // --- End client-side translation utilities ---
