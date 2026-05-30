@@ -649,10 +649,10 @@ export async function GET(req: NextRequest) {
 
   const cacheTTL = 12 * 60 * 60 * 1000; // 12 hours TTL for cached parts
 
-  // Query parts with concurrency
+  // Query parts with concurrency (10 parallel workers for faster completion)
   await runWithConcurrency(
     BENCHMARK_PARTS.map((part, idx) => ({ part, idx })),
-    4,
+    10,
     async ({ part, idx }) => {
       const cachedPart = cachedPartsMap.get(part.mpn);
       const isCacheValid =

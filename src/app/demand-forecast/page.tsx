@@ -460,9 +460,25 @@ export default function DemandForecastPage() {
                 <thead>
                   <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
                     <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '30%' }}>料件類別</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, whiteSpace: 'nowrap', width: '23%' }}>RSS 新聞監測</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, whiteSpace: 'nowrap', width: '23%' }}>生命週期公告 (PCN/EOL)</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, whiteSpace: 'nowrap', width: '24%' }}>實時通路庫存 (API)</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '23%' }}>
+                      <div>RSS 新聞監測</div>
+                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
+                        含 shortage / allocation / lead time 等關鍵字 → 風險
+                      </div>
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '23%' }}>
+                      <div>生命週期公告 (PCN/EOL)</div>
+                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
+                        含 PCN / EOL / NRND / 停產 等關鍵字 → 風險
+                      </div>
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '24%' }}>
+                      <div>實時通路庫存 (API)</div>
+                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
+                        料件：庫存=0 或 交期≥12週且庫存&lt;5K<br />
+                        類別：風險料≥3 或 已查≥5且風險佔比≥40%
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
