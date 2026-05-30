@@ -22,14 +22,16 @@
 - [x] **新增「需求預測風險對照矩陣」面板**
   - **需求與優化**：在頁面最上方（三種查詢方式的最上面）新增一個多維度風險對照矩陣表格，橫軸為「RSS 新聞監測」、「生命週期公告 (PCN/EOL)」、「實時通路庫存 (API)」，縱軸為 15 個料件類別。
   - **呈現方式**：橫向比對 15 個料件類別在三個預警管道中的風險狀態（標示為「正常」、「有缺料風險/有異動風險」或「尚未查詢」），讓用戶能一眼辨識出跨管道的綜合缺料風險。
-- [x] **新增「自動中文網頁翻譯」超連結跳轉**
+- [x] **新增「自動中文網頁翻譯」超連結跳轉（與白屏修復）**
   - **需求與優化**：缺料與 EOL 新聞來源皆為國外英文電子媒體。為了方便採購人員閱讀，將新聞卡片標題連結重寫為透過 Google 翻譯代理伺服器開啟的繁體中文跳轉連結。
+  - **背景問題**：原本透過 Google 翻譯代理直接訪問 Google News 的 `articles/...` 連結，會因為 Google News RSS 連結包含客戶端 JavaScript 跳轉，被 Google 翻譯去除了 JS 而造成「網頁白屏」無法載入。
+  - **解決方案**：在後端 API（`route.ts`）取得 RSS 後，實作了一個兩步式解碼器。首先模擬 Chrome 向 Google News 請求獲取網頁中的 signature 與 timestamp 參數，再呼叫 Google 內部的 `batchexecute` 協定 POST 解析出新聞的真實目標 URL（如路透社、彭博社）。
+  - **效能優化**：為防範 Google 的 429 限流與提升整體速度，後端僅對命中缺料/生命週期警示（`riskHit === true`）的新聞網址進行解密，並以 `resolvedUrlCache` Map 進行記憶體快取，大幅縮減了 API 回應時間。
   - **呈現方式**：點選新聞標題時，直接彈出已翻譯為繁體中文的英文新聞網頁；同時，保留下方「原文」按鈕指向原始英文網址，供使用者隨時切換對照。
 - [x] **修改檔案**
   - `src/lib/demand-forecast/benchmark.ts`：更新這 35 顆基準料件的 MPN、MFR 與產品描述。
-  - `src/app/api/demand-forecast/route.ts`：實作漸進式快取，並調整 `summarizePart` 與預設 placeholder 判定，使其輸出正確的狀態。
+  - `src/app/api/demand-forecast/route.ts`：實作漸進式快取，調整 `summarizePart` 狀態輸出。新增 `decodeGoogleNewsUrl` 解碼邏輯，並修改 `fetchIndustryNews` 與 `fetchLifecycleNews`，讓 API 返回真實 URL 予前端。
   - `src/app/demand-forecast/page.tsx`：前端 `ForecastPart` 介面新增型別宣告，修改 `useMemo` 中的 Mapping 邏輯，並更新 `RiskBadge` 的對應渲染。新增 `RiskCellBadge` 元件並在頁面最上方渲染「需求預測風險對照矩陣」表格。修改 `NewsPanel` 新聞標題超連結以支援 Google 翻譯跳轉。
-
 ---
 
 ### 2026-05-25 — 非管理員 48 小時 session 過期

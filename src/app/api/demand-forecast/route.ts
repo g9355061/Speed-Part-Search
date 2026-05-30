@@ -241,14 +241,145 @@ function mergeNewsItems(items: NewsItem[]): NewsItem[] {
   return Array.from(seen.values()).filter((item) => item.riskHit || item.categoryIds.length > 0);
 }
 
+const resolvedUrlCache = new Map<string, string>();
+
+async function getDecodingParams(base64Str: string) {
+  try {
+    const url = `https://news.google.com/articles/${base64Str}`;
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+      },
+      next: { revalidate: 3600 }
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    
+    const sgMatch = text.match(/data-n-a-sg="([^"]+)"/);
+    const tsMatch = text.match(/data-n-a-ts="([^"]+)"/);
+    
+    if (sgMatch && tsMatch) {
+      return {
+        signature: sgMatch[1],
+        timestamp: tsMatch[1],
+        base64Str
+      };
+    }
+  } catch (err) {
+    console.warn("[DECODER] Failed to get decoding params from articles page, trying RSS fallback...", err);
+  }
+  
+  const url = `https://news.google.com/rss/articles/${base64Str}`;
+  const resp = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+    },
+    next: { revalidate: 3600 }
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} on fallback`);
+  const text = await resp.text();
+  
+  const sgMatch = text.match(/data-n-a-sg="([^"]+)"/);
+  const tsMatch = text.match(/data-n-a-ts="([^"]+)"/);
+  
+  if (!sgMatch || !tsMatch) {
+    throw new Error("Failed to find data-n-a-sg or data-n-a-ts in response");
+  }
+  
+  return {
+    signature: sgMatch[1],
+    timestamp: tsMatch[1],
+    base64Str
+  };
+}
+
+async function decodeUrl(signature: string, timestamp: string, base64Str: string) {
+  const url = "https://news.google.com/_/DotsSplashUi/data/batchexecute";
+  const payload = [
+    "Fbv4je",
+    `["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],"${base64Str}",${timestamp},"${signature}"]`
+  ];
+  
+  const fReq = JSON.stringify([[payload]]);
+  const body = "f.req=" + encodeURIComponent(fReq);
+  
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+    },
+    body
+  });
+  
+  if (!resp.ok) throw new Error(`HTTP error ${resp.status}`);
+  const text = await resp.text();
+  
+  const parts = text.split("\n\n");
+  if (parts.length < 2) throw new Error("Invalid batchexecute response structure");
+  
+  const data = JSON.parse(parts[1]);
+  const innerDataStr = data[0][2];
+  const innerData = JSON.parse(innerDataStr);
+  const decodedUrl = innerData[1];
+  return decodedUrl;
+}
+
+async function decodeGoogleNewsUrl(sourceUrl: string): Promise<string> {
+  if (resolvedUrlCache.has(sourceUrl)) {
+    return resolvedUrlCache.get(sourceUrl)!;
+  }
+  try {
+    const url = new URL(sourceUrl);
+    const path = url.pathname.split("/");
+    let base64Str = "";
+    if (
+      url.hostname === "news.google.com" &&
+      path.length > 1 &&
+      (path[path.length - 2] === "articles" || path[path.length - 2] === "read")
+    ) {
+      base64Str = path[path.length - 1];
+    } else {
+      return sourceUrl;
+    }
+    
+    const params = await getDecodingParams(base64Str);
+    const decoded = await decodeUrl(params.signature, params.timestamp, params.base64Str);
+    if (decoded) {
+      resolvedUrlCache.set(sourceUrl, decoded);
+      return decoded;
+    }
+    return sourceUrl;
+  } catch (err) {
+    console.error("[DECODER] decodeGoogleNewsUrl failed for:", sourceUrl, err);
+    return sourceUrl;
+  }
+}
+
 async function fetchIndustryNews(): Promise<NewsItem[]> {
   const perCategory = await runWithConcurrency(DEMAND_CATEGORIES, 5, (cat) => fetchCategoryNews(cat.categoryId));
-  return mergeNewsItems(perCategory.flat());
+  const merged = mergeNewsItems(perCategory.flat());
+  const decoded = await runWithConcurrency(merged, 4, async (item) => {
+    if (item.riskHit) {
+      const decodedLink = await decodeGoogleNewsUrl(item.link);
+      return { ...item, link: decodedLink };
+    }
+    return item;
+  });
+  return decoded;
 }
 
 async function fetchLifecycleNews(): Promise<NewsItem[]> {
   const perCategory = await runWithConcurrency(DEMAND_CATEGORIES, 5, (cat) => fetchCategoryLifecycleNews(cat.categoryId));
-  return mergeNewsItems(perCategory.flat());
+  const merged = mergeNewsItems(perCategory.flat());
+  const decoded = await runWithConcurrency(merged, 4, async (item) => {
+    if (item.riskHit) {
+      const decodedLink = await decodeGoogleNewsUrl(item.link);
+      return { ...item, link: decodedLink };
+    }
+    return item;
+  });
+  return decoded;
 }
 
 function bestResult(results: PartResult[]): PartResult | null {
