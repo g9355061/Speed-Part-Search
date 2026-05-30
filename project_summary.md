@@ -1,6 +1,71 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-30（基準料件狀態與風險矩陣優化及中文新聞翻譯連結）
+> 最後更新：2026-05-30（缺料預測機制改名與風險邏輯全面改進）
+
+---
+
+### 2026-05-30 — 缺料預測機制改名與風險邏輯全面改進
+
+- [x] **「需求預測」改名為「缺料預測」**
+  - 全站 5 個檔案、8 處「需求預測」統一改為「缺料預測」
+  - 涉及頁面標題、導覽列、副標題、風險矩陣標題、錯誤訊息
+  - 修改檔案：`demand-forecast/page.tsx`、`batch/page.tsx`、`batch-manufacturer/page.tsx`、`manufacturer-mapping/page.tsx`、`Header.tsx`
+
+- [x] **P0 — 新聞管道假陽性大幅降低**
+  - **搜尋時間窗從 30 天縮短為 7 天**：只反映最近一週的產業動態，避免過時新聞產生誤報
+  - **類別風險門檻從 1 則提高為 ≥2 則**：需要至少 2 則風險新聞才會將該類別標紅，避免單一新聞就觸發整個類別預警
+  - 修改檔案：`route.ts` → `buildCategoryNewsUrl()` 的 `when:30d` → `when:7d`、`buildNewsCategorySummary()` 門檻邏輯
+
+- [x] **P1 — 料件風險三色等級（紅/黃/綠）**
+  - 原本只有「有缺料風險」與「正常」兩種狀態，無法區分嚴重程度
+  - 新增三層風險分級：
+    - 🔴 **高風險**：庫存 = 0，或交期超過 20 週
+    - 🟡 **中風險**：交期 12-20 週且庫存 < 5,000，或庫存低於 1,000
+    - 🟢 **正常**：其他
+  - 風險原因加入 emoji 前綴（🔴/🟡），方便快速辨識嚴重程度
+  - 修改檔案：`route.ts` → `summarizePart()` 新增 `riskLevel` 欄位與三層判斷
+
+- [x] **P1 — 類別風險三色等級**
+  - 原本類別只有「有缺料風險」與「正常」
+  - 新增三層分級：
+    - 🔴 **高風險**：高風險料 ≥ 3，或已查 ≥ 5 且風險比 ≥ 40%
+    - 🟡 **中風險**：高風險料 ≥ 1，或中風險料 ≥ 3
+    - 🟢 **正常**：其他
+  - 修改檔案：`route.ts` → `buildSupplyCategorySummary()` 新增 `highRiskPartCount`、`medRiskPartCount`
+
+- [x] **前端 RiskCellBadge 元件改為三色**
+  - 原本 `RiskCellBadge` 只支援 `hasRisk: boolean`（紅/綠二元）
+  - 改為 `level: 'high' | 'medium' | 'none'`，支援紅/黃/綠三色顯示
+  - 矩陣表頭公式說明同步更新，反映新的門檻規則
+  - 修改檔案：`page.tsx` → `RiskCellBadge` 元件、矩陣表格渲染邏輯
+
+- [x] **頁面載入速度大幅優化（秒開）**
+  - **問題**：每次進入頁面都要等 5-10 秒（即時抓取 30 個 RSS feeds）
+  - **解法**：新增新聞快取機制（記憶體 + 檔案雙層快取），頁面載入時預設用 `mode=cached` 秒回
+  - 三種模式：
+    - `cached`：讀快取，< 100ms（頁面載入預設）
+    - `summary`：重新抓取 RSS 新聞（按鈕觸發）
+    - `full`：抓新聞 + 查 150 顆料件（按鈕觸發）
+  - 若快取為空（首次使用），頁面會自動 fallback 到 `summary` 模式抓取
+  - 修改檔案：`route.ts` → 新增 `NewsCache` 介面、`readNewsCache()`、`writeNewsCache()`、`fetchAndCacheNews()`；`page.tsx` → `loadForecast()` 邏輯
+
+- [x] **料件查詢併發數提升（4 → 10）**
+  - 原本 150 顆料件只開 4 個 worker 同時查，耗時過長
+  - 提高到 10 個並行 worker，理論查詢速度提升約 2.5 倍
+  - 修改檔案：`route.ts` → `runWithConcurrency` 併發參數
+
+- [x] **客戶端翻譯 Hook 穩定性修復**
+  - 修正 `useClientTranslatedNews` hook 的 bug：初始 `useState(news)` 只在首次渲染時設定值，後續資料更新可能導致新聞和料件查詢結果不顯示
+  - 加入 try-catch、fallback 邏輯，確保翻譯失敗時仍顯示原始資料
+  - 修改檔案：`page.tsx` → `useClientTranslatedNews()` hook
+
+- [x] **修改檔案一覽**
+  - `src/app/api/demand-forecast/route.ts`：搜尋範圍、風險門檻、三色分級、新聞快取、併發提升
+  - `src/app/demand-forecast/page.tsx`：RiskCellBadge 三色、載入模式、翻譯 Hook、改名
+  - `src/app/batch/page.tsx`：導覽列改名
+  - `src/app/batch-manufacturer/page.tsx`：導覽列改名
+  - `src/app/manufacturer-mapping/page.tsx`：導覽列改名
+  - `src/components/Header.tsx`：導覽列改名
 
 ---
 
