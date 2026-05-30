@@ -167,3 +167,22 @@ export const DEMAND_CATEGORIES = Array.from(
     subCategory: part.subCategory,
   }])).values()
 );
+
+export const CATEGORY_THRESHOLDS: Record<string, { minStock: number; lowStock: number }> = {
+  C01: { minStock: 5000, lowStock: 20000 },      // MLCC
+  C02: { minStock: 500, lowStock: 3000 },        // PMIC / Regulator
+  C03: { minStock: 1000, lowStock: 5000 },       // MOSFET / Power Discrete
+  C04: { minStock: 300, lowStock: 2000 },        // Memory / Flash / DDR Proxy
+  C05: { minStock: 200, lowStock: 1500 },        // MCU / Processor
+  C06: { minStock: 500, lowStock: 3000 },        // Connector
+  C07: { minStock: 800, lowStock: 4000 },        // Crystal / Oscillator
+  C08: { minStock: 3000, lowStock: 15000 },      // TVS / ESD / Protection
+  C09: { minStock: 800, lowStock: 4000 },        // Analog / Sensor
+  C10: { minStock: 400, lowStock: 2500 },        // Interface IC
+  C11: { minStock: 2000, lowStock: 10000 },      // Inductor / Choke
+  C12: { minStock: 1500, lowStock: 8000 },       // Aluminum / Polymer Capacitor
+  C13: { minStock: 500, lowStock: 3000 },        // Optocoupler / Digital Isolator
+  C14: { minStock: 150, lowStock: 1000 },        // Ethernet / Networking IC
+  C15: { minStock: 100, lowStock: 800 },         // Thermal / Fan / Power Module
+};
+

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { BENCHMARK_PARTS, DEMAND_CATEGORIES, BenchmarkPart } from '@/lib/demand-forecast/benchmark';
+import { BENCHMARK_PARTS, DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS } from '@/lib/demand-forecast/benchmark';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import fs from 'fs';
@@ -467,16 +467,23 @@ function summarizePart(part: BenchmarkPart, results: PartResult[], errors: strin
     .map((item) => item.leadTimeDays)
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
   const maxLeadTimeDays = leadTimes.length ? Math.max(...leadTimes) : null;
+  const minLeadTimeDays = leadTimes.length ? Math.min(...leadTimes) : null;
   const hasApiMatch = supplierCount > 0;
-  const noStockAfterMatch = hasApiMatch && totalStock <= 0;
-  const veryLongLead = maxLeadTimeDays !== null && maxLeadTimeDays >= 140; // >20 weeks
-  const longLeadTimeAndLowStock = maxLeadTimeDays !== null && maxLeadTimeDays >= 84 && totalStock < 5000;
-  const lowStockOnly = hasApiMatch && totalStock > 0 && totalStock < 1000;
-  const mediumLeadAndLowStock = maxLeadTimeDays !== null && maxLeadTimeDays >= 84 && maxLeadTimeDays < 140 && totalStock < 5000;
 
-  // Three-tier risk: 高風險 > 中風險 > 正常
-  const highRisk = noStockAfterMatch || veryLongLead;
-  const mediumRisk = !highRisk && (mediumLeadAndLowStock || lowStockOnly);
+  const thresholds = CATEGORY_THRESHOLDS[part.categoryId] || { minStock: 1000, lowStock: 5000 };
+  const noStockAfterMatch = hasApiMatch && totalStock <= 0;
+  const veryLongLead = minLeadTimeDays !== null && minLeadTimeDays >= 140; // >= 20 weeks
+  const mediumLead = minLeadTimeDays !== null && minLeadTimeDays >= 84;   // >= 12 weeks
+
+  // Three-tier risk: High Risk > Medium Risk > Normal
+  // High Risk: No stock OR Stock is below lowStock threshold AND replenishment lead time is very long (>= 20 weeks)
+  const highRisk = noStockAfterMatch || (totalStock < thresholds.lowStock && veryLongLead);
+  // Medium Risk: Stock is below minStock threshold (always medium risk) OR Stock is below lowStock threshold AND lead time is medium (>= 12 weeks)
+  const mediumRisk = !highRisk && (
+    (totalStock < thresholds.minStock) ||
+    (totalStock < thresholds.lowStock && mediumLead)
+  );
+
   const riskLevel: '高風險' | '中風險' | '正常' | '無資料' = !hasApiMatch ? '無資料' : highRisk ? '高風險' : mediumRisk ? '中風險' : '正常';
 
   return {
@@ -490,6 +497,7 @@ function summarizePart(part: BenchmarkPart, results: PartResult[], errors: strin
       .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
       .sort((a, b) => a - b)[0] ?? null,
     maxLeadTimeDays,
+    minLeadTimeDays,
     availabilityStatus: best?.availabilityStatus ?? '',
     productUrl: best?.productUrl ?? '',
     checkedSuppliers: results.map((item) => item.supplier),
@@ -499,9 +507,9 @@ function summarizePart(part: BenchmarkPart, results: PartResult[], errors: strin
     riskReasons: [
       !hasApiMatch ? 'API 未找到此料，無授權代理商通路資料' : '',
       noStockAfterMatch ? '🔴 API 找到料件但授權供應商庫存為 0' : '',
-      veryLongLead ? `🔴 交期達 ${Math.round(maxLeadTimeDays! / 7)} 週（超過 20 週）` : '',
-      mediumLeadAndLowStock && !veryLongLead ? `🟡 交期達 ${Math.round(maxLeadTimeDays! / 7)} 週且現貨庫存低於 5,000 顆` : '',
-      lowStockOnly && !noStockAfterMatch ? `🟡 庫存僅 ${totalStock.toLocaleString()} 顆（低於 1,000）` : '',
+      (totalStock < thresholds.lowStock && veryLongLead) ? `🔴 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週（超過 20 週）` : '',
+      (totalStock < thresholds.lowStock && mediumLead && !veryLongLead) ? `🟡 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週` : '',
+      (totalStock < thresholds.minStock && totalStock > 0 && !veryLongLead && !mediumLead) ? `🟡 庫存僅 ${totalStock.toLocaleString()} 顆（低於安全水位 ${thresholds.minStock.toLocaleString()}）` : '',
     ].filter(Boolean),
   };
 }

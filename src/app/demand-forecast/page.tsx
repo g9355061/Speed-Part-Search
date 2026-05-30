@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
-import { BENCHMARK_PARTS, DEMAND_CATEGORIES } from '@/lib/demand-forecast/benchmark';
+import { BENCHMARK_PARTS, DEMAND_CATEGORIES, CATEGORY_THRESHOLDS } from '@/lib/demand-forecast/benchmark';
 
 // --- Client-side translation utilities ---
 const clientTranslationCache = new Map<string, string>();
@@ -151,11 +151,12 @@ interface ForecastPart {
   totalStock: number | null;
   lowestPriceUsd: number | null;
   maxLeadTimeDays: number | null;
+  minLeadTimeDays?: number | null;
   availabilityStatus?: string;
   productUrl?: string;
   checkedSuppliers?: string[];
   errors?: string[];
-  summary: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料';
+  summary: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險';
   riskReasons?: string[];
 }
 
@@ -182,7 +183,7 @@ interface CategorySummary {
   totalStock?: number;
   avgSupplierCount?: number;
   maxLeadTimeDays?: number | null;
-  summary: '正常' | '有缺料風險';
+  summary: '正常' | '有缺料風險' | '中風險';
 }
 
 interface ForecastResponse {
@@ -340,6 +341,7 @@ export default function DemandForecastPage() {
     totalStock: null,
     lowestPriceUsd: null,
     maxLeadTimeDays: null,
+    minLeadTimeDays: null,
     availabilityStatus: '',
     productUrl: '',
     checkedSuppliers: [],
@@ -475,18 +477,30 @@ export default function DemandForecastPage() {
             <p style={{ margin: '0 0 14px 0', fontSize: 13, color: 'var(--text-3)' }}>
               整合三種預警偵測管道（RSS 新聞、原廠生命週期公告、實時通路代理商庫存），橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, border: '1px solid var(--border)' }}>
+              <div>
+                <strong>💡 庫存優先於交期原則：</strong>現貨庫存大於等於類別「補貨水位」時，完全忽略交期，視為「正常」綠標。補貨交期改用各授權分銷商中的「最短交期」（而非最長），避免因單一代理商交期拉長導致誤判。
+              </div>
+              <div>
+                <strong>⚠️ 水位警示說明：</strong>
+                <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                  <li><strong>安全水位：</strong>庫存低於此安全值時直接觸發 🟡 中風險 警示。</li>
+                  <li><strong>補貨水位：</strong>庫存低於此水位且補貨交期拉長（&gt;= 12週觸發 🟡，&gt;= 20週觸發 🔴）時觸發警示。</li>
+                </ul>
+              </div>
+            </div>
             <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 800 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '30%' }}>料件類別</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '23%' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '32%' }}>料件類別與安全/補貨門檻</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '22%' }}>
                       <div>RSS 新聞監測</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         7 天內 ≥2 則含缺料關鍵字新聞 → 風險
                       </div>
                     </th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '23%' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '22%' }}>
                       <div>生命週期公告 (PCN/EOL)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         7 天內 ≥2 則含 EOL/PCN/停產關鍵字 → 風險
@@ -495,8 +509,8 @@ export default function DemandForecastPage() {
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '24%' }}>
                       <div>實時通路庫存 (API)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        🔴 庫存=0 或 交期&gt;20週<br />
-                        🟡 交期12-20週且庫存&lt;5K，或庫存&lt;1K
+                        🔴 庫存=0 或 (庫存 &lt; 補貨水位 且 最短交期 &gt;= 20週)<br />
+                        🟡 庫存 &lt; 安全水位 或 (庫存 &lt; 補貨水位 且 最短交期 &gt;= 12週)
                       </div>
                     </th>
                   </tr>
@@ -510,17 +524,23 @@ export default function DemandForecastPage() {
                     const lifecycleRisk = lifecycleSum?.summary === '有缺料風險';
                     const apiSummary: string = apiSum?.summary ?? '正常';
                     const hasApiCheck = apiSum && (apiSum.checkedPartCount ?? 0) > 0;
+                    const thresholds = CATEGORY_THRESHOLDS[cat.categoryId] || { minStock: 1000, lowStock: 5000 };
                     
                     // Determine API risk level for 3-color badge
                     const apiRiskLevel: 'high' | 'medium' | 'none' = apiSummary === '有缺料風險' ? 'high' : apiSummary === '中風險' ? 'medium' : 'none';
                     
                     return (
                       <tr key={cat.categoryId} style={{ borderTop: '1px solid var(--hairline)', background: '#fff' }}>
-                        <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 5, background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 10, fontWeight: 800 }}>
-                            {categoryNumber(cat.categoryId)}
-                          </span>
-                          <span>{categoryName(cat.categoryId, cat.category)}</span>
+                        <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 600 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 5, background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 10, fontWeight: 800 }}>
+                              {categoryNumber(cat.categoryId)}
+                            </span>
+                            <span>{categoryName(cat.categoryId, cat.category)}</span>
+                          </div>
+                          <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 4, marginLeft: 30 }}>
+                            安全水位: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.minStock.toLocaleString()}</span> | 補貨水位: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.lowStock.toLocaleString()}</span> 顆
+                          </div>
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
                           <RiskCellBadge level={newsRisk ? 'high' : 'none'} />
@@ -606,7 +626,7 @@ export default function DemandForecastPage() {
                   <Th align="right">供應商</Th>
                   <Th align="right">總庫存</Th>
                   <Th align="right">最低價</Th>
-                  <Th align="right">最長交期</Th>
+                  <Th align="right">補貨交期 (最快/慢)</Th>
                   <Th>總結</Th>
                 </tr>
               </thead>
@@ -623,7 +643,17 @@ export default function DemandForecastPage() {
                     <Td align="right">{part.supplierCount ?? '-'}</Td>
                     <Td align="right">{part.totalStock === null ? '-' : part.totalStock.toLocaleString()}</Td>
                     <Td align="right">{part.lowestPriceUsd === null ? '-' : `$${part.lowestPriceUsd.toFixed(4)}`}</Td>
-                    <Td align="right">{part.maxLeadTimeDays === null ? '-' : `${Math.round(part.maxLeadTimeDays / 7)} 週`}</Td>
+                    <Td align="right">
+                      {part.minLeadTimeDays === null || part.minLeadTimeDays === undefined ? (
+                        part.maxLeadTimeDays === null ? '-' : `${Math.round(part.maxLeadTimeDays / 7)} 週`
+                      ) : (
+                        part.maxLeadTimeDays === null || part.maxLeadTimeDays === part.minLeadTimeDays ? (
+                          `${Math.round(part.minLeadTimeDays / 7)} 週`
+                        ) : (
+                          `${Math.round(part.minLeadTimeDays / 7)} ~ ${Math.round(part.maxLeadTimeDays / 7)} 週`
+                        )
+                      )}
+                    </Td>
                     <Td>
                       <RiskBadge value={part.summary} />
                       {!!part.riskReasons?.length && (
@@ -771,7 +801,7 @@ function NewsPanel({ title, tone, items, emptyText, badge }: { title: string; to
   );
 }
 
-function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' }) {
+function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險' }) {
   if (value === '尚未查詢') {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 700, background: '#F2F4F7', color: '#344054' }}>
@@ -783,6 +813,13 @@ function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 700, background: '#F8F9FA', color: '#475467', border: '1px solid #E4E7EC' }}>
         無代理商資料
+      </span>
+    );
+  }
+  if (value === '中風險') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 700, background: '#FFFAEB', color: '#B54708', border: '1px solid #FEDF89' }}>
+        中風險
       </span>
     );
   }
