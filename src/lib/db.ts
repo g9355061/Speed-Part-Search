@@ -85,6 +85,18 @@ async function initPostgres() {
       data TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS demand_forecast_snapshots (
+      mpn TEXT NOT NULL,
+      date TEXT NOT NULL,
+      total_stock INTEGER NOT NULL,
+      supplier_count INTEGER NOT NULL,
+      lowest_price_usd DOUBLE PRECISION,
+      min_lead_time_days INTEGER,
+      max_lead_time_days INTEGER,
+      risk_level TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (mpn, date)
+    );
   `);
   await pg.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -150,6 +162,19 @@ function initSqlite() {
       used INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS demand_forecast_snapshots (
+      mpn TEXT NOT NULL,
+      date TEXT NOT NULL,
+      total_stock INTEGER NOT NULL,
+      supplier_count INTEGER NOT NULL,
+      lowest_price_usd REAL,
+      min_lead_time_days INTEGER,
+      max_lead_time_days INTEGER,
+      risk_level TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (mpn, date)
     );
   `);
 
@@ -429,6 +454,128 @@ export async function setDemandForecastCache(data: any): Promise<void> {
       );
     } catch (err) {
       console.error("[DB-CACHE] Failed to set demand forecast cache:", err);
+    }
+  }
+}
+
+export async function saveDemandForecastSnapshot(
+  mpn: string,
+  totalStock: number,
+  supplierCount: number,
+  lowestPriceUsd: number | null,
+  minLeadTimeDays: number | null,
+  maxLeadTimeDays: number | null,
+  riskLevel: string
+): Promise<void> {
+  await ensureDb();
+  const dateStr = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
+  if (isPostgres) {
+    try {
+      await getPool().query(
+        `
+          INSERT INTO demand_forecast_snapshots (
+            mpn, date, total_stock, supplier_count, lowest_price_usd, min_lead_time_days, max_lead_time_days, risk_level, created_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+          ON CONFLICT (mpn, date) DO UPDATE
+          SET total_stock = EXCLUDED.total_stock,
+              supplier_count = EXCLUDED.supplier_count,
+              lowest_price_usd = EXCLUDED.lowest_price_usd,
+              min_lead_time_days = EXCLUDED.min_lead_time_days,
+              max_lead_time_days = EXCLUDED.max_lead_time_days,
+              risk_level = EXCLUDED.risk_level
+        `,
+        [mpn, dateStr, totalStock, supplierCount, lowestPriceUsd, minLeadTimeDays, maxLeadTimeDays, riskLevel]
+      );
+    } catch (err) {
+      console.error("[DB-SNAPSHOT] Failed to save postgres snapshot:", err);
+    }
+  } else {
+    try {
+      getSqlite()
+        .prepare(
+          `
+            INSERT INTO demand_forecast_snapshots (
+              mpn, date, total_stock, supplier_count, lowest_price_usd, min_lead_time_days, max_lead_time_days, risk_level
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (mpn, date) DO UPDATE
+            SET total_stock = excluded.total_stock,
+                supplier_count = excluded.supplier_count,
+                lowest_price_usd = excluded.lowest_price_usd,
+                min_lead_time_days = excluded.min_lead_time_days,
+                max_lead_time_days = excluded.max_lead_time_days,
+                risk_level = excluded.risk_level
+          `
+        )
+        .run(mpn, dateStr, totalStock, supplierCount, lowestPriceUsd, minLeadTimeDays, maxLeadTimeDays, riskLevel);
+    } catch (err) {
+      console.error("[DB-SNAPSHOT] Failed to save sqlite snapshot:", err);
+    }
+  }
+}
+
+export async function getDemandForecastSnapshot7DaysAgo(mpn: string): Promise<any | null> {
+  await ensureDb();
+  const today = new Date();
+  const targetDate = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const targetDateStr = targetDate.toISOString().split('T')[0];
+  const minDateStr = new Date(today.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const maxDateStr = new Date(today.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  if (isPostgres) {
+    try {
+      const result = await getPool().query(
+        `
+          SELECT * FROM demand_forecast_snapshots
+          WHERE mpn = $1 AND date >= $2 AND date <= $3
+          ORDER BY abs(date::date - $4::date) ASC
+          LIMIT 1
+        `,
+        [mpn, minDateStr, maxDateStr, targetDateStr]
+      );
+      if (result.rowCount === 0) return null;
+      const row = result.rows[0];
+      return {
+        mpn: row.mpn,
+        date: row.date,
+        totalStock: row.total_stock,
+        supplierCount: row.supplier_count,
+        lowestPriceUsd: row.lowest_price_usd,
+        minLeadTimeDays: row.min_lead_time_days,
+        maxLeadTimeDays: row.max_lead_time_days,
+        riskLevel: row.risk_level,
+      };
+    } catch (err) {
+      console.error("[DB-SNAPSHOT] Failed to get postgres snapshot:", err);
+      return null;
+    }
+  } else {
+    try {
+      const row = getSqlite()
+        .prepare(
+          `
+            SELECT * FROM demand_forecast_snapshots
+            WHERE mpn = ? AND date >= ? AND date <= ?
+            ORDER BY abs(strftime('%s', date) - strftime('%s', ?)) ASC
+            LIMIT 1
+          `
+        )
+        .get(mpn, minDateStr, maxDateStr, targetDateStr) as any;
+      if (!row) return null;
+      return {
+        mpn: row.mpn,
+        date: row.date,
+        totalStock: row.total_stock,
+        supplierCount: row.supplier_count,
+        lowestPriceUsd: row.lowest_price_usd,
+        minLeadTimeDays: row.min_lead_time_days,
+        maxLeadTimeDays: row.max_lead_time_days,
+        riskLevel: row.risk_level,
+      };
+    } catch (err) {
+      console.error("[DB-SNAPSHOT] Failed to get sqlite snapshot:", err);
+      return null;
     }
   }
 }

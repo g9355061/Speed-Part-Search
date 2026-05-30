@@ -4,7 +4,7 @@ import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import fs from 'fs';
 import path from 'path';
-import { getDemandForecastCache, setDemandForecastCache } from '@/lib/db';
+import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -459,7 +459,7 @@ function bestResult(results: PartResult[]): PartResult | null {
   })[0] ?? null;
 }
 
-function summarizePart(part: BenchmarkPart, results: PartResult[], errors: string[]) {
+function summarizePart(part: BenchmarkPart, results: PartResult[], errors: string[], snapshot7DaysAgo?: any) {
   const best = bestResult(results);
   const totalStock = results.reduce((sum, item) => sum + Math.max(0, item.quantityAvailable || 0), 0);
   const supplierCount = new Set(results.map((item) => item.supplier)).size;
@@ -470,18 +470,31 @@ function summarizePart(part: BenchmarkPart, results: PartResult[], errors: strin
   const minLeadTimeDays = leadTimes.length ? Math.min(...leadTimes) : null;
   const hasApiMatch = supplierCount > 0;
 
+  const lowestPriceUsd = results
+    .map((item) => item.unitPrice)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+    .sort((a, b) => a - b)[0] ?? null;
+
   const thresholds = CATEGORY_THRESHOLDS[part.categoryId] || { minStock: 1000, lowStock: 5000 };
   const noStockAfterMatch = hasApiMatch && totalStock <= 0;
   const veryLongLead = minLeadTimeDays !== null && minLeadTimeDays >= 140; // >= 20 weeks
   const mediumLead = minLeadTimeDays !== null && minLeadTimeDays >= 84;   // >= 12 weeks
 
+  // Trend analysis calculations
+  const stockDrop50 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.5;
+  const stockDrop80 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.8;
+  const supplierDrop = snapshot7DaysAgo && snapshot7DaysAgo.supplierCount >= 3 && supplierCount === 1;
+  const priceRise30 = snapshot7DaysAgo && snapshot7DaysAgo.lowestPriceUsd !== null && lowestPriceUsd !== null && lowestPriceUsd > 0 && ((lowestPriceUsd - snapshot7DaysAgo.lowestPriceUsd) / snapshot7DaysAgo.lowestPriceUsd) >= 0.3;
+  const leadTimeIncrease56 = snapshot7DaysAgo && snapshot7DaysAgo.minLeadTimeDays !== null && minLeadTimeDays !== null && (minLeadTimeDays - snapshot7DaysAgo.minLeadTimeDays) >= 56;
+
   // Three-tier risk: High Risk > Medium Risk > Normal
-  // High Risk: No stock OR Stock is below lowStock threshold AND replenishment lead time is very long (>= 20 weeks)
-  const highRisk = noStockAfterMatch || (totalStock < thresholds.lowStock && veryLongLead);
-  // Medium Risk: Stock is below minStock threshold (always medium risk) OR Stock is below lowStock threshold AND lead time is medium (>= 12 weeks)
+  // High Risk: No stock OR Stock is below lowStock threshold AND replenishment lead time is very long (>= 20 weeks) OR stock drop > 80%
+  const highRisk = noStockAfterMatch || (totalStock < thresholds.lowStock && veryLongLead) || !!(snapshot7DaysAgo && stockDrop80);
+  // Medium Risk: Stock is below minStock threshold (always medium risk) OR Stock is below lowStock threshold AND lead time is medium (>= 12 weeks) OR other trend warnings
   const mediumRisk = !highRisk && (
     (totalStock < thresholds.minStock) ||
-    (totalStock < thresholds.lowStock && mediumLead)
+    (totalStock < thresholds.lowStock && mediumLead) ||
+    !!(snapshot7DaysAgo && (stockDrop50 || supplierDrop || priceRise30 || leadTimeIncrease56))
   );
 
   const riskLevel: '高風險' | '中風險' | '正常' | '無資料' = !hasApiMatch ? '無資料' : highRisk ? '高風險' : mediumRisk ? '中風險' : '正常';
@@ -492,10 +505,7 @@ function summarizePart(part: BenchmarkPart, results: PartResult[], errors: strin
     apiManufacturer: best?.manufacturer ?? '',
     supplierCount,
     totalStock,
-    lowestPriceUsd: results
-      .map((item) => item.unitPrice)
-      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-      .sort((a, b) => a - b)[0] ?? null,
+    lowestPriceUsd,
     maxLeadTimeDays,
     minLeadTimeDays,
     availabilityStatus: best?.availabilityStatus ?? '',
@@ -508,8 +518,13 @@ function summarizePart(part: BenchmarkPart, results: PartResult[], errors: strin
       !hasApiMatch ? 'API 未找到此料，無授權代理商通路資料' : '',
       noStockAfterMatch ? '🔴 API 找到料件但授權供應商庫存為 0' : '',
       (totalStock < thresholds.lowStock && veryLongLead) ? `🔴 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週（超過 20 週）` : '',
+      (snapshot7DaysAgo && stockDrop80) ? `🔴 趨勢警告：庫存 7 天內暴跌超過 80%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',
       (totalStock < thresholds.lowStock && mediumLead && !veryLongLead) ? `🟡 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週` : '',
       (totalStock < thresholds.minStock && totalStock > 0 && !veryLongLead && !mediumLead) ? `🟡 庫存僅 ${totalStock.toLocaleString()} 顆（低於安全水位 ${thresholds.minStock.toLocaleString()}）` : '',
+      (snapshot7DaysAgo && stockDrop50 && !stockDrop80) ? `🟡 趨勢警告：庫存 7 天內下降超過 50%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',
+      (snapshot7DaysAgo && supplierDrop) ? `🟡 趨勢警告：可用授權分銷商數量自 ${snapshot7DaysAgo.supplierCount} 家減至 1 家` : '',
+      (snapshot7DaysAgo && priceRise30) ? `🟡 趨勢警告：最低報價 7 天內上漲超過 30%（自 $${snapshot7DaysAgo.lowestPriceUsd.toFixed(4)} 漲至 $${lowestPriceUsd.toFixed(4)}）` : '',
+      (snapshot7DaysAgo && leadTimeIncrease56) ? `🟡 趨勢警告：補貨最短交期 7 天內拉長超過 ${Math.round((minLeadTimeDays! - snapshot7DaysAgo.minLeadTimeDays!) / 7)} 週` : '',
     ].filter(Boolean),
   };
 }
@@ -545,7 +560,21 @@ async function searchBenchmarkPart(part: BenchmarkPart) {
     }
   }));
 
-  return summarizePart(part, results, errors);
+  const snapshot7DaysAgo = await getDemandForecastSnapshot7DaysAgo(part.mpn);
+  const summary = summarizePart(part, results, errors, snapshot7DaysAgo);
+
+  // 儲存今日快照以供後續比對趨勢
+  await saveDemandForecastSnapshot(
+    part.mpn,
+    summary.totalStock,
+    summary.supplierCount,
+    summary.lowestPriceUsd,
+    summary.minLeadTimeDays,
+    summary.maxLeadTimeDays,
+    summary.riskLevel
+  );
+
+  return summary;
 }
 
 type ForecastPartResult = ReturnType<typeof summarizePart>;

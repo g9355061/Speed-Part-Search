@@ -487,9 +487,17 @@ export default function DemandForecastPage() {
             <p style={{ margin: '0 0 14px 0', fontSize: 13, color: 'var(--text-3)' }}>
               整合三種預警偵測管道（RSS 新聞、原廠生命週期公告、實時通路代理商庫存），橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, border: '1px solid var(--border)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 12, background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, border: '1px solid var(--border)' }}>
               <div>
                 <strong>💡 庫存優先於交期原則：</strong>現貨庫存大於等於類別「補貨水位」時，完全忽略交期，視為「正常」綠標。補貨交期改用各授權分銷商中的「最短交期」（而非最長），避免因單一代理商交期拉長導致誤判。
+                <div style={{ marginTop: 8 }}>
+                  <strong>📈 歷史趨勢警告規則（對比 7 天前歷史點）：</strong>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                    <li>🔴 庫存 7 天內暴跌 &gt; 80%</li>
+                    <li>🟡 庫存 7 天內下降 &gt; 50% / 授權分銷商數自 &gt;=3 家減至 1 家</li>
+                    <li>🟡 最低報價上漲 &gt; 30% / 補貨最短交期增加 &gt; 8 週</li>
+                  </ul>
+                </div>
               </div>
               <div>
                 <strong>⚠️ 水位警示說明：</strong>
@@ -519,8 +527,8 @@ export default function DemandForecastPage() {
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '24%' }}>
                       <div>實時通路庫存 (API)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        🔴 庫存=0 或 (庫存 &lt; 補貨水位 且 最短交期 &gt;= 20週)<br />
-                        🟡 庫存 &lt; 安全水位 或 (庫存 &lt; 補貨水位 且 最短交期 &gt;= 12週)
+                        🔴 庫存=0、(庫存 &lt; 補貨水位 且 最短交期 &gt;= 20週) 或 7天庫存暴跌 &gt; 80%<br />
+                        🟡 庫存 &lt; 安全水位、交期 &gt;= 12週 或觸發 7天趨勢警示 (量/價/交期/供應商)
                       </div>
                     </th>
                   </tr>
