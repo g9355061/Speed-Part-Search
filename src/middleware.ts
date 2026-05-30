@@ -28,6 +28,16 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  const exp = token.sessionExpiresAt as number | undefined;
+  if (exp && Date.now() / 1000 > exp) {
+    const loginUrl = new URL('/login', req.url);
+    loginUrl.searchParams.set('callbackUrl', pathname);
+    const res = NextResponse.redirect(loginUrl);
+    res.cookies.delete('next-auth.session-token');
+    res.cookies.delete('__Secure-next-auth.session-token');
+    return res;
+  }
+
   // Admin-only routes
   if (pathname.startsWith('/admin/') && token.role !== 'admin') {
     return NextResponse.redirect(new URL('/', req.url));

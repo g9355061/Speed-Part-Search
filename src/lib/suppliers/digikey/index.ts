@@ -186,13 +186,8 @@ async function searchDigiKey(opts: SearchOptions): Promise<PartResult[]> {
     }),
     cache: 'no-store',
   });
-  console.log('[DEBUG] Search URL:', url);
-  console.log('[DEBUG] Search Client ID:', clientId);
-  console.log('[DEBUG] Search Token length:', token.length);
-
   if (resp.status === 401 || resp.status === 403) {
     const errorText = await resp.text().catch(() => '');
-    console.error('[DEBUG] Search API Failed:', resp.status, errorText);
     throw new SupplierError(
       SUPPLIER,
       'RATE_LIMITED',

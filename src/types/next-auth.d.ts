@@ -17,5 +17,6 @@ declare module 'next-auth/jwt' {
   interface JWT {
     id: string;
     role: 'user' | 'admin';
+    sessionExpiresAt?: number;
   }
 }

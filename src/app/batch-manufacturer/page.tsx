@@ -1150,6 +1150,7 @@ export default function BatchPage() {
 	          <Link href="/batch" className="hdr-nav-link"><Icon name="compare" size={14} /><span className="lbl">BOM Batch</span></Link>
 	          <Link href="/batch-manufacturer" className="hdr-nav-link active"><Icon name="compare" size={14} /><span className="lbl">BOM Batch - MFR</span></Link>
 	          <Link href="/manufacturer-mapping" className="hdr-nav-link"><Icon name="compare" size={14} /><span className="lbl">廠商對照表</span></Link>
+	          <Link href="/demand-forecast" className="hdr-nav-link"><Icon name="trend" size={14} /><span className="lbl">需求預測</span></Link>
 	        </nav>
       </header>
 

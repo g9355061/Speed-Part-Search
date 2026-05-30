@@ -24,6 +24,7 @@
     "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
     "@types/geoip-lite": "^1.4.4",
@@ -32,6 +33,7 @@
     "@types/pg": "^8.20.0",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
+    "playwright": "^1.60.0",
     "tsx": "4.16.2",
     "typescript": "5.5.3"
   }

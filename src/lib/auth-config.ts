@@ -43,12 +43,15 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  session: { strategy: 'jwt' },
+  session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = (user as User & { id: string }).role;
-        token.id = user.id;
+        const u = user as User & { id: string };
+        token.role = u.role;
+        token.id = u.id;
+        const ttlSec = u.role === 'admin' ? 30 * 24 * 60 * 60 : 48 * 60 * 60;
+        token.sessionExpiresAt = Math.floor(Date.now() / 1000) + ttlSec;
       }
       return token;
     },
@@ -56,6 +59,10 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as { role?: string; id?: string }).role = token.role as string;
         (session.user as { role?: string; id?: string }).id = token.id as string;
+      }
+      const exp = token.sessionExpiresAt as number | undefined;
+      if (exp) {
+        session.expires = new Date(exp * 1000).toISOString();
       }
       return session;
     },

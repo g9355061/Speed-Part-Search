@@ -1,5 +1,152 @@
 # Project Summary — Speed Part Search
 
+> 最後更新：2026-05-30（基準料件狀態與風險矩陣優化）
+
+---
+
+### 2026-05-30 — 基準料件汰舊換新與狀態判定優化
+
+- [x] **需求預測雷達 (Demand Forecast) 進度快取與逾時續傳**
+  - **背景問題**：Mouser API 具備 2.1 秒的限制（throttling），導致查詢 150 顆 benchmark parts 時可能需要超過 5 分鐘，極易觸發瀏覽器或 HTTP client 的逾時（Timeout）限制，造成前端畫面一直沒有資料。
+  - **快取機制**：實作 `data/demand-forecast-cache.json` 漸進式儲存，支援快取（TTL = 12 小時）與中斷後續傳。
+- [x] **基準料件（Benchmark Parts）汰舊換新（兩階段，共更換 35 顆料件）**
+  - **問題與優化**：
+    1. **第一階段（13 顆）**：原清單有 13 顆已宣布停產且現貨完全歸零（Obsolete / Stock = 0）的「死料」。
+    2. **第二階段（22 顆）**：原清單有 22 顆因分銷通路限制或 B2B 大宗管制（如 Samsung/Hynix 的高容量 DRAM、逆向工程網通 IC 等）而在 DigiKey/Mouser 公開 API 中永遠找不到（EMPTY_RESULT）的料件。
+    * **解決方案**：將上述共 **35 顆** 無實質供需預警價值的料件，全部更換為代理商平台流通率極高、且同樣能代表該產品分類的現行 **Active（活躍生產中）** 常用料件。並同步完成本地快取資料庫的對齊與遷移。
+- [x] **新增「尚未查詢」與「無代理商資料」狀態以改善 UX 體驗**
+  - **問題與優化**：先前在資料尚未查詢或查詢後在所有代理商平台皆找不到資料時，系統均預設判定為「正常」，導致頁面上出現資料皆為 `-` 卻顯示綠色「正常」的矛盾現象。
+  - **優化方案**：
+    1. **尚未進行 API 實時查詢時**：狀態顯示為灰色的 **「尚未查詢」**。
+    2. **已查詢但在授權分銷商（DigiKey / Mouser 等）皆找不到任何供貨資料時**：狀態顯示為灰色的 **「無代理商資料」**（而非誤導的「正常」）。
+- [x] **新增「需求預測風險對照矩陣」面板**
+  - **需求與優化**：在頁面最上方（三種查詢方式的最上面）新增一個多維度風險對照矩陣表格，橫軸為「RSS 新聞監測」、「生命週期公告 (PCN/EOL)」、「實時通路庫存 (API)」，縱軸為 15 個料件類別。
+  - **呈現方式**：橫向比對 15 個料件類別在三個預警管道中的風險狀態（標示為「正常」、「有缺料風險/有異動風險」或「尚未查詢」），讓用戶能一眼辨識出跨管道的綜合缺料風險。
+- [x] **修改檔案**
+  - `src/lib/demand-forecast/benchmark.ts`：更新這 35 顆基準料件的 MPN、MFR 與產品描述。
+  - `src/app/api/demand-forecast/route.ts`：實作漸進式快取，並調整 `summarizePart` 與預設 placeholder 判定，使其輸出正確的狀態。
+  - `src/app/demand-forecast/page.tsx`：前端 `ForecastPart` 介面新增型別宣告，修改 `useMemo` 中的 Mapping 邏輯，並更新 `RiskBadge` 的對應渲染。新增 `RiskCellBadge` 元件並在頁面最上方渲染「需求預測風險對照矩陣」表格。
+
+---
+
+### 2026-05-25 — 非管理員 48 小時 session 過期
+
+- [x] **Session 過期規則**
+  - 管理員：30 天
+  - 一般用戶：48 小時，過期後存取任何頁面會被導回 `/login` 重新輸入帳密
+  - 目的：方便管理員從「最近登入時間」追蹤每位使用者真實的登入活動
+- [x] **實作**
+  - `src/lib/auth-config.ts`：`session.maxAge` 設為 30 天作為上限；jwt callback 在登入當下依角色寫入 `sessionExpiresAt`（unix 秒）
+  - `src/middleware.ts`：偵測 `token.sessionExpiresAt` 過期 → 清掉 `next-auth.session-token` cookie 並導向 `/login`
+  - `src/types/next-auth.d.ts`：`JWT` 介面新增 `sessionExpiresAt?: number`
+- [x] **驗證**
+  - `npx tsc --noEmit` 通過
+
+---
+
+> 最後更新：2026-05-07（尾綴候選、外部庫存運費提醒、Railway token 修正）
+
+---
+
+### 2026-05-07 — 尾綴候選、外部庫存運費提醒、Railway token 修正
+
+- [x] **尾綴候選 fallback（batch / batch-manufacturer）**
+  - 仍以 **100% MPN 完全符合** 作為正式搜尋結果；完全符合找不到時，才顯示「尾綴候選」
+  - 判斷規則：API MPN normalize 後 `startsWith(BOM MPN normalize)` 且不完全相等，例如：
+    - BOM：`TPS27081AD`
+    - API：`TPS27081ADDCR`
+    - 顯示：`TPS27081ADDCR (+DDCR)`
+  - 尾綴候選只做提醒，不算作 `found`，不參與最低供應商、總價、平均單價、滿足狀態計算
+  - `尾綴候選` 欄位顯示供應商、候選 MPN、尾綴與庫存量，例如：
+    - `DigiKey: TPS27081ADDCR (+DDCR) / Stock 3,000`
+  - Excel 匯出同步新增 `尾綴候選` 欄
+
+- [x] **Mouser 尾綴候選保留**
+  - 原本 Mouser adapter 在後端只保留完全相同 `ManufacturerPartNumber`，導致尾綴候選在到前端前就被濾掉
+  - 調整為：若完全相同結果不存在，保留前綴相同但多尾綴的候選結果
+  - 供貨限制（`RestrictionMessage`）仍維持原本 `RESTRICTED` 判斷，不把受限料誤判成可採購候選
+
+- [x] **Excel 外部庫存運費欄提醒色**
+  - 下載 BOM 時，若 DigiKey 狀態為 `找到了/外部庫存`，DigiKey 的 `運費` 欄位使用淡黃色背景 `FFE599`
+  - 用意：提醒採購外部 marketplace 庫存可能需要手動填入運費/運費單價
+  - batch 與 batch-manufacturer 匯出皆已同步
+
+- [x] **本機 UI 壞版原因與處理方式**
+  - 問題：在 `next dev` 還跑著時執行 `npm run build`，Next.js 會重寫 `.next`，導致 dev server CSS/chunk 清單不一致，頁面退回裸 HTML
+  - 修復：停掉 `5280` dev server、刪除 `.next`、重新啟動 `npm run dev`
+  - 後續注意：本機 dev server 開著時不要跑 production build；若要 build 驗證，先停 dev server 或用獨立環境
+
+- [x] **Railway 部署與 token 修正**
+  - 已推送 commit：
+    - `8f00506 Add suffix candidate fallback for BOM search`
+    - `4def705 Trigger Railway redeploy`
+  - Railway 最新部署 `4ed34488-5277-4de6-bbdf-854e8fdcab11` 成功（2026-05-07 16:20:14 -04:00）
+  - Railway 新版 Account token 應使用 `RAILWAY_API_TOKEN`，不是 `RAILWAY_TOKEN`
+  - `~/.zshrc` 已由 `export RAILWAY_TOKEN=...` 改為 `export RAILWAY_API_TOKEN=...`
+  - 若目前 shell 仍殘留舊 `RAILWAY_TOKEN`，單次指令可用：
+    ```
+    env -u RAILWAY_TOKEN railway status
+    ```
+
+- [x] **修改檔案**
+  - `src/app/batch/page.tsx`：新增尾綴候選欄、Stock 顯示、Excel 欄位與外部庫存運費提醒色
+  - `src/app/batch-manufacturer/page.tsx`：同上，含 MFR 頁 sticky 欄位位置調整
+  - `src/lib/suppliers/mouser/index.ts`：完全符合找不到時保留尾綴候選
+  - `src/app/globals.css`：新增 `sticky-candidate` / `sticky-candidate-mfr`
+
+---
+
+> 最後更新：2026-05-07（DigiKey 外部庫存欄位、狀態標籤、欄位錯位修正）
+
+---
+
+### 2026-05-07 — DigiKey 外部庫存顯示、狀態標籤、欄位錯位修正
+
+- [x] **DigiKey 外部庫存欄位（外部Stock）— batch / batch-manufacturer**
+  - DigiKey API `ProductVariations[].MarketPlace === true` 表示商城外部供應商（例如 Rochester Electronics）
+  - `QuantityAvailable`（頂層）= DigiKey 自有 + 商城庫存總和；部分料號（如 SN74CB3Q3384ADBQR）全部庫存都來自商城，DigiKey 自有為 0
+  - 庫存欄拆成兩欄：
+    - **Stock**：顯示 `p.QuantityAvailable`（API 總可用量）
+    - **外部Stock**：顯示 `marketplaceVariations[].stockQty` 加總，使用 🏪 圖示
+  - `buildMarketplaceVariations()` 從 `ProductVariations` 過濾 `MarketPlace === true`，每個商城變體包含 `supplierName`、`stockQty`、`minQty`、`breaks`
+  - `SupplierData` 介面新增 `marketplaceVariations?: ApiMarketplaceVariation[]`
+  - `mapSupplier()` 將 API 回傳的 `marketplaceVariations` 正確帶入 `SupplierData`
+
+- [x] **外部庫存欄位只給 DigiKey（修正 Mouser 欄位錯位）**
+  - 原本 `SupplierCell` 對所有供應商（含 Mouser HK/VN）都渲染 `外部Stock <td>`，但表頭 `colSpan` Mouser 為 7 → 整體欄位錯位
+  - 新增 `showExternalStock?: boolean` prop 給 `SupplierCell`：
+    - DigiKey：`showExternalStock={true}`（渲染外部Stock欄）
+    - Mouser HK/VN：不傳（預設 `false`，不渲染）
+  - pending / error 狀態的 `colSpan` 同步調整：`showExternalStock ? 6 : 5`
+  - batch 與 batch-manufacturer 兩頁同步修正
+
+- [x] **狀態標籤顯示「找到了/外部庫存」**
+  - batch / batch-manufacturer：`StatusBadge` 新增 `hasExternalStock?: boolean` prop，`found` 狀態且有外部庫存時顯示「找到了/外部庫存」
+  - 單料查詢（`SupplierTable`）：新增 `hasExternalStock` 變數，狀態欄顯示「完全滿足/外部庫存」或「部分滿足/外部庫存」
+  - Excel 匯出：`supDKValues()` 的狀態欄由 `statusLabel(s.status, s.errorMsg)` 改為條件式：有外部庫存時輸出「找到了/外部庫存」
+
+- [x] **MPQ 顯示修正（單料查詢頁）**
+  - 原本 `supplierFromResult()` 使用 `breaks[0]?.qty ?? 1` 計算 MOQ，導致 MPQ 全部顯示 1
+  - 新增 `ApiVariation` 介面（`{ packageType, minQty, breaks }`）加入 `ApiPartResult`
+  - 改從 `variations[].minQty` 計算：最小 = MOQ，最大（若與 MOQ 不同）= MPQ
+  - 單料查詢的 MPQ 欄現在正確顯示（例如 SN74CB3Q3384ADBQR = 2500）
+
+- [x] **Mouser UPSTREAM_ERROR（暫時性錯誤）**
+  - 直接用 curl 測試 HK / VN API key，兩組均正常回應 HTTP 200
+  - 確認為 Mouser API 暫時性服務故障（非 code 問題），重新查詢即恢復
+
+- [x] **Railway CLI 登入問題**
+  - `~/.zshrc` 存有舊的 `export RAILWAY_TOKEN=...` 干擾 `railway login`
+  - 解法：`unset RAILWAY_TOKEN && railway login` 重新登入
+
+- [x] **修改檔案**
+  - `src/components/SupplierTable.tsx`：新增 `hasExternalStock`、狀態欄條件顯示
+  - `src/app/batch/page.tsx`：StatusBadge `hasExternalStock` prop、Excel 狀態修正、`SupplierCell showExternalStock`
+  - `src/app/batch-manufacturer/page.tsx`：同上
+  - `src/app/page.tsx`：`ApiVariation` 介面、`supplierFromResult()` MPQ 計算修正
+
+---
+
 > 最後更新：2026-05-03（登入系統、使用者管理、SMTP 設定）
 
 ### 2026-05-03 — 登入系統、帳號申請、管理員後台
