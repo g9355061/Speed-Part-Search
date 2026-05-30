@@ -208,7 +208,7 @@ function buildCategoryNewsUrl(categoryId: string, kind: 'shortage' | 'lifecycle'
     'electronic components',
     signalQuery,
     `(${terms.join(' OR ')})`,
-    'when:7d',
+    'when:14d',
   ].join(' ');
   return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
 }

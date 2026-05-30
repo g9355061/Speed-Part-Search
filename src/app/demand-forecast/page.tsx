@@ -507,13 +507,13 @@ export default function DemandForecastPage() {
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '22%' }}>
                       <div>RSS 新聞監測</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        7 天內 ≥2 則含缺料關鍵字新聞 → 風險
+                        14 天內 ≥2 則含缺料關鍵字新聞 → 風險
                       </div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '22%' }}>
                       <div>生命週期公告 (PCN/EOL)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        7 天內 ≥2 則含 EOL/PCN/停產關鍵字 → 風險
+                        14 天內 ≥2 則含 EOL/PCN/停產關鍵字 → 風險
                       </div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '24%' }}>
