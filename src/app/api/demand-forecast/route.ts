@@ -370,13 +370,53 @@ async function decodeGoogleNewsUrl(sourceUrl: string): Promise<string> {
   }
 }
 
+const translationCache = new Map<string, string>();
+
+async function translateToZh(text: string): Promise<string> {
+  if (!text) return "";
+  const cleaned = text.trim();
+  if (!cleaned) return "";
+  if (translationCache.has(cleaned)) {
+    return translationCache.get(cleaned)!;
+  }
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(cleaned)}`;
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      },
+      next: { revalidate: 3600 }
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const json = await resp.json();
+    const translated = json[0].map((item: any) => item[0]).join('');
+    if (translated) {
+      translationCache.set(cleaned, translated);
+      return translated;
+    }
+    return roughTranslateZh(cleaned);
+  } catch (err) {
+    console.error("[TRANSLATOR] Failed to translate:", cleaned, err);
+    return roughTranslateZh(cleaned);
+  }
+}
+
 async function fetchIndustryNews(): Promise<NewsItem[]> {
   const perCategory = await runWithConcurrency(DEMAND_CATEGORIES, 5, (cat) => fetchCategoryNews(cat.categoryId));
   const merged = mergeNewsItems(perCategory.flat());
   const decoded = await runWithConcurrency(merged, 4, async (item) => {
     if (item.riskHit) {
-      const decodedLink = await decodeGoogleNewsUrl(item.link);
-      return { ...item, link: decodedLink };
+      const [decodedLink, translatedTitle, translatedSnippet] = await Promise.all([
+        decodeGoogleNewsUrl(item.link),
+        translateToZh(item.title),
+        translateToZh(item.snippet)
+      ]);
+      return { 
+        ...item, 
+        link: decodedLink,
+        titleZh: translatedTitle || item.titleZh,
+        snippetZh: translatedSnippet || item.snippetZh
+      };
     }
     return item;
   });
@@ -388,8 +428,17 @@ async function fetchLifecycleNews(): Promise<NewsItem[]> {
   const merged = mergeNewsItems(perCategory.flat());
   const decoded = await runWithConcurrency(merged, 4, async (item) => {
     if (item.riskHit) {
-      const decodedLink = await decodeGoogleNewsUrl(item.link);
-      return { ...item, link: decodedLink };
+      const [decodedLink, translatedTitle, translatedSnippet] = await Promise.all([
+        decodeGoogleNewsUrl(item.link),
+        translateToZh(item.title),
+        translateToZh(item.snippet)
+      ]);
+      return { 
+        ...item, 
+        link: decodedLink,
+        titleZh: translatedTitle || item.titleZh,
+        snippetZh: translatedSnippet || item.snippetZh
+      };
     }
     return item;
   });
