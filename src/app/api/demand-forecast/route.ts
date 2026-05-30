@@ -678,13 +678,108 @@ async function fetchAndCacheNews(): Promise<NewsCache> {
   return cache;
 }
 
+async function recalculateForecastPart(part: any) {
+  if (part.summary === '尚未查詢' || part.supplierCount === null || part.supplierCount === undefined) {
+    return part;
+  }
+
+  const hasApiMatch = part.supplierCount > 0;
+  const totalStock = part.totalStock ?? 0;
+  const minLeadTimeDays = part.minLeadTimeDays ?? null;
+  const lowestPriceUsd = part.lowestPriceUsd ?? null;
+
+  const thresholds = CATEGORY_THRESHOLDS[part.categoryId] || { minStock: 1000, lowStock: 5000 };
+  const noStockAfterMatch = hasApiMatch && totalStock <= 0;
+  const veryLongLead = minLeadTimeDays !== null && minLeadTimeDays >= 140; // >= 20 weeks
+  const mediumLead = minLeadTimeDays !== null && minLeadTimeDays >= 84;   // >= 12 weeks
+
+  let snapshot7DaysAgo: any = null;
+  try {
+    snapshot7DaysAgo = await getDemandForecastSnapshot7DaysAgo(part.mpn);
+  } catch (err) {
+    console.error(`[RECALC] Failed to load snapshot for ${part.mpn}:`, err);
+  }
+
+  const stockDrop50 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.5;
+  const stockDrop80 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.8;
+  const supplierDrop = snapshot7DaysAgo && snapshot7DaysAgo.supplierCount >= 3 && part.supplierCount === 1;
+  const priceRise30 = snapshot7DaysAgo && snapshot7DaysAgo.lowestPriceUsd !== null && lowestPriceUsd !== null && lowestPriceUsd > 0 && ((lowestPriceUsd - snapshot7DaysAgo.lowestPriceUsd) / snapshot7DaysAgo.lowestPriceUsd) >= 0.3;
+  const leadTimeIncrease56 = snapshot7DaysAgo && snapshot7DaysAgo.minLeadTimeDays !== null && minLeadTimeDays !== null && (minLeadTimeDays - snapshot7DaysAgo.minLeadTimeDays) >= 56;
+
+  const highRisk = noStockAfterMatch || (totalStock < thresholds.lowStock && veryLongLead) || !!(snapshot7DaysAgo && stockDrop80);
+  const mediumRisk = !highRisk && (
+    (totalStock < thresholds.minStock) ||
+    (totalStock < thresholds.lowStock && mediumLead) ||
+    !!(snapshot7DaysAgo && (stockDrop50 || supplierDrop || priceRise30 || leadTimeIncrease56))
+  );
+
+  const riskLevel: '高風險' | '中風險' | '正常' | '無資料' = !hasApiMatch ? '無資料' : highRisk ? '高風險' : mediumRisk ? '中風險' : '正常';
+  const summary = highRisk ? '有缺料風險' : mediumRisk ? '中風險' : (hasApiMatch ? '正常' : '無代理商資料');
+
+  const riskReasons = [
+    !hasApiMatch ? 'API 未找到此料，無授權代理商通路資料' : '',
+    noStockAfterMatch ? '🔴 API 找到料件但授權供應商庫存為 0' : '',
+    (totalStock < thresholds.lowStock && veryLongLead) ? `🔴 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週（超過 20 週）` : '',
+    (snapshot7DaysAgo && stockDrop80) ? `🔴 趨勢警告：庫存 7 天內暴跌超過 80%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',
+    (totalStock < thresholds.lowStock && mediumLead && !veryLongLead) ? `🟡 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週` : '',
+    (totalStock < thresholds.minStock && totalStock > 0 && !veryLongLead && !mediumLead) ? `🟡 庫存僅 ${totalStock.toLocaleString()} 顆（低於安全水位 ${thresholds.minStock.toLocaleString()}）` : '',
+    (snapshot7DaysAgo && stockDrop50 && !stockDrop80) ? `🟡 趨勢警告：庫存 7 天內下降超過 50%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',
+    (snapshot7DaysAgo && supplierDrop) ? `🟡 趨勢警告：可用授權分銷商數量自 ${snapshot7DaysAgo.supplierCount} 家減至 1 家` : '',
+    (snapshot7DaysAgo && priceRise30) ? `🟡 趨勢警告：最低報價 7 天內上漲超過 30%（自 $${snapshot7DaysAgo.lowestPriceUsd.toFixed(4)} 漲至 $${lowestPriceUsd.toFixed(4)}）` : '',
+    (snapshot7DaysAgo && leadTimeIncrease56) ? `🟡 趨勢警告：補貨最短交期 7 天內拉長超過 ${Math.round((minLeadTimeDays! - snapshot7DaysAgo.minLeadTimeDays!) / 7)} 週` : '',
+  ].filter(Boolean);
+
+  return {
+    ...part,
+    riskLevel,
+    summary,
+    riskReasons,
+  };
+}
+
+async function recalculatePartsCache(partsCache: any) {
+  if (!partsCache || !Array.isArray(partsCache.parts)) return partsCache;
+
+  let changed = false;
+  const recalculatedParts = await Promise.all(
+    partsCache.parts.map(async (part: any) => {
+      const updated = await recalculateForecastPart(part);
+      if (
+        part.riskLevel !== updated.riskLevel ||
+        part.summary !== updated.summary ||
+        JSON.stringify(part.riskReasons) !== JSON.stringify(updated.riskReasons)
+      ) {
+        changed = true;
+        return updated;
+      }
+      return part;
+    })
+  );
+
+  if (changed) {
+    const updatedCategorySummary = buildSupplyCategorySummary(recalculatedParts);
+    const updatedCache = {
+      ...partsCache,
+      parts: recalculatedParts,
+      categorySummary: updatedCategorySummary,
+    };
+    await writeCache(updatedCache);
+    return updatedCache;
+  }
+
+  return partsCache;
+}
+
 export async function GET(req: NextRequest) {
   const mode = req.nextUrl.searchParams.get('mode') ?? 'cached';
 
   // --- mode=cached: return cached data instantly (for page load) ---
   if (mode === 'cached') {
     const newsCache = await readNewsCache();
-    const partsCache = await readCache();
+    let partsCache = await readCache();
+    if (partsCache) {
+      partsCache = await recalculatePartsCache(partsCache);
+    }
     const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
       ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
     }));
@@ -706,7 +801,10 @@ export async function GET(req: NextRequest) {
   // --- mode=summary: fetch fresh news, return with cached parts ---
   if (mode === 'summary' || mode !== 'full') {
     const newsData = await fetchAndCacheNews();
-    const partsCache = await readCache();
+    let partsCache = await readCache();
+    if (partsCache) {
+      partsCache = await recalculatePartsCache(partsCache);
+    }
     const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
       ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
     }));
@@ -739,19 +837,23 @@ export async function GET(req: NextRequest) {
   }
 
   // Pre-populate parts array with cached parts or empty placeholders to preserve order
-  const parts: any[] = BENCHMARK_PARTS.map((part) => {
-    const cachedPart = cachedPartsMap.get(part.mpn);
-    if (cachedPart) return cachedPart;
-    return {
-      ...part,
-      supplierCount: null,
-      totalStock: null,
-      lowestPriceUsd: null,
-      maxLeadTimeDays: null,
-      summary: '尚未查詢',
-      riskReasons: [],
-    };
-  });
+  const parts: any[] = await Promise.all(
+    BENCHMARK_PARTS.map(async (part) => {
+      const cachedPart = cachedPartsMap.get(part.mpn);
+      if (cachedPart) {
+        return await recalculateForecastPart(cachedPart);
+      }
+      return {
+        ...part,
+        supplierCount: null,
+        totalStock: null,
+        lowestPriceUsd: null,
+        maxLeadTimeDays: null,
+        summary: '尚未查詢',
+        riskReasons: [],
+      };
+    })
+  );
 
   const cacheTTL = 12 * 60 * 60 * 1000; // 12 hours TTL for cached parts
 
@@ -768,7 +870,9 @@ export async function GET(req: NextRequest) {
         cachedPart.supplierCount !== null;
 
       if (isCacheValid) {
-        return cachedPart;
+        const recalculated = await recalculateForecastPart(cachedPart);
+        parts[idx] = recalculated;
+        return recalculated;
       }
 
       // Query live API
@@ -795,6 +899,13 @@ export async function GET(req: NextRequest) {
 
   const categorySummary = buildSupplyCategorySummary(parts);
   const updatedAt = new Date().toISOString();
+
+  // Save fully updated cache at the end
+  await writeCache({
+    updatedAt,
+    parts,
+    categorySummary,
+  });
 
   return NextResponse.json({
     updatedAt,
