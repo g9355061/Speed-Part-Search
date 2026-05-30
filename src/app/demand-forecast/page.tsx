@@ -513,6 +513,40 @@ export default function DemandForecastPage() {
                     </strong>：啟動採購補貨的**預警庫存界線**。低於此水位且最短補貨交期拉長（&gt;= 12週觸發 🟡，&gt;= 20週觸發 🔴）時觸發警示。
                   </li>
                 </ul>
+                <details style={{ marginTop: 10, cursor: 'pointer' }}>
+                  <summary style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)', outline: 'none', userSelect: 'none' }}>
+                    🔍 點此查看 15 個類別的「安全水位 / 補貨水位」具體數值
+                  </summary>
+                  <div style={{ marginTop: 8, overflow: 'auto', maxHeight: 220, borderRadius: 6, border: '1px solid var(--border)', background: '#fff' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 1 }}>
+                          <th style={{ padding: '6px 10px', fontWeight: 700 }}>類別</th>
+                          <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right' }}>安全水位 (中風險)</th>
+                          <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right' }}>補貨水位 (預警期)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {DEMAND_CATEGORIES.map((cat) => {
+                          const thr = CATEGORY_THRESHOLDS[cat.categoryId] || { minStock: 1000, lowStock: 5000 };
+                          return (
+                            <tr key={cat.categoryId} style={{ borderBottom: '1px solid var(--hairline)' }}>
+                              <td style={{ padding: '6px 10px', fontWeight: 600 }}>
+                                {categoryNumber(cat.categoryId)} {categoryName(cat.categoryId, cat.category)}
+                              </td>
+                              <td style={{ padding: '6px 10px', textAlign: 'right', color: '#B54708', fontWeight: 600 }}>
+                                {thr.minStock.toLocaleString()} 顆
+                              </td>
+                              <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--text-2)' }}>
+                                {thr.lowStock.toLocaleString()} 顆
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
               </div>
             </div>
             <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8 }}>
