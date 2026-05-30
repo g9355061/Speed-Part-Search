@@ -1,6 +1,51 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-30（新增「市場報告 / 產業情報預警」第四預警管道、新增大畫面水位門檻彈窗、右上角 X 關閉、管理員編輯與唯讀模式切換、Icon 元件 settings 圖標擴充、快取料件風險動態重算機制、缺料預測機制改名、類別特定庫存門檻與交期判定邏輯優化、RSS 預警天數調整為 14 天、新增每日快照與歷史趨勢預警機制、新增新聞與 PCN 生命週期分類小標籤及快速篩選過濾連結、新增安全與補貨水位定義懸浮提示、修復 Railway 部署路徑解析錯誤、新增 15 類別水位對照表）
+> 最後更新：2026-05-30（市場報告可信度重構：移除硬編假資料、降級為情報佐證、新增 sourceStatus/extractionMethod/signalLevel 透明度欄位、schemaVersion 快取清除策略、前端矩陣文案與 badge 調整）
+
+---
+
+### 2026-05-30 — 市場報告可信度重構（移除假資料、降級為情報佐證）
+
+- [x] **移除硬編假資料 (BASELINE_REPORTS)**
+  - 刪除 `market-report-fetcher.ts` 中的 `BASELINE_REPORTS` 陣列（6 筆偽造的 2026 Q1/Q2 情報）。
+  - 抓不到資料時，API 回傳空 `reports` 陣列，附帶 `sourceResults`（每個來源的狀態）、`fetchedAt`、`schemaVersion`。
+  - 不再使用假資料作為 fallback，確保使用者不會誤認為最新市場報告。
+
+- [x] **市場報告定位降級為「情報佐證」**
+  - 前端標題由「市場報告 / 產業情報」改為「市場報告 / 產業情報佐證」。
+  - 矩陣欄位狀態由「正常/中風險/有缺料風險」改為：灰色「無情報」、藍色「有情報」、黃色「多來源佐證」、紅色「確認風險」（僅限人工確認後）。
+  - 市場報告欄位不再使用與 API 缺料風險完全相同的紅色 badge，避免誤導。
+  - 自動擷取的報告 `signalLevel` 設為 `'info'`，不會自動升至 `confirmed_risk`。
+
+- [x] **新增資料來源透明度欄位**
+  - `MarketReport` 介面新增：`signalLevel`、`extractionMethod`、`sourceStatus`。
+  - 新增型別定義：`MarketSignalLevel`、`MarketSourceStatus`、`MarketExtractionMethod`、`MarketConfidence`、`MarketReportStatus`。
+  - 新增 `MarketReportSourceResult` 介面，每個來源各自回報 `sourceStatus`。
+  - 新增 `MarketReportsFetchResult` 介面，包含 `schemaVersion` 欄位。
+
+- [x] **改良抓取邏輯**
+  - 新增 `isLikelyReportContent()` 函式，檢查內容是否為真實報告（vs. landing page / 表單 / 導覽頁）。
+  - `fetchWebpageText()` 回傳精確的 `MarketSourceStatus`（ok / blocked / form_required / timeout / no_report_found / parse_failed）。
+  - 加入 proximity-based confidence 判定：類別關鍵字與風險關鍵字距離越近，信心度越高。
+  - 無法取得 `publishedAt` 時，使用 `fetchedAt` 但 confidence 自動降至 medium 以下。
+
+- [x] **前端矩陣與面板調整**
+  - 移除 `result[catId] = 'haveRisk' as any === 'high' ? ...` 怪碼。
+  - 新增 `MarketSignalBadge` 元件（灰/藍/黃/紅四色，與風險 badge 視覺區隔）。
+  - 面板使用獨立的 indigo/slate 色調 (`#6366F1` accent)，明確與 RSS (橘) / 生命週期 (紫) / API (綠) 區隔。
+  - 每張卡片顯示：來源、發布日期、擷取方式、來源狀態、信心度、是否人工確認、原文連結、證據片段。
+  - 若無資料顯示：「本週尚未取得可解析市場報告。此欄不影響 RSS、PCN/EOL 與通路庫存 API 判定。」
+  - 來源狀態摘要列顯示每個來源的連線結果。
+
+- [x] **快取策略更新**
+  - 新增 `MARKET_REPORTS_SCHEMA_VERSION = 2`，API 路由驗證 cache 的 `schemaVersion`。
+  - 舊版 cache（含 BASELINE_REPORTS 或缺少 schemaVersion）自動失效並重新抓取。
+  - 保留 7 天 TTL 與 SWR 背景更新機制。
+
+- **修改檔案**：
+  - `src/lib/demand-forecast/market-report-fetcher.ts` — 全面重寫
+  - `src/app/api/demand-forecast/market-reports/route.ts` — 重寫加入 schemaVersion 驗證
+  - `src/app/demand-forecast/page.tsx` — 矩陣欄位、信號邏輯、面板元件重構
 
 ---
 
