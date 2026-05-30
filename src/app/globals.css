@@ -1109,3 +1109,16 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   .foot-inner { grid-template-columns: 1fr; }
   .tbl thead th, .tbl tbody td { padding: 8px 10px; }
 }
+
+/* Interactive cells in demand forecast matrix */
+.matrix-cell-interactive {
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.matrix-cell-interactive:hover {
+  background-color: var(--surface-2) !important;
+}
+.matrix-cell-interactive:active {
+  transform: scale(0.98);
+}
+

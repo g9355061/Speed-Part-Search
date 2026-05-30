@@ -297,6 +297,16 @@ export default function DemandForecastPage() {
   const [error, setError] = useState('');
   const [health, setHealth] = useState({ live: 0, total: 1 });
 
+  const handleMatrixClick = (categoryId: string, targetId: string) => {
+    setCategory(categoryId);
+    setTimeout(() => {
+      const element = document.getElementById(targetId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 50);
+  };
+
   async function loadForecast(nextMode: 'cached' | 'summary' | 'full') {
     setLoading(nextMode !== 'cached');
     if (nextMode !== 'cached') setLoadingLabel(nextMode === 'summary' ? '正在更新產業新聞' : '正在查詢 150 顆料件');
@@ -531,7 +541,12 @@ export default function DemandForecastPage() {
                     
                     return (
                       <tr key={cat.categoryId} style={{ borderTop: '1px solid var(--hairline)', background: '#fff' }}>
-                        <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 600 }}>
+                        <td
+                          className="matrix-cell-interactive"
+                          title="點擊跳轉查看該類別的風險總覽"
+                          onClick={() => handleMatrixClick(cat.categoryId, 'shortage-category-panel')}
+                          style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 600 }}
+                        >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 5, background: 'var(--surface-2)', color: 'var(--text-2)', fontSize: 10, fontWeight: 800 }}>
                               {categoryNumber(cat.categoryId)}
@@ -542,13 +557,28 @@ export default function DemandForecastPage() {
                             安全水位: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.minStock.toLocaleString()}</span> | 補貨水位: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.lowStock.toLocaleString()}</span> 顆
                           </div>
                         </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        <td
+                          className="matrix-cell-interactive"
+                          title="點擊跳轉查看該類別的缺料新聞"
+                          onClick={() => handleMatrixClick(cat.categoryId, 'shortage-news-panel')}
+                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
+                        >
                           <RiskCellBadge level={newsRisk ? 'high' : 'none'} />
                         </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        <td
+                          className="matrix-cell-interactive"
+                          title="點擊跳轉查看該類別的生命週期公告"
+                          onClick={() => handleMatrixClick(cat.categoryId, 'lifecycle-news-panel')}
+                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
+                        >
                           <RiskCellBadge level={lifecycleRisk ? 'high' : 'none'} highLabel="有異動風險" />
                         </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        <td
+                          className="matrix-cell-interactive"
+                          title="點擊跳轉查看該類別的實時通路庫存"
+                          onClick={() => handleMatrixClick(cat.categoryId, 'api-parts-panel')}
+                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
+                        >
                           {hasApiCheck ? (
                             <RiskCellBadge level={apiRiskLevel} />
                           ) : (
@@ -568,6 +598,7 @@ export default function DemandForecastPage() {
 
         <section style={{ display: 'grid', gridTemplateColumns: 'minmax(420px, 0.85fr) minmax(0, 1fr)', gap: 16, marginBottom: 18, alignItems: 'start' }}>
           <CategoryRiskPanel
+            id="shortage-category-panel"
             title="RSS 新聞風險總覽"
             tone="shortage"
             items={shortageCategorySummary}
@@ -579,6 +610,7 @@ export default function DemandForecastPage() {
             timeLabel="缺料新聞時間"
           />
           <NewsPanel
+            id="shortage-news-panel"
             title={`RSS 缺料新聞：${selectedCategoryLabel}`}
             tone="shortage"
             items={translatedDisplayNews}
@@ -586,6 +618,7 @@ export default function DemandForecastPage() {
             badge="缺料訊號"
           />
           <CategoryRiskPanel
+            id="lifecycle-category-panel"
             title="生命週期風險總覽"
             tone="lifecycle"
             items={lifecycleCategorySummary}
@@ -597,6 +630,7 @@ export default function DemandForecastPage() {
             timeLabel="生命週期訊號時間"
           />
           <NewsPanel
+            id="lifecycle-news-panel"
             title={`生命週期風險：${selectedCategoryLabel}`}
             tone="lifecycle"
             items={translatedDisplayLifecycleNews}
@@ -605,7 +639,7 @@ export default function DemandForecastPage() {
           />
         </section>
 
-        <Panel title="15 個類別 × 每類 10 顆料件查詢" tone="api">
+        <Panel id="api-parts-panel" title="15 個類別 × 每類 10 顆料件查詢" tone="api">
           <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
             <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ height: 36, border: '1px solid var(--border)', borderRadius: 8, padding: '0 10px', background: '#fff', color: 'var(--text)', fontSize: 13 }}>
               <option value="all">全部類別</option>
@@ -680,10 +714,11 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: '
   );
 }
 
-function Panel({ title, children, tone }: { title: string; children: ReactNode; tone?: PanelTone }) {
+function Panel({ title, children, tone, id }: { title: string; children: ReactNode; tone?: PanelTone; id?: string }) {
   const toneStyle = tone ? PANEL_TONES[tone] : null;
   return (
     <section
+      id={id}
       style={{
         border: toneStyle ? `1px solid ${toneStyle.border}` : '1px solid var(--hairline)',
         borderLeft: toneStyle ? `4px solid ${toneStyle.accent}` : '1px solid var(--hairline)',
@@ -708,6 +743,7 @@ function CategoryRiskPanel({
   countLabel,
   riskLabel,
   timeLabel,
+  id,
 }: {
   title: string;
   tone: PanelTone;
@@ -718,10 +754,11 @@ function CategoryRiskPanel({
   countLabel: string;
   riskLabel: string;
   timeLabel: string;
+  id?: string;
 }) {
   const toneStyle = PANEL_TONES[tone];
   return (
-    <Panel title={title} tone={tone}>
+    <Panel title={title} tone={tone} id={id}>
       <div style={{ display: 'grid', gap: 8 }}>
         {items.map((item) => {
           const relatedNews = relatedByCategory.get(item.categoryId) ?? [];
@@ -767,10 +804,10 @@ function CategoryRiskPanel({
   );
 }
 
-function NewsPanel({ title, tone, items, emptyText, badge }: { title: string; tone: PanelTone; items: ForecastNews[]; emptyText: string; badge: string }) {
+function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string; tone: PanelTone; items: ForecastNews[]; emptyText: string; badge: string; id?: string }) {
   const toneStyle = PANEL_TONES[tone];
   return (
-    <Panel title={title} tone={tone}>
+    <Panel title={title} tone={tone} id={id}>
       <div style={{ display: 'grid', gap: 8 }}>
         {items.slice(0, 18).map((item, idx) => (
           <div key={`${item.link}-${idx}`} style={{ border: `1px solid ${toneStyle.border}`, borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
