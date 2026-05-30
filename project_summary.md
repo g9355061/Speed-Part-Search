@@ -1,6 +1,16 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-30（缺料預測機制改名、類別特定庫存門檻與交期判定邏輯優化、RSS 預警天數調整為 14 天、新增每日快照與歷史趨勢預警機制、新增新聞與 PCN 生命週期分類小標籤及快速篩選過濾連結、新增安全與補貨水位定義懸浮提示）
+> 最後更新：2026-05-30（缺料預測機制改名、類別特定庫存門檻與交期判定邏輯優化、RSS 預警天數調整為 14 天、新增每日快照與歷史趨勢預警機制、新增新聞與 PCN 生命週期分類小標籤及快速篩選過濾連結、新增安全與補貨水位定義懸浮提示、修復 Railway 部署路徑解析錯誤）
+
+---
+
+### 2026-05-30 — 修復 Railway 部署路徑解析錯誤
+
+- [x] **將 JSON 導入路徑由別名改為相對路徑**
+  - 由於根目錄包含 `data/` 資料夾，當 Next.js 在 Linux (Railway) 下進行建置時，`@/data/...` 引入別名會與根目錄 `data` 衝突，進而導致 `Module not found` 建置編譯失敗。
+  - 修改 `src/app/manufacturer-mapping/page.tsx` 中的 `@/data/manufacturer-display-names.json` 為相對路徑 `../../data/manufacturer-display-names.json`。
+  - 修改 `src/lib/manufacturers.ts` 中的 `@/data/manufacturer-aliases.json` 為相對路徑 `../data/manufacturer-aliases.json`。
+  - 徹底解決 Railway 自動編譯時 `webpack errors` 的問題。
 
 ---
 

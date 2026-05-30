@@ -7,7 +7,7 @@ import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from 'react
 import { useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { MANUFACTURER_ALIASES, normalizeManufacturer } from '@/lib/manufacturers';
-import manufacturerDisplayNames from '@/data/manufacturer-display-names.json';
+import manufacturerDisplayNames from '../../data/manufacturer-display-names.json';
 
 type AliasMap = Record<string, string>;
 const DISPLAY_NAMES: Record<string, string> = manufacturerDisplayNames;
