@@ -208,7 +208,7 @@ function buildCategoryNewsUrl(categoryId: string, kind: 'shortage' | 'lifecycle'
     'electronic components',
     signalQuery,
     `(${terms.join(' OR ')})`,
-    'when:30d',
+    'when:7d',
   ].join(' ');
   return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
 }
@@ -469,8 +469,15 @@ function summarizePart(part: BenchmarkPart, results: PartResult[], errors: strin
   const maxLeadTimeDays = leadTimes.length ? Math.max(...leadTimes) : null;
   const hasApiMatch = supplierCount > 0;
   const noStockAfterMatch = hasApiMatch && totalStock <= 0;
+  const veryLongLead = maxLeadTimeDays !== null && maxLeadTimeDays >= 140; // >20 weeks
   const longLeadTimeAndLowStock = maxLeadTimeDays !== null && maxLeadTimeDays >= 84 && totalStock < 5000;
-  const risk = noStockAfterMatch || longLeadTimeAndLowStock;
+  const lowStockOnly = hasApiMatch && totalStock > 0 && totalStock < 1000;
+  const mediumLeadAndLowStock = maxLeadTimeDays !== null && maxLeadTimeDays >= 84 && maxLeadTimeDays < 140 && totalStock < 5000;
+
+  // Three-tier risk: 高風險 > 中風險 > 正常
+  const highRisk = noStockAfterMatch || veryLongLead;
+  const mediumRisk = !highRisk && (mediumLeadAndLowStock || lowStockOnly);
+  const riskLevel: '高風險' | '中風險' | '正常' | '無資料' = !hasApiMatch ? '無資料' : highRisk ? '高風險' : mediumRisk ? '中風險' : '正常';
 
   return {
     ...part,
@@ -487,11 +494,14 @@ function summarizePart(part: BenchmarkPart, results: PartResult[], errors: strin
     productUrl: best?.productUrl ?? '',
     checkedSuppliers: results.map((item) => item.supplier),
     errors,
-    summary: risk ? '有缺料風險' : (hasApiMatch ? '正常' : '無代理商資料'),
+    riskLevel,
+    summary: highRisk ? '有缺料風險' : mediumRisk ? '中風險' : (hasApiMatch ? '正常' : '無代理商資料'),
     riskReasons: [
       !hasApiMatch ? 'API 未找到此料，無授權代理商通路資料' : '',
-      noStockAfterMatch ? 'API 找到料件但授權供應商庫存為 0' : '',
-      longLeadTimeAndLowStock ? `交期達 ${Math.round(maxLeadTimeDays! / 7)} 週且現貨庫存低於 5,000 顆` : '',
+      noStockAfterMatch ? '🔴 API 找到料件但授權供應商庫存為 0' : '',
+      veryLongLead ? `🔴 交期達 ${Math.round(maxLeadTimeDays! / 7)} 週（超過 20 週）` : '',
+      mediumLeadAndLowStock && !veryLongLead ? `🟡 交期達 ${Math.round(maxLeadTimeDays! / 7)} 週且現貨庫存低於 5,000 顆` : '',
+      lowStockOnly && !noStockAfterMatch ? `🟡 庫存僅 ${totalStock.toLocaleString()} 顆（低於 1,000）` : '',
     ].filter(Boolean),
   };
 }
@@ -535,11 +545,14 @@ type ForecastPartResult = ReturnType<typeof summarizePart>;
 function buildNewsCategorySummary(news: NewsItem[]) {
   return DEMAND_CATEGORIES.map((cat) => {
     const items = news.filter((item) => item.categoryIds.includes(cat.categoryId));
+    const riskCount = items.filter((item) => item.riskHit).length;
+    // Require ≥2 risk news items to flag a category (reduces false positives)
+    const isRisk = riskCount >= 2;
     return {
       ...cat,
       newsCount: items.length,
-      riskNewsCount: items.filter((item) => item.riskHit).length,
-      summary: items.some((item) => item.riskHit) ? '有缺料風險' : '正常',
+      riskNewsCount: riskCount,
+      summary: isRisk ? '有缺料風險' : '正常',
     };
   });
 }
@@ -547,7 +560,9 @@ function buildNewsCategorySummary(news: NewsItem[]) {
 function buildSupplyCategorySummary(parts: ForecastPartResult[]) {
   return DEMAND_CATEGORIES.map((cat) => {
     const items = parts.filter((part) => part.categoryId === cat.categoryId);
-    const riskParts = items.filter((part) => part.summary === '有缺料風險');
+    const highRiskParts = items.filter((part) => part.riskLevel === '高風險');
+    const medRiskParts = items.filter((part) => part.riskLevel === '中風險');
+    const riskParts = items.filter((part) => part.riskLevel === '高風險' || part.riskLevel === '中風險');
     const checkedParts = items.filter((part) => part.supplierCount > 0);
     const totalStock = items.reduce((sum, part) => sum + part.totalStock, 0);
     const supplierCounts = items.map((part) => part.supplierCount).filter((n) => n > 0);
@@ -555,7 +570,8 @@ function buildSupplyCategorySummary(parts: ForecastPartResult[]) {
       .map((part) => part.maxLeadTimeDays)
       .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
     const riskRatio = checkedParts.length ? riskParts.length / checkedParts.length : 0;
-    const categoryRisk = riskParts.length >= 3 || (checkedParts.length >= 5 && riskRatio >= 0.4);
+    const categoryHighRisk = highRiskParts.length >= 3 || (checkedParts.length >= 5 && riskRatio >= 0.4);
+    const categoryMedRisk = !categoryHighRisk && (highRiskParts.length >= 1 || medRiskParts.length >= 3);
 
     return {
       ...cat,
@@ -563,12 +579,14 @@ function buildSupplyCategorySummary(parts: ForecastPartResult[]) {
       riskNewsCount: riskParts.length,
       checkedPartCount: checkedParts.length,
       riskPartCount: riskParts.length,
+      highRiskPartCount: highRiskParts.length,
+      medRiskPartCount: medRiskParts.length,
       totalStock,
       avgSupplierCount: supplierCounts.length
         ? Math.round((supplierCounts.reduce((sum, n) => sum + n, 0) / supplierCounts.length) * 10) / 10
         : 0,
       maxLeadTimeDays: leadTimes.length ? Math.max(...leadTimes) : null,
-      summary: categoryRisk ? '有缺料風險' : '正常',
+      summary: categoryHighRisk ? '有缺料風險' : categoryMedRisk ? '中風險' : '正常',
     };
   });
 }

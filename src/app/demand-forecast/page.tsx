@@ -483,32 +483,36 @@ export default function DemandForecastPage() {
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '23%' }}>
                       <div>RSS 新聞監測</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        含 shortage / allocation / lead time 等關鍵字 → 風險
+                        7 天內 ≥2 則含缺料關鍵字新聞 → 風險
                       </div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '23%' }}>
                       <div>生命週期公告 (PCN/EOL)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        含 PCN / EOL / NRND / 停產 等關鍵字 → 風險
+                        7 天內 ≥2 則含 EOL/PCN/停產關鍵字 → 風險
                       </div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '24%' }}>
                       <div>實時通路庫存 (API)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        料件：庫存=0 或 交期≥12週且庫存&lt;5K<br />
-                        類別：風險料≥3 或 已查≥5且風險佔比≥40%
+                        🔴 庫存=0 或 交期&gt;20週<br />
+                        🟡 交期12-20週且庫存&lt;5K，或庫存&lt;1K
                       </div>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {DEMAND_CATEGORIES.map((cat) => {
-                    const newsRisk = shortageCategorySummary.find((s) => s.categoryId === cat.categoryId)?.summary === '有缺料風險';
-                    const lifecycleRisk = lifecycleCategorySummary.find((s) => s.categoryId === cat.categoryId)?.summary === '有缺料風險';
-                    const apiRisk = data?.categorySummary?.find((s) => s.categoryId === cat.categoryId)?.summary === '有缺料風險';
+                    const newsSum = shortageCategorySummary.find((s) => s.categoryId === cat.categoryId);
+                    const lifecycleSum = lifecycleCategorySummary.find((s) => s.categoryId === cat.categoryId);
+                    const apiSum = data?.categorySummary?.find((s) => s.categoryId === cat.categoryId);
+                    const newsRisk = newsSum?.summary === '有缺料風險';
+                    const lifecycleRisk = lifecycleSum?.summary === '有缺料風險';
+                    const apiSummary: string = apiSum?.summary ?? '正常';
+                    const hasApiCheck = apiSum && (apiSum.checkedPartCount ?? 0) > 0;
                     
-                    // For API risk, if checkedPartCount is 0 or undefined, it means not queried yet
-                    const hasApiCheck = data?.categorySummary && (data.categorySummary.find((s) => s.categoryId === cat.categoryId)?.checkedPartCount ?? 0) > 0;
+                    // Determine API risk level for 3-color badge
+                    const apiRiskLevel: 'high' | 'medium' | 'none' = apiSummary === '有缺料風險' ? 'high' : apiSummary === '中風險' ? 'medium' : 'none';
                     
                     return (
                       <tr key={cat.categoryId} style={{ borderTop: '1px solid var(--hairline)', background: '#fff' }}>
@@ -519,14 +523,14 @@ export default function DemandForecastPage() {
                           <span>{categoryName(cat.categoryId, cat.category)}</span>
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
-                          <RiskCellBadge hasRisk={newsRisk} />
+                          <RiskCellBadge level={newsRisk ? 'high' : 'none'} />
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
-                          <RiskCellBadge hasRisk={lifecycleRisk} label="有異動風險" />
+                          <RiskCellBadge level={lifecycleRisk ? 'high' : 'none'} highLabel="有異動風險" />
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
                           {hasApiCheck ? (
-                            <RiskCellBadge hasRisk={apiRisk} />
+                            <RiskCellBadge level={apiRiskLevel} />
                           ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 700, background: '#F2F4F7', color: '#344054' }}>
                               尚未查詢
@@ -802,7 +806,12 @@ function Td({ children, align = 'left', mono = false }: { children: ReactNode; a
   return <td style={{ padding: '10px 12px', textAlign: align, verticalAlign: 'top', fontFamily: mono ? 'var(--font-mono)' : undefined }}>{children}</td>;
 }
 
-function RiskCellBadge({ hasRisk, label = '有缺料風險' }: { hasRisk: boolean; label?: string }) {
+function RiskCellBadge({ level, highLabel = '有缺料風險', medLabel = '中風險' }: { level: 'high' | 'medium' | 'none'; highLabel?: string; medLabel?: string }) {
+  const config = {
+    high: { bg: '#FFF1F0', color: '#B42318', dot: '#D92D20', text: highLabel },
+    medium: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', text: medLabel },
+    none: { bg: '#ECFDF3', color: '#027A48', dot: '#12B76A', text: '正常' },
+  }[level];
   return (
     <span
       style={{
@@ -813,12 +822,12 @@ function RiskCellBadge({ hasRisk, label = '有缺料風險' }: { hasRisk: boolea
         padding: '3px 8px',
         fontSize: 11,
         fontWeight: 700,
-        background: hasRisk ? '#FFF1F0' : '#ECFDF3',
-        color: hasRisk ? '#B42318' : '#027A48',
+        background: config.bg,
+        color: config.color,
       }}
     >
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: hasRisk ? '#D92D20' : '#12B76A' }}></span>
-      {hasRisk ? label : '正常'}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: config.dot }}></span>
+      {config.text}
     </span>
   );
 }
