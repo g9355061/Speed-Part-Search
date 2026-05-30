@@ -848,32 +848,115 @@ function getLifecycleTags(title: string, titleZh?: string): LifecycleTag[] {
 
 function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string; tone: PanelTone; items: ForecastNews[]; emptyText: string; badge: string; id?: string }) {
   const toneStyle = PANEL_TONES[tone];
+  const [lifecycleFilter, setLifecycleFilter] = useState<'all' | 'EOL' | 'NRND' | 'PCN' | 'LTB'>('all');
+
+  const filteredItems = useMemo(() => {
+    if (lifecycleFilter === 'all') return items;
+    return items.filter((item) => {
+      const tags = getLifecycleTags(item.title, item.titleZh);
+      if (lifecycleFilter === 'EOL') return tags.some(t => t.text === 'EOL 停產');
+      if (lifecycleFilter === 'NRND') return tags.some(t => t.text === 'NRND 不推薦設計');
+      if (lifecycleFilter === 'PCN') return tags.some(t => t.text === 'PCN 變更');
+      if (lifecycleFilter === 'LTB') return tags.some(t => t.text === 'LTB 最後採購');
+      return true;
+    });
+  }, [items, lifecycleFilter]);
+
   return (
     <Panel title={title} tone={tone} id={id}>
+      {/* 篩選標籤列 */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginRight: 4 }}>內容篩選:</span>
+        {(['all', 'EOL', 'NRND', 'PCN', 'LTB'] as const).map((filter) => {
+          const config = {
+            all: { label: '全部', bg: '#f2f4f7', color: '#344054', activeBg: '#e4e7ec', activeColor: '#101828' },
+            EOL: { label: 'EOL 停產', bg: '#FFF1F0', color: '#B42318', activeBg: '#FEF3F2', activeColor: '#912018' },
+            NRND: { label: 'NRND 不推薦', bg: '#FFFAEB', color: '#B54708', activeBg: '#FEF0C7', activeColor: '#b54708' },
+            PCN: { label: 'PCN 變更', bg: '#F4F3FF', color: '#5925DC', activeBg: '#E8E5FF', activeColor: '#4a1fb8' },
+            LTB: { label: 'LTB 最後採購', bg: '#F0F9FF', color: '#026AA2', activeBg: '#E0F2FE', activeColor: '#025a87' },
+          }[filter];
+          const active = lifecycleFilter === filter;
+          
+          const count = filter === 'all' ? items.length : items.filter((item) => {
+            const tags = getLifecycleTags(item.title, item.titleZh);
+            if (filter === 'EOL') return tags.some(t => t.text === 'EOL 停產');
+            if (filter === 'NRND') return tags.some(t => t.text === 'NRND 不推薦設計');
+            if (filter === 'PCN') return tags.some(t => t.text === 'PCN 變更');
+            if (filter === 'LTB') return tags.some(t => t.text === 'LTB 最後採購');
+            return false;
+          }).length;
+
+          // 只有當該分類有內容、或者是「全部」篩選、或者是當前選中的分類，才渲染出來
+          if (count === 0 && !active && filter !== 'all') return null;
+
+          return (
+            <button
+              key={filter}
+              onClick={() => setLifecycleFilter(filter)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                border: active ? `1px solid ${config.color}` : '1px solid transparent',
+                borderRadius: 6,
+                padding: '3px 8px',
+                fontSize: 11,
+                fontWeight: 700,
+                background: active ? config.activeBg : config.bg,
+                color: active ? config.activeColor : config.color,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                opacity: active ? 1 : 0.8,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+              onMouseLeave={(e) => { if (!active) e.currentTarget.style.opacity = '0.8'; }}
+            >
+              {config.label}
+              <span style={{ fontSize: 9, opacity: 0.7, fontWeight: 800 }}>({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
       <div style={{ display: 'grid', gap: 8 }}>
-        {items.slice(0, 18).map((item, idx) => {
+        {filteredItems.slice(0, 18).map((item, idx) => {
           const lifecycleTags = getLifecycleTags(item.title, item.titleZh);
           return (
             <div key={`${item.link}-${idx}`} style={{ border: `1px solid ${toneStyle.border}`, borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
               <a href={`https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(item.link)}`} target="_blank" rel="noreferrer" title="開啟中文翻譯新聞" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
                 {lifecycleTags.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-                    {lifecycleTags.map((tag) => (
-                      <span
-                        key={tag.text}
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          backgroundColor: tag.bg,
-                          color: tag.color,
-                          border: `1px solid ${tag.border}`,
-                          borderRadius: 4,
-                          padding: '1px 5px',
-                        }}
-                      >
-                        {tag.text}
-                      </span>
-                    ))}
+                    {lifecycleTags.map((tag) => {
+                      const filterVal = {
+                        'EOL 停產': 'EOL',
+                        'NRND 不推薦設計': 'NRND',
+                        'PCN 變更': 'PCN',
+                        'LTB 最後採購': 'LTB',
+                      }[tag.text] as any;
+                      return (
+                        <span
+                          key={tag.text}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setLifecycleFilter(lifecycleFilter === filterVal ? 'all' : filterVal);
+                          }}
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            backgroundColor: tag.bg,
+                            color: tag.color,
+                            border: `1px solid ${tag.border}`,
+                            borderRadius: 4,
+                            padding: '1px 5px',
+                            cursor: 'pointer',
+                          }}
+                          title={`點擊過濾以僅顯示「${tag.text}」`}
+                        >
+                          {tag.text}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
@@ -897,7 +980,9 @@ function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string
             </div>
           );
         })}
-        {!items.length && <EmptyLine text={emptyText} />}
+        {!filteredItems.length && (
+          <EmptyLine text={items.length ? '此篩選分類下無符合條件之內容。' : emptyText} />
+        )}
       </div>
     </Panel>
   );
