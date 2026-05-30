@@ -65,7 +65,7 @@ export function Header({ apiOnline, liveSourceCount, totalSourceCount }: Props) 
           <Icon name="compare" size={14} /><span className="lbl">廠商對照表</span>
         </Link>
         <Link href="/demand-forecast" className={'hdr-nav-link' + (pathname === '/demand-forecast' ? ' active' : '')}>
-          <Icon name="trend" size={14} /><span className="lbl">需求預測</span>
+          <Icon name="trend" size={14} /><span className="lbl">缺料預測</span>
         </Link>
         {isAdmin && (
           <Link href="/admin/users" className={'hdr-nav-link' + (pathname.startsWith('/admin') ? ' active' : '')}>

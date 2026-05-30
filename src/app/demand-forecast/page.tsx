@@ -297,7 +297,7 @@ export default function DemandForecastPage() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       setData(await resp.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : '需求預測更新失敗');
+      setError(err instanceof Error ? err.message : '缺料預測更新失敗');
     } finally {
       setLoading(false);
       setLoadingLabel('');
@@ -414,9 +414,9 @@ export default function DemandForecastPage() {
         <section style={{ display: 'flex', justifyContent: 'space-between', gap: 24, alignItems: 'flex-start', marginBottom: 22 }}>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--primary-2)', fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
-              <Icon name="trend" size={14} /> 需求預測雷達
+              <Icon name="trend" size={14} /> 缺料預測雷達
             </div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em', color: 'var(--text)' }}>需求預測</h1>
+            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em', color: 'var(--text)' }}>缺料預測</h1>
             <p style={{ margin: 0, color: 'var(--text-3)', fontSize: 14, lineHeight: 1.7, maxWidth: 760 }}>
               用 RSS 產業新聞判斷目前可能缺料的類別，再用 15 個類別 × 每類 10 顆基準料號查詢供應商資料，輸出每顆料的基本資料與總結。
             </p>
@@ -451,7 +451,7 @@ export default function DemandForecastPage() {
         </div>
 
         <section style={{ marginBottom: 20 }}>
-          <Panel title="需求預測風險對照矩陣" tone="api">
+          <Panel title="缺料預測風險對照矩陣" tone="api">
             <p style={{ margin: '0 0 14px 0', fontSize: 13, color: 'var(--text-3)' }}>
               整合三種預警偵測管道（RSS 新聞、原廠生命週期公告、實時通路代理商庫存），橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
