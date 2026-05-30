@@ -1,19 +1,11 @@
-// ==================== 市場情報候選與佐證 — 型別定義 ====================
+// ==================== 市場情報 — 型別定義 ====================
 
-/** 情報候選/佐證的確認狀態 */
-export type MarketIntelStatus =
-  | 'auto_candidate'    // 自動擷取的候選情報，待管理員確認
-  | 'confirmed'         // 管理員已確認為有效佐證或風險
-  | 'ignored';          // 管理員已忽略
-
-/** 情報信號級別（區分來源狀態與情報狀態） */
+/** 情報信號級別（全自動模式） */
 export type MarketSignalLevel =
   | 'no_signal'                // 成功取得來源，但沒找到相關情報
   | 'source_unavailable'       // 來源被封鎖/表單/逾時/解析失敗
-  | 'candidate'                // 自動擷取到 1 個來源的候選情報
-  | 'multi_source_candidate'   // 多個來源命中候選情報
-  | 'confirmed_evidence'       // 管理員確認為有效佐證
-  | 'confirmed_risk';          // 管理員確認為市場風險
+  | 'info'                     // 自動擷取到 1 個來源的情報
+  | 'multi_source';            // 多個來源命中情報
 
 /** 來源的抓取模式 */
 export type SourceFetchMode =
@@ -22,7 +14,7 @@ export type SourceFetchMode =
   | 'rss'              // RSS feed
   | 'pdf'              // PDF 報告
   | 'gated_form'       // 表單下載，需填寫才能取得
-  | 'manual_only';     // 僅限人工匯入
+  | 'manual_only';     // 僅限人工取得
 
 /** 來源的回應狀態 */
 export type SourceStatus =
@@ -38,8 +30,7 @@ export type SourceStatus =
 export type ExtractionMethod =
   | 'html_scrape'      // HTML 頁面擷取
   | 'rss_parse'        // RSS feed 解析
-  | 'pdf_extract'      // PDF 內容擷取
-  | 'manual_input';    // 人工匯入
+  | 'pdf_extract';     // PDF 內容擷取
 
 /** 信心度 */
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
@@ -68,12 +59,9 @@ export interface MarketReport {
   summaryZh: string;
   evidenceText: string;
   confidence: ConfidenceLevel;
-  status: MarketIntelStatus;
+  status: 'auto';
   extractionMethod: ExtractionMethod;
   sourceStatus: SourceStatus;
-  notes?: string;              // 管理員備註
-  reviewedBy?: string;         // 確認者
-  reviewedAt?: string;         // 確認時間
 }
 
 /** 單一來源的抓取結果 */
@@ -96,38 +84,4 @@ export interface MarketReportsFetchResult {
   schemaVersion: number;
 }
 
-/** 管理員 review action */
-export interface ReviewAction {
-  reportId: string;
-  action: 'confirm_evidence' | 'confirm_risk' | 'ignore';
-  reviewedBy: string;
-  notes?: string;
-}
-
-/** 人工匯入情報 */
-export interface ManualReportInput {
-  source: string;
-  title: string;
-  url: string;
-  publishedAt: string | null;
-  categoryIds: string[];
-  riskTypes: RiskType[];
-  summaryZh: string;
-  evidenceText: string;
-  signalLevel: 'confirmed_evidence' | 'confirmed_risk';
-  confidence: ConfidenceLevel;
-  notes?: string;
-}
-
-/** 快取中保存的 review 狀態 */
-export interface ReviewState {
-  [reportId: string]: {
-    status: MarketIntelStatus;
-    signalLevel: MarketSignalLevel;
-    reviewedBy: string;
-    reviewedAt: string;
-    notes?: string;
-  };
-}
-
-export const MARKET_REPORTS_SCHEMA_VERSION = 3;
+export const MARKET_REPORTS_SCHEMA_VERSION = 4;

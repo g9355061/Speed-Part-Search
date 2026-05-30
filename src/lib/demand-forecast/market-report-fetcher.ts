@@ -233,17 +233,17 @@ function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string
         reports.push({
           id: `auto-${sourceName.toLowerCase().replace(/\s+/g, '-')}-${catId}-${Date.now()}`,
           source: sourceName,
-          title: `${sourceName} — ${catId} 類別候選情報`,
+          title: `${sourceName} — ${catId} 類別情報`,
           url: sourceUrl,
           publishedAt: null, // Cannot determine from HTML scrape
           fetchedAt: now,
           categoryIds: [catId],
-          signalLevel: 'candidate',
+          signalLevel: 'info',
           riskTypes,
           summaryZh,
           evidenceText: evidenceFragments[0] || `偵測到關鍵字: ${keyword}`,
           confidence,
-          status: 'auto_candidate',
+          status: 'auto',
           extractionMethod: 'html_scrape',
           sourceStatus: 'ok',
         });
@@ -363,7 +363,7 @@ export function calculateCategorySignal(
   for (const cat of DEMAND_CATEGORIES) {
     const catId = cat.categoryId;
 
-    if (!hasAnyOkSource) {
+    if (sourceResults.length > 0 && !hasAnyOkSource) {
       result[catId] = 'source_unavailable';
       continue;
     }
@@ -374,31 +374,13 @@ export function calculateCategorySignal(
       continue;
     }
 
-    // Check for confirmed items first
-    const confirmedRisk = catReports.find(
-      r => r.status === 'confirmed' && r.signalLevel === 'confirmed_risk'
-    );
-    if (confirmedRisk) {
-      result[catId] = 'confirmed_risk';
-      continue;
-    }
-
-    const confirmedEvidence = catReports.find(
-      r => r.status === 'confirmed' && r.signalLevel === 'confirmed_evidence'
-    );
-    if (confirmedEvidence) {
-      result[catId] = 'confirmed_evidence';
-      continue;
-    }
-
-    // Count auto_candidate sources
-    const candidates = catReports.filter(r => r.status === 'auto_candidate');
-    const uniqueSources = new Set(candidates.map(r => r.source));
+    // Count unique sources
+    const uniqueSources = new Set(catReports.map(r => r.source));
 
     if (uniqueSources.size >= 2) {
-      result[catId] = 'multi_source_candidate';
+      result[catId] = 'multi_source';
     } else if (uniqueSources.size === 1) {
-      result[catId] = 'candidate';
+      result[catId] = 'info';
     } else {
       result[catId] = 'no_signal';
     }
