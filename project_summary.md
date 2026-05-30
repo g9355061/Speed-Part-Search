@@ -28,7 +28,13 @@
   - **解決方案**：在後端 API（`route.ts`）取得 RSS 後，實作了一個兩步式解碼器。首先模擬 Chrome 向 Google News 請求獲取網頁中的 signature 與 timestamp 參數，再呼叫 Google 內部的 `batchexecute` 協定 POST 解析出新聞的真實目標 URL（如路透社、彭博社）。
   - **效能優化**：為防範 Google 的 429 限流與提升整體速度，後端僅對命中缺料/生命週期警示（`riskHit === true`）的新聞網址進行解密，並以 `resolvedUrlCache` Map 進行記憶體快取，大幅縮減了 API 回應時間。
   - **呈現方式**：點選新聞標題時，直接彈出已翻譯為繁體中文的英文新聞網頁；同時，保留下方「原文」按鈕指向原始英文網址，供使用者隨時切換對照。
+- [x] **150 顆料件快取資料寫入雲端資料庫（PostgreSQL）**
+  - **需求與優化**：原先 150 顆料件查詢的快取是儲存在本地的 JSON 檔案中。當 Railway 重新部署或容器重啟時，這些快取資料會全部遺失，導致需要重新發送 API 查詢。
+  - **解決方案**：在雲端資料庫中建立 `demand_forecast_cache` 資料表。重寫後端的讀寫快取方法 `readCache` 與 `writeCache` 為非同步模式。
+  - **運作模式**：系統將優先從雲端 PostgreSQL 讀寫 150 顆料件的完整快取，若失敗或是在無資料庫的本地開發環境，會自動降級退化到本地 JSON 檔案，保證了雲端快取的永久保存與本地開發的零相依便利性。
 - [x] **修改檔案**
+  - `src/lib/db.ts`：新增 `demand_forecast_cache` 資料庫建表，並導出 `getDemandForecastCache` 與 `setDemandForecastCache` 快取讀寫函式。
+  - `src/app/api/demand-forecast/route.ts`：實作漸進式快取，調整 `summarizePart` 狀態輸出。新增 `decodeGoogleNewsUrl` 解碼邏輯，並修改 `fetchIndustryNews` 與 `fetchLifecycleNews`，讓 API 返回真實 URL 予前端。重寫 `readCache` 與 `writeCache` 為非同步模式並介接 DB 快取，在呼叫該快取讀寫的地方補上 `await`。
   - `src/lib/demand-forecast/benchmark.ts`：更新這 35 顆基準料件的 MPN、MFR 與產品描述。
   - `src/app/api/demand-forecast/route.ts`：實作漸進式快取，調整 `summarizePart` 狀態輸出。新增 `decodeGoogleNewsUrl` 解碼邏輯，並修改 `fetchIndustryNews` 與 `fetchLifecycleNews`，讓 API 返回真實 URL 予前端。
   - `src/app/demand-forecast/page.tsx`：前端 `ForecastPart` 介面新增型別宣告，修改 `useMemo` 中的 Mapping 邏輯，並更新 `RiskBadge` 的對應渲染。新增 `RiskCellBadge` 元件並在頁面最上方渲染「需求預測風險對照矩陣」表格。修改 `NewsPanel` 新聞標題超連結以支援 Google 翻譯跳轉。

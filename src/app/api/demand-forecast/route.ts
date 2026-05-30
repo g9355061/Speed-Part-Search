@@ -4,31 +4,45 @@ import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import fs from 'fs';
 import path from 'path';
+import { getDemandForecastCache, setDemandForecastCache } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 const CACHE_DIR = path.join(process.cwd(), 'data');
 const CACHE_PATH = path.join(CACHE_DIR, 'demand-forecast-cache.json');
 
-function readCache(): { updatedAt: string; parts: any[]; categorySummary: any[] } | null {
+async function readCache(): Promise<{ updatedAt: string; parts: any[]; categorySummary: any[] } | null> {
+  try {
+    const dbCache = await getDemandForecastCache();
+    if (dbCache) return dbCache;
+  } catch (err) {
+    console.error('[CACHE] Failed to read database cache, falling back to file:', err);
+  }
+
   try {
     if (!fs.existsSync(CACHE_PATH)) return null;
     const raw = fs.readFileSync(CACHE_PATH, 'utf-8');
     return JSON.parse(raw);
   } catch (err) {
-    console.error('[CACHE] Failed to read demand forecast cache:', err);
+    console.error('[CACHE] Failed to read demand forecast cache file:', err);
     return null;
   }
 }
 
-function writeCache(data: { updatedAt: string; parts: any[]; categorySummary: any[] }) {
+async function writeCache(data: { updatedAt: string; parts: any[]; categorySummary: any[] }) {
+  try {
+    await setDemandForecastCache(data);
+  } catch (err) {
+    console.error('[CACHE] Failed to write database cache:', err);
+  }
+
   try {
     if (!fs.existsSync(CACHE_DIR)) {
       fs.mkdirSync(CACHE_DIR, { recursive: true });
     }
     fs.writeFileSync(CACHE_PATH, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[CACHE] Failed to write demand forecast cache:', err);
+    console.error('[CACHE] Failed to write demand forecast cache file:', err);
   }
 }
 
@@ -514,7 +528,7 @@ export async function GET(req: NextRequest) {
   const lifecycleCategorySummary = buildNewsCategorySummary(lifecycleNews);
 
   if (mode !== 'full') {
-    const cached = readCache();
+    const cached = await readCache();
     if (cached) {
       return NextResponse.json({
         updatedAt: cached.updatedAt,
@@ -556,7 +570,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Load existing cache to get previously queried parts
-  const cached = readCache();
+  const cached = await readCache();
   const cachedPartsMap = new Map<string, any>();
   if (cached?.parts) {
     for (const p of cached.parts) {
@@ -611,7 +625,7 @@ export async function GET(req: NextRequest) {
 
       // Progressive save: save the full 150 parts array containing live results + cached results + empty placeholders
       const currentSummary = buildSupplyCategorySummary(parts);
-      writeCache({
+      await writeCache({
         updatedAt: new Date().toISOString(),
         parts,
         categorySummary: currentSummary,

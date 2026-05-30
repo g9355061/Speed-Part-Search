@@ -74,11 +74,16 @@ async function initPostgres() {
   await pg.query(`
     CREATE TABLE IF NOT EXISTS login_logs (
       id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL,
       ip TEXT,
       city TEXT,
       country TEXT,
       time TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS demand_forecast_cache (
+      key TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
   await pg.query(`
@@ -391,4 +396,39 @@ export async function markPasswordResetTokenUsed(id: number | string) {
   }
 
   getSqlite().prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?').run(id);
+}
+
+export async function getDemandForecastCache(): Promise<any | null> {
+  await ensureDb();
+  if (isPostgres) {
+    try {
+      const result = await getPool().query("SELECT data FROM demand_forecast_cache WHERE key = $1", ['default']);
+      if (result.rowCount === 0) return null;
+      return JSON.parse(result.rows[0].data);
+    } catch (err) {
+      console.error("[DB-CACHE] Failed to get demand forecast cache:", err);
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function setDemandForecastCache(data: any): Promise<void> {
+  await ensureDb();
+  if (isPostgres) {
+    try {
+      const dataStr = JSON.stringify(data);
+      await getPool().query(
+        `
+          INSERT INTO demand_forecast_cache (key, data, updated_at)
+          VALUES ($1, $2, now())
+          ON CONFLICT (key) DO UPDATE
+          SET data = EXCLUDED.data, updated_at = now()
+        `,
+        ['default', dataStr]
+      );
+    } catch (err) {
+      console.error("[DB-CACHE] Failed to set demand forecast cache:", err);
+    }
+  }
 }
