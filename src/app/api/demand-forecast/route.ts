@@ -573,53 +573,104 @@ function buildSupplyCategorySummary(parts: ForecastPartResult[]) {
   });
 }
 
-export async function GET(req: NextRequest) {
-  const mode = req.nextUrl.searchParams.get('mode') ?? 'summary';
+const NEWS_CACHE_PATH = path.join(CACHE_DIR, 'news-cache.json');
+
+interface NewsCache {
+  updatedAt: string;
+  news: NewsItem[];
+  lifecycleNews: NewsItem[];
+  newsCategorySummary: ReturnType<typeof buildNewsCategorySummary>;
+  lifecycleCategorySummary: ReturnType<typeof buildNewsCategorySummary>;
+}
+
+let memoryNewsCache: NewsCache | null = null;
+
+async function readNewsCache(): Promise<NewsCache | null> {
+  if (memoryNewsCache) return memoryNewsCache;
+  try {
+    if (!fs.existsSync(NEWS_CACHE_PATH)) return null;
+    const raw = fs.readFileSync(NEWS_CACHE_PATH, 'utf-8');
+    const parsed = JSON.parse(raw) as NewsCache;
+    memoryNewsCache = parsed;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeNewsCache(data: NewsCache) {
+  memoryNewsCache = data;
+  try {
+    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(NEWS_CACHE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[NEWS_CACHE] Failed to write:', err);
+  }
+}
+
+async function fetchAndCacheNews(): Promise<NewsCache> {
   const [news, lifecycleNews] = await Promise.all([fetchIndustryNews(), fetchLifecycleNews()]);
   const newsCategorySummary = buildNewsCategorySummary(news);
   const lifecycleCategorySummary = buildNewsCategorySummary(lifecycleNews);
+  const cache: NewsCache = {
+    updatedAt: new Date().toISOString(),
+    news,
+    lifecycleNews,
+    newsCategorySummary,
+    lifecycleCategorySummary,
+  };
+  await writeNewsCache(cache);
+  return cache;
+}
 
-  if (mode !== 'full') {
-    const cached = await readCache();
-    if (cached) {
-      return NextResponse.json({
-        updatedAt: cached.updatedAt,
-        mode,
-        news,
-        lifecycleNews,
-        categorySummary: cached.categorySummary,
-        newsCategorySummary,
-        lifecycleCategorySummary,
-        parts: cached.parts,
-      });
-    }
+export async function GET(req: NextRequest) {
+  const mode = req.nextUrl.searchParams.get('mode') ?? 'cached';
 
+  // --- mode=cached: return cached data instantly (for page load) ---
+  if (mode === 'cached') {
+    const newsCache = await readNewsCache();
+    const partsCache = await readCache();
+    const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
+      ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
+    }));
+    const emptyParts = BENCHMARK_PARTS.map((part) => ({
+      ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null, summary: '尚未查詢', riskReasons: [],
+    }));
     return NextResponse.json({
-      updatedAt: new Date().toISOString(),
+      updatedAt: newsCache?.updatedAt ?? partsCache?.updatedAt ?? new Date().toISOString(),
       mode,
-      news,
-      lifecycleNews,
-      categorySummary: DEMAND_CATEGORIES.map((cat) => ({
-        ...cat,
-        newsCount: 0,
-        riskNewsCount: 0,
-        checkedPartCount: 0,
-        riskPartCount: 0,
-        summary: '正常',
-      })),
-      newsCategorySummary,
-      lifecycleCategorySummary,
-      parts: BENCHMARK_PARTS.map((part) => ({
-        ...part,
-        supplierCount: null,
-        totalStock: null,
-        lowestPriceUsd: null,
-        maxLeadTimeDays: null,
-        summary: '尚未查詢',
-        riskReasons: [],
+      news: newsCache?.news ?? [],
+      lifecycleNews: newsCache?.lifecycleNews ?? [],
+      categorySummary: partsCache?.categorySummary ?? emptyCategories,
+      newsCategorySummary: newsCache?.newsCategorySummary ?? emptyCategories,
+      lifecycleCategorySummary: newsCache?.lifecycleCategorySummary ?? emptyCategories,
+      parts: partsCache?.parts ?? emptyParts,
+    });
+  }
+
+  // --- mode=summary: fetch fresh news, return with cached parts ---
+  if (mode === 'summary' || mode !== 'full') {
+    const newsData = await fetchAndCacheNews();
+    const partsCache = await readCache();
+    const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
+      ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
+    }));
+    return NextResponse.json({
+      updatedAt: newsData.updatedAt,
+      mode,
+      news: newsData.news,
+      lifecycleNews: newsData.lifecycleNews,
+      categorySummary: partsCache?.categorySummary ?? emptyCategories,
+      newsCategorySummary: newsData.newsCategorySummary,
+      lifecycleCategorySummary: newsData.lifecycleCategorySummary,
+      parts: partsCache?.parts ?? BENCHMARK_PARTS.map((part) => ({
+        ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null, summary: '尚未查詢', riskReasons: [],
       })),
     });
   }
+
+  // --- mode=full: fetch fresh news + query all 150 parts ---
+  const newsData = await fetchAndCacheNews();
 
   // Load existing cache to get previously queried parts
   const cached = await readCache();
@@ -693,11 +744,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     updatedAt,
     mode,
-    news,
-    lifecycleNews,
+    news: newsData.news,
+    lifecycleNews: newsData.lifecycleNews,
     categorySummary,
-    newsCategorySummary,
-    lifecycleCategorySummary,
+    newsCategorySummary: newsData.newsCategorySummary,
+    lifecycleCategorySummary: newsData.lifecycleCategorySummary,
     parts,
   });
 }

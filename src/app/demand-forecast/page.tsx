@@ -290,15 +290,15 @@ export default function DemandForecastPage() {
   const [data, setData] = useState<ForecastResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState('');
-  const [mode, setMode] = useState<'summary' | 'full'>('summary');
+  const [mode, setMode] = useState<'cached' | 'summary' | 'full'>('cached');
   const [category, setCategory] = useState('all');
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [health, setHealth] = useState({ live: 0, total: 1 });
 
-  async function loadForecast(nextMode: 'summary' | 'full') {
-    setLoading(true);
-    setLoadingLabel(nextMode === 'summary' ? '正在更新產業新聞' : '正在查詢 150 顆料件');
+  async function loadForecast(nextMode: 'cached' | 'summary' | 'full') {
+    setLoading(nextMode !== 'cached');
+    if (nextMode !== 'cached') setLoadingLabel(nextMode === 'summary' ? '正在更新產業新聞' : '正在查詢 150 顆料件');
     setError('');
     setMode(nextMode);
     try {
@@ -314,7 +314,7 @@ export default function DemandForecastPage() {
   }
 
   useEffect(() => {
-    loadForecast('summary');
+    loadForecast('cached');
     fetch('/api/health')
       .then((resp) => resp.json())
       .then((json) => setHealth({ live: json.liveSourceCount ?? 0, total: json.totalSourceCount ?? 1 }))
@@ -447,7 +447,7 @@ export default function DemandForecastPage() {
         )}
 
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 18 }}>
-          <Metric label="資料模式" value={mode === 'full' ? '新聞 + 供應商資料' : '新聞'} />
+          <Metric label="資料模式" value={mode === 'full' ? '新聞 + 供應商資料' : mode === 'cached' ? '快取資料' : '新聞'} />
           <Metric label="缺料新聞" value={`${shortageNewsCount}`} />
           <Metric label="生命週期訊號" value={`${lifecycleNewsCount}`} tone={lifecycleNewsCount > 0 ? 'risk' : 'normal'} />
           <Metric label="新聞風險類別" value={`${riskCategories} / ${DEMAND_CATEGORIES.length}`} tone={riskCategories > 0 ? 'risk' : 'normal'} />
