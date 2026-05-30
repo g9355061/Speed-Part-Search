@@ -1122,3 +1122,15 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   transform: scale(0.98);
 }
 
+/* Modal Animation */
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+

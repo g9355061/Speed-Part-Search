@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useSession } from 'next-auth/react';
 import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
 import { BENCHMARK_PARTS, DEMAND_CATEGORIES, CATEGORY_THRESHOLDS } from '@/lib/demand-forecast/benchmark';
@@ -288,6 +289,9 @@ function riskNewsTimeText(items: ForecastNews[]) {
 }
 
 export default function DemandForecastPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === 'admin';
+
   const [data, setData] = useState<ForecastResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState('');
@@ -296,6 +300,13 @@ export default function DemandForecastPage() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [health, setHealth] = useState({ live: 0, total: 1 });
+
+  const [showThresholdsModal, setShowThresholdsModal] = useState(false);
+  const [thresholds, setThresholds] = useState<Record<string, { minStock: number; lowStock: number }>>(CATEGORY_THRESHOLDS);
+  const [editingThresholds, setEditingThresholds] = useState<Record<string, { minStock: number; lowStock: number }> | null>(null);
+  const [savingThresholds, setSavingThresholds] = useState(false);
+  const [thresholdsError, setThresholdsError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const handleMatrixClick = (categoryId: string, targetId: string) => {
     setCategory(categoryId);
@@ -327,6 +338,20 @@ export default function DemandForecastPage() {
     }
   }
 
+  async function loadThresholds() {
+    try {
+      const resp = await fetch('/api/demand-forecast/thresholds');
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.thresholds) {
+          setThresholds(json.thresholds);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load thresholds:', err);
+    }
+  }
+
   useEffect(() => {
     (async () => {
       // 1. Try cached data first (instant)
@@ -337,6 +362,7 @@ export default function DemandForecastPage() {
         await loadForecast('summary');
       }
     })();
+    loadThresholds();
     fetch('/api/health')
       .then((resp) => resp.json())
       .then((json) => setHealth({ live: json.liveSourceCount ?? 0, total: json.totalSourceCount ?? 1 }))
@@ -513,40 +539,27 @@ export default function DemandForecastPage() {
                     </strong>：啟動採購補貨的**預警庫存界線**。低於此水位且最短補貨交期拉長（&gt;= 12週觸發 🟡，&gt;= 20週觸發 🔴）時觸發警示。
                   </li>
                 </ul>
-                <details style={{ marginTop: 10, cursor: 'pointer' }}>
-                  <summary style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)', outline: 'none', userSelect: 'none' }}>
-                    🔍 點此查看 15 個類別的「安全水位 / 補貨水位」具體數值
-                  </summary>
-                  <div style={{ marginTop: 8, overflow: 'auto', maxHeight: 220, borderRadius: 6, border: '1px solid var(--border)', background: '#fff' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
-                      <thead>
-                        <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 1 }}>
-                          <th style={{ padding: '6px 10px', fontWeight: 700 }}>類別</th>
-                          <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right' }}>安全水位 (中風險)</th>
-                          <th style={{ padding: '6px 10px', fontWeight: 700, textAlign: 'right' }}>補貨水位 (預警期)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {DEMAND_CATEGORIES.map((cat) => {
-                          const thr = CATEGORY_THRESHOLDS[cat.categoryId] || { minStock: 1000, lowStock: 5000 };
-                          return (
-                            <tr key={cat.categoryId} style={{ borderBottom: '1px solid var(--hairline)' }}>
-                              <td style={{ padding: '6px 10px', fontWeight: 600 }}>
-                                {categoryNumber(cat.categoryId)} {categoryName(cat.categoryId, cat.category)}
-                              </td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right', color: '#B54708', fontWeight: 600 }}>
-                                {thr.minStock.toLocaleString()} 顆
-                              </td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--text-2)' }}>
-                                {thr.lowStock.toLocaleString()} 顆
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
+                <div
+                  style={{
+                    marginTop: 10,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: 'var(--primary)',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    textDecoration: 'underline'
+                  }}
+                  onClick={() => {
+                    setEditingThresholds(JSON.parse(JSON.stringify(thresholds)));
+                    setThresholdsError(null);
+                    setIsEditing(false);
+                    setShowThresholdsModal(true);
+                  }}
+                >
+                  ▼ 🔍 點此查看 15 個類別的「安全水位 / 補貨水位」具體數值
+                </div>
               </div>
             </div>
             <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8 }}>
@@ -584,7 +597,7 @@ export default function DemandForecastPage() {
                     const lifecycleRisk = lifecycleSum?.summary === '有缺料風險';
                     const apiSummary: string = apiSum?.summary ?? '正常';
                     const hasApiCheck = apiSum && (apiSum.checkedPartCount ?? 0) > 0;
-                    const thresholds = CATEGORY_THRESHOLDS[cat.categoryId] || { minStock: 1000, lowStock: 5000 };
+                    const catThresholds = thresholds[cat.categoryId] || { minStock: 1000, lowStock: 5000 };
                     
                     // Determine API risk level for 3-color badge
                     const apiRiskLevel: 'high' | 'medium' | 'none' = apiSummary === '有缺料風險' ? 'high' : apiSummary === '中風險' ? 'medium' : 'none';
@@ -604,8 +617,8 @@ export default function DemandForecastPage() {
                             <span>{categoryName(cat.categoryId, cat.category)}</span>
                           </div>
                           <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 4, marginLeft: 30 }}>
-                            <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="安全水位 (Safety Stock)：維持生產不中斷的底線緩衝庫存。低於此數值會直接觸發中風險 (🟡)。">安全水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.minStock.toLocaleString()}</span> |{' '}
-                            <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="補貨水位 (Reorder Point)：啟動採購補貨流程的預警庫存線。介於補貨與安全水位之間時，僅在補貨交期拉長時觸發警示。">補貨水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.lowStock.toLocaleString()}</span> 顆
+                            <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="安全水位 (Safety Stock)：維持生產不中斷的底線緩衝庫存。低於此數值會直接觸發中風險 (🟡)。">安全水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{catThresholds.minStock.toLocaleString()}</span> |{' '}
+                            <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="補貨水位 (Reorder Point)：啟動採購補貨流程的預警庫存線。介於補貨與安全水位之間時，僅在補貨交期拉長時觸發警示。">補貨水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{catThresholds.lowStock.toLocaleString()}</span> 顆
                           </div>
                         </td>
                         <td
@@ -752,6 +765,400 @@ export default function DemandForecastPage() {
           </div>
         </Panel>
       </main>
+
+      {/* Modal Dialog for Thresholds */}
+      {showThresholdsModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            backdropFilter: 'blur(16px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+          onClick={() => {
+            if (!savingThresholds) {
+              setShowThresholdsModal(false);
+              setEditingThresholds(null);
+              setIsEditing(false);
+            }
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+              width: '90%',
+              maxWidth: 960,
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              border: '1px solid var(--border)',
+              overflow: 'hidden',
+              animation: 'modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '18px 24px',
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--surface-2)',
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="settings" size={18} />
+                15 個類別的「安全水位 / 補貨水位」具體數值設定
+                {isAdmin ? (
+                  <span style={{ fontSize: 11, fontWeight: 700, background: isEditing ? '#FFFAEB' : '#ECFDF3', color: isEditing ? '#B54708' : '#027A48', padding: '3px 10px', borderRadius: 999, marginLeft: 8, border: isEditing ? '1px solid #FEDF89' : '1px solid #A3E635' }}>
+                    管理員模式{isEditing ? ' (編輯中)' : ' (檢視)'}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 11, fontWeight: 500, background: '#F2F4F7', color: '#344054', padding: '3px 10px', borderRadius: 999, marginLeft: 8, border: '1px solid var(--border)' }}>
+                    一般使用者 (唯讀)
+                  </span>
+                )}
+              </h3>
+              <button
+                disabled={savingThresholds}
+                onClick={() => {
+                  setShowThresholdsModal(false);
+                  setEditingThresholds(null);
+                  setIsEditing(false);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  color: 'var(--text-3)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  outline: 'none',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'var(--surface-3)';
+                  e.currentTarget.style.color = 'var(--text)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'none';
+                  e.currentTarget.style.color = 'var(--text-3)';
+                }}
+              >
+                <Icon name="x" size={18} stroke={2.5} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+              {thresholdsError && (
+                <div style={{ background: '#FFF1F0', border: '1px solid #FEE4E2', borderRadius: 8, color: '#B42318', padding: '12px 16px', fontSize: 13, marginBottom: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="alert" size={16} /> {thresholdsError}
+                </div>
+              )}
+              
+              <div style={{ marginBottom: 18, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                {isAdmin ? (
+                  <span>
+                    💡 <strong>管理員提示：</strong> 您可以點擊下方的「進入編輯模式」直接修改水位設定。儲存後，系統會<strong>自動在背景重新計算</strong>所有料件的風險狀態（🔴 / 🟡 / 🟢），使最新判定立即呈現在首頁。
+                  </span>
+                ) : (
+                  <span>
+                    💡 <strong>檢視模式：</strong> 您目前以一般使用者身份檢視水位數值。唯有系統管理員（如 Chang Wei Li 或 Danny Chen）具備修改此水位數值的權限。
+                  </span>
+                )}
+              </div>
+
+              <div style={{ borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ padding: '12px 18px', fontWeight: 700, color: 'var(--text-2)', width: '40%' }}>料件類別</th>
+                      <th style={{ padding: '12px 18px', fontWeight: 700, color: 'var(--text-2)', width: '30%' }}>安全水位 (中風險線)</th>
+                      <th style={{ padding: '12px 18px', fontWeight: 700, color: 'var(--text-2)', width: '30%' }}>補貨水位 (預警期線)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DEMAND_CATEGORIES.map((cat, idx) => {
+                      const id = cat.categoryId;
+                      const thr = editingThresholds?.[id] || thresholds[id] || { minStock: 1000, lowStock: 5000 };
+                      const isEven = idx % 2 === 0;
+                      
+                      return (
+                        <tr 
+                          key={id} 
+                          style={{ 
+                            borderBottom: '1px solid var(--hairline)', 
+                            background: isEven ? '#fff' : 'var(--bg)',
+                            transition: 'background-color 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'var(--surface-2)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = isEven ? '#fff' : 'var(--bg)';
+                          }}
+                        >
+                          <td style={{ padding: '12px 18px', fontWeight: 600, color: 'var(--text)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 6, background: 'var(--surface-3)', color: 'var(--text-2)', fontSize: 11, fontWeight: 800 }}>
+                                {categoryNumber(id)}
+                              </span>
+                              <span>{categoryName(id, cat.category)}</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 18px' }}>
+                            {isAdmin && isEditing && editingThresholds ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  disabled={savingThresholds}
+                                  value={thr.minStock}
+                                  onChange={(e) => {
+                                    const val = Math.max(0, parseInt(e.target.value) || 0);
+                                    setEditingThresholds(prev => prev ? ({
+                                      ...prev,
+                                      [id]: { ...prev[id], minStock: val }
+                                    }) : null);
+                                  }}
+                                  style={{
+                                    width: 120,
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid var(--border-strong)',
+                                    fontSize: 13,
+                                    textAlign: 'right',
+                                    fontWeight: 700,
+                                    color: '#B54708',
+                                    background: '#FFFAEB',
+                                    outline: 'none',
+                                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)',
+                                    transition: 'all 0.15s ease',
+                                  }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = 'var(--primary)';
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(11,37,69,0.12)';
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = 'var(--border-strong)';
+                                    e.target.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.05)';
+                                  }}
+                                />
+                                <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 500 }}>顆</span>
+                              </div>
+                            ) : (
+                              <span style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                padding: '4px 10px', 
+                                borderRadius: 6, 
+                                background: '#FFFAEB', 
+                                color: '#B54708', 
+                                fontWeight: 700,
+                                fontSize: 12.5
+                              }}>
+                                {(thresholds[id]?.minStock ?? 1000).toLocaleString()} 顆
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 18px' }}>
+                            {isAdmin && isEditing && editingThresholds ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  disabled={savingThresholds}
+                                  value={thr.lowStock}
+                                  onChange={(e) => {
+                                    const val = Math.max(0, parseInt(e.target.value) || 0);
+                                    setEditingThresholds(prev => prev ? ({
+                                      ...prev,
+                                      [id]: { ...prev[id], lowStock: val }
+                                    }) : null);
+                                  }}
+                                  style={{
+                                    width: 120,
+                                    padding: '6px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid var(--border-strong)',
+                                    fontSize: 13,
+                                    textAlign: 'right',
+                                    fontWeight: 700,
+                                    color: 'var(--text)',
+                                    background: '#fff',
+                                    outline: 'none',
+                                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)',
+                                    transition: 'all 0.15s ease',
+                                  }}
+                                  onFocus={(e) => {
+                                    e.target.style.borderColor = 'var(--primary)';
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(11,37,69,0.12)';
+                                  }}
+                                  onBlur={(e) => {
+                                    e.target.style.borderColor = 'var(--border-strong)';
+                                    e.target.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.05)';
+                                  }}
+                                />
+                                <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 500 }}>顆</span>
+                              </div>
+                            ) : (
+                              <span style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                padding: '4px 10px', 
+                                borderRadius: 6, 
+                                background: '#F2F4F7', 
+                                color: 'var(--text-2)', 
+                                fontWeight: 600,
+                                fontSize: 12.5
+                              }}>
+                                {(thresholds[id]?.lowStock ?? 5000).toLocaleString()} 顆
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                padding: '16px 24px',
+                borderTop: '1px solid var(--border)',
+                background: 'var(--surface-2)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                {isAdmin ? (
+                  isEditing ? (
+                    <span>✍️ 正在編輯模式，修改完畢後請點擊「儲存設定」</span>
+                  ) : (
+                    <span>💡 您擁有管理員權限，可點擊右側按鈕進行修改</span>
+                  )
+                ) : (
+                  <span>🔒 唯讀模式 (僅供檢視)</span>
+                )}
+              </div>
+              
+              <div style={{ display: 'flex', gap: 10 }}>
+                {/* 檢視模式 & 管理員 */}
+                {isAdmin && !isEditing && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setShowThresholdsModal(false);
+                        setEditingThresholds(null);
+                      }}
+                      className="btn"
+                      style={{ fontSize: 13, height: 36, padding: '0 16px' }}
+                    >
+                      關閉
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingThresholds(JSON.parse(JSON.stringify(thresholds)));
+                        setIsEditing(true);
+                      }}
+                      className="btn-primary"
+                      style={{ fontSize: 13, height: 36, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      🔧 進入編輯模式
+                    </button>
+                  </>
+                )}
+
+                {/* 編輯模式 (必須是管理員) */}
+                {isAdmin && isEditing && (
+                  <>
+                    <button
+                      disabled={savingThresholds}
+                      onClick={() => {
+                        setIsEditing(false);
+                        setEditingThresholds(null);
+                      }}
+                      className="btn"
+                      style={{ fontSize: 13, height: 36, padding: '0 16px' }}
+                    >
+                      取消編輯
+                    </button>
+                    <button
+                      disabled={savingThresholds}
+                      onClick={async () => {
+                        if (!editingThresholds) return;
+                        setSavingThresholds(true);
+                        setThresholdsError(null);
+                        try {
+                          const resp = await fetch('/api/demand-forecast/thresholds', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ thresholds: editingThresholds }),
+                          });
+                          if (!resp.ok) {
+                            const errData = await resp.json();
+                            throw new Error(errData.error || `HTTP ${resp.status}`);
+                          }
+                          
+                          setThresholds(editingThresholds);
+                          setIsEditing(false);
+                          setShowThresholdsModal(false);
+                          setEditingThresholds(null);
+                          await loadForecast('cached');
+                        } catch (err) {
+                          setThresholdsError(err instanceof Error ? err.message : '儲存水位設定失敗');
+                        } finally {
+                          setSavingThresholds(false);
+                        }
+                      }}
+                      className="btn-primary"
+                      style={{ fontSize: 13, height: 36, padding: '0 16px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                      {savingThresholds ? '儲存中...' : '儲存設定'}
+                    </button>
+                  </>
+                )}
+
+                {/* 非管理員 */}
+                {!isAdmin && (
+                  <button
+                    onClick={() => {
+                      setShowThresholdsModal(false);
+                    }}
+                    className="btn-primary"
+                    style={{ fontSize: 13, height: 36, padding: '0 18px' }}
+                  >
+                    關閉
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

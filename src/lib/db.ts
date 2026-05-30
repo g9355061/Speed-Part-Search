@@ -85,6 +85,12 @@ async function initPostgres() {
       data TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS demand_forecast_thresholds (
+      category_id TEXT PRIMARY KEY,
+      min_stock INTEGER NOT NULL,
+      low_stock INTEGER NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS demand_forecast_snapshots (
       mpn TEXT NOT NULL,
       date TEXT NOT NULL,
@@ -164,6 +170,12 @@ function initSqlite() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS demand_forecast_thresholds (
+      category_id TEXT PRIMARY KEY,
+      min_stock INTEGER NOT NULL,
+      low_stock INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     CREATE TABLE IF NOT EXISTS demand_forecast_snapshots (
       mpn TEXT NOT NULL,
       date TEXT NOT NULL,
@@ -576,6 +588,84 @@ export async function getDemandForecastSnapshot7DaysAgo(mpn: string): Promise<an
     } catch (err) {
       console.error("[DB-SNAPSHOT] Failed to get sqlite snapshot:", err);
       return null;
+    }
+  }
+}
+
+export async function getCustomThresholds(): Promise<Record<string, { minStock: number; lowStock: number }> | null> {
+  await ensureDb();
+  if (isPostgres) {
+    try {
+      const result = await getPool().query("SELECT category_id, min_stock, low_stock FROM demand_forecast_thresholds");
+      if (result.rowCount === 0) return null;
+      const map: Record<string, { minStock: number; lowStock: number }> = {};
+      for (const row of result.rows) {
+        map[row.category_id] = { minStock: row.min_stock, lowStock: row.low_stock };
+      }
+      return map;
+    } catch (err) {
+      console.error("[DB] Failed to get custom thresholds:", err);
+      return null;
+    }
+  } else {
+    try {
+      const db = getSqlite();
+      const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='demand_forecast_thresholds'").get();
+      if (!tableExists) return null;
+
+      const rows = db.prepare("SELECT category_id, min_stock, low_stock FROM demand_forecast_thresholds").all() as any[];
+      if (rows.length === 0) return null;
+      const map: Record<string, { minStock: number; lowStock: number }> = {};
+      for (const row of rows) {
+        map[row.category_id] = { minStock: row.min_stock, lowStock: row.low_stock };
+      }
+      return map;
+    } catch (err) {
+      console.error("[DB] Failed to get custom thresholds (sqlite):", err);
+      return null;
+    }
+  }
+}
+
+export async function saveCustomThresholds(thresholds: Record<string, { minStock: number; lowStock: number }>): Promise<void> {
+  await ensureDb();
+  if (isPostgres) {
+    const pg = getPool();
+    try {
+      await pg.query("BEGIN");
+      for (const [catId, thr] of Object.entries(thresholds)) {
+        await pg.query(
+          `
+            INSERT INTO demand_forecast_thresholds (category_id, min_stock, low_stock, updated_at)
+            VALUES ($1, $2, $3, now())
+            ON CONFLICT (category_id) DO UPDATE
+            SET min_stock = EXCLUDED.min_stock, low_stock = EXCLUDED.low_stock, updated_at = now()
+          `,
+          [catId, thr.minStock, thr.lowStock]
+        );
+      }
+      await pg.query("COMMIT");
+    } catch (err) {
+      await pg.query("ROLLBACK");
+      console.error("[DB] Failed to save custom thresholds:", err);
+    }
+  } else {
+    const db = getSqlite();
+    try {
+      db.transaction(() => {
+        for (const [catId, thr] of Object.entries(thresholds)) {
+          db.prepare(
+            `
+              INSERT INTO demand_forecast_thresholds (category_id, min_stock, low_stock)
+              VALUES (?, ?, ?)
+              ON CONFLICT (category_id) DO UPDATE
+              SET min_stock = excluded.min_stock, low_stock = excluded.low_stock
+            `
+          ).run(catId, Number(thr.minStock), Number(thr.lowStock));
+        }
+      })();
+    } catch (err) {
+      console.error("[DB] Failed to save custom thresholds (sqlite):", err);
     }
   }
 }
