@@ -812,34 +812,91 @@ function CategoryRiskPanel({
   );
 }
 
+interface LifecycleTag {
+  text: string;
+  bg: string;
+  color: string;
+  border: string;
+}
+
+function getLifecycleTags(title: string, titleZh?: string): LifecycleTag[] {
+  const combined = `${title} ${titleZh || ''}`.toLowerCase();
+  const tags: LifecycleTag[] = [];
+
+  // 1. EOL 停產
+  if (/\beol\b|discontinu(e|ance|ed)|obsolescen(ce|t)|obsolete|phase[- ]out|end[- ]of[- ]life|停產|終止生命週期|廢止/i.test(combined)) {
+    tags.push({ text: 'EOL 停產', bg: '#FFF1F0', color: '#B42318', border: '#FDA29B' });
+  }
+
+  // 2. NRND 不推薦設計
+  if (/\bnrnd\b|not[- ]recommended[- ]for[- ]new[- ]design|not[- ]recommended|不推薦設計|新設計不推薦/i.test(combined)) {
+    tags.push({ text: 'NRND 不推薦設計', bg: '#FFFAEB', color: '#B54708', border: '#FEDF89' });
+  }
+
+  // 3. PCN 變更
+  if (/\bpcn\b|product[- ]change[- ]notification|product[- ]change|process[- ]change|change[- ]notification|產品變更通知|變更通知|產品變更|製程變更/i.test(combined)) {
+    tags.push({ text: 'PCN 變更', bg: '#F4F3FF', color: '#5925DC', border: '#D9D6FE' });
+  }
+
+  // 4. LTB 最後採購
+  if (/\bltb\b|last[- ]time[- ]buy|last[- ]buy|last[- ]order|最後採購|最後下單|最後購買期/i.test(combined)) {
+    tags.push({ text: 'LTB 最後採購', bg: '#F0F9FF', color: '#026AA2', border: '#B9E6FE' });
+  }
+
+  return tags;
+}
+
 function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string; tone: PanelTone; items: ForecastNews[]; emptyText: string; badge: string; id?: string }) {
   const toneStyle = PANEL_TONES[tone];
   return (
     <Panel title={title} tone={tone} id={id}>
       <div style={{ display: 'grid', gap: 8 }}>
-        {items.slice(0, 18).map((item, idx) => (
-          <div key={`${item.link}-${idx}`} style={{ border: `1px solid ${toneStyle.border}`, borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
-            <a href={`https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(item.link)}`} target="_blank" rel="noreferrer" title="開啟中文翻譯新聞" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
-                <strong style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.35 }}>{item.titleZh || item.title}</strong>
-                <span style={{ whiteSpace: 'nowrap', fontSize: 11, color: toneStyle.title, background: toneStyle.soft, borderRadius: 999, padding: '2px 7px', fontWeight: 700 }}>{badge}</span>
+        {items.slice(0, 18).map((item, idx) => {
+          const lifecycleTags = getLifecycleTags(item.title, item.titleZh);
+          return (
+            <div key={`${item.link}-${idx}`} style={{ border: `1px solid ${toneStyle.border}`, borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
+              <a href={`https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(item.link)}`} target="_blank" rel="noreferrer" title="開啟中文翻譯新聞" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+                {lifecycleTags.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                    {lifecycleTags.map((tag) => (
+                      <span
+                        key={tag.text}
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          backgroundColor: tag.bg,
+                          color: tag.color,
+                          border: `1px solid ${tag.border}`,
+                          borderRadius: 4,
+                          padding: '1px 5px',
+                        }}
+                      >
+                        {tag.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 5 }}>
+                  <strong style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.35 }}>{item.titleZh || item.title}</strong>
+                  <span style={{ whiteSpace: 'nowrap', fontSize: 11, color: toneStyle.title, background: toneStyle.soft, borderRadius: 999, padding: '2px 7px', fontWeight: 700 }}>{badge}</span>
+                </div>
+              </a>
+              {item.snippetZh && item.snippetZh !== item.titleZh && (
+                <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 6 }}>
+                  {item.snippetZh}
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--text-3)' }}>
+                <span>{item.source} · 新聞時間 {formatNewsDate(item)}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>
+                  <a href={item.link} target="_blank" rel="noreferrer" style={{ color: 'var(--text-3)', textDecoration: 'none', fontWeight: 600 }}>
+                    原文
+                  </a>
+                </span>
               </div>
-            </a>
-            {item.snippetZh && item.snippetZh !== item.titleZh && (
-              <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 6 }}>
-                {item.snippetZh}
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--text-3)' }}>
-              <span>{item.source} · 新聞時間 {formatNewsDate(item)}</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>
-                <a href={item.link} target="_blank" rel="noreferrer" style={{ color: 'var(--text-3)', textDecoration: 'none', fontWeight: 600 }}>
-                  原文
-                </a>
-              </span>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {!items.length && <EmptyLine text={emptyText} />}
       </div>
     </Panel>
