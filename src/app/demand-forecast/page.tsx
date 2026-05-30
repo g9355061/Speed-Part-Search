@@ -304,9 +304,12 @@ export default function DemandForecastPage() {
     try {
       const resp = await fetch(`/api/demand-forecast?mode=${nextMode}`, { cache: 'no-store' });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      setData(await resp.json());
+      const result = await resp.json();
+      setData(result);
+      return result;
     } catch (err) {
       setError(err instanceof Error ? err.message : '缺料預測更新失敗');
+      return null;
     } finally {
       setLoading(false);
       setLoadingLabel('');
@@ -314,7 +317,15 @@ export default function DemandForecastPage() {
   }
 
   useEffect(() => {
-    loadForecast('cached');
+    (async () => {
+      // 1. Try cached data first (instant)
+      const cached = await loadForecast('cached');
+      // 2. If no news in cache, auto-fetch fresh news
+      const hasNews = cached?.news?.length > 0 || cached?.lifecycleNews?.length > 0;
+      if (!hasNews) {
+        await loadForecast('summary');
+      }
+    })();
     fetch('/api/health')
       .then((resp) => resp.json())
       .then((json) => setHealth({ live: json.liveSourceCount ?? 0, total: json.totalSourceCount ?? 1 }))
