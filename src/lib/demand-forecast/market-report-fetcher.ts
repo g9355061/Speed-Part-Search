@@ -339,31 +339,23 @@ export function calculateCategoryMarketRisk(reports: MarketReport[]): Record<str
     }
   }
   
-  // 對每個類別評估
+  // 對每個類別評估（採用 RSS 新聞判定邏輯）
+  // 1. 2 個以上獨立來源命中 -> 有缺料風險 (🔴)
+  // 2. 1 個獨立來源命中 -> 中風險 (🟡)
+  // 3. 0 個來源 -> 正常 (🟢)
   for (const [catId, reps] of Object.entries(catReportMap)) {
-    // 找出非「正常」的警報
     const activeAlerts = reps.filter(r => r.riskLevel !== '正常');
     if (activeAlerts.length === 0) continue;
     
-    // 計算來源數
     const uniqueSources = new Set(activeAlerts.map(r => r.source));
     
-    // 取最高風險級別
-    let highestLevel: '正常' | '中風險' | '有缺料風險' = '正常';
-    for (const r of activeAlerts) {
-      if (r.riskLevel === '有缺料風險') {
-        highestLevel = '有缺料風險';
-      } else if (r.riskLevel === '中風險' && highestLevel !== '有缺料風險') {
-        highestLevel = '中風險';
-      }
+    if (uniqueSources.size >= 2) {
+      result[catId] = '有缺料風險';
+    } else if (uniqueSources.size === 1) {
+      result[catId] = '中風險';
+    } else {
+      result[catId] = '正常';
     }
-    
-    // 如果同一個類別被 2 個以上來源命中，且原本是中風險，則升級為「有缺料風險」
-    if (uniqueSources.size >= 2 && highestLevel === '中風險') {
-      highestLevel = '有缺料風險';
-    }
-    
-    result[catId] = highestLevel;
   }
   
   return result;

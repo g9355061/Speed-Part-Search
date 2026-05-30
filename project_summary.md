@@ -8,7 +8,7 @@
 
 - [x] **新增市場報告抓取與規則分析引擎**
   - 在 `src/lib/demand-forecast/market-report-fetcher.ts` 中建立抓取器與規則引擎。已全面支援並對接規定的全部 7 個免費公開情報報告管道（TTI MarketEYE、TTI Lead Time Trends、PPSI Electronics Supply Chain Risk Report、Fusion Worldwide Market Intelligence、Sourceability Lead Time Report、Future Electronics Market Conditions Report、SiliconExpert Impact Reports），對應 15 個既有料件類別。
-  - 設計評估算法：同一類別被 2 個以上可信來源命中時升一級；報告超過 30 天則自動降級，降低假陽性。
+  - 設計評估算法（比照 RSS 新聞防噪邏輯）：同一類別僅被 1 個來源命中時，綜合判定為「中風險」（🟡）；只有被 2 個以上獨立來源命中時，才判定為高風險的「有缺料風險」（🔴），防範單一報告激進用詞引起的假陽性。報告超過 30 天則自動降級。
   - graceful fallback 策略：內建 2026 Q1/Q2 產業情報基底數據，當抓取失敗時提供 fallback，保證功能不中斷。
 
 - [x] **新增後端資料庫快取 API 路由**
@@ -17,7 +17,7 @@
 
 - [x] **前端預警風險對照矩陣更新**
   - 於 `src/app/demand-forecast/page.tsx` 將對照矩陣欄位由三欄擴充至四欄，並將「市場報告 / 產業情報」放置於第一欄（其後為 RSS 新聞監測、生命週期公告、實時通路庫存）。
-  - 將類別的市場預警綜合風險動態計算為三色狀態（🔴 / 🟡 / 🟢），點擊對照矩陣的單元格會流暢滾動（Smooth Scroll）至下方的情報預警摘要面板。
+  - 將類別的市場預警綜合風險動態計算為三色狀態（🔴 / 🟡 / 🟢），綜合判定算法完全比照 RSS 新聞的多來源防噪規則，點擊對照矩陣的單元格會流暢滾動（Smooth Scroll）至下方的情報預警摘要面板。
 
 - [x] **新增「市場報告與產業情報預警摘要」面板**
   - 在頁面下方（API 料件查詢上方）設計全寬的 Glassmorphic 質感預警摘要面板。

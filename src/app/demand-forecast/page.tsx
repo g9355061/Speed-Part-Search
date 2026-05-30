@@ -400,19 +400,16 @@ export default function DemandForecastPage() {
     for (const [catId, reps] of Object.entries(catReportMap)) {
       const activeAlerts = reps.filter(r => r.riskLevel !== '正常');
       if (activeAlerts.length === 0) continue;
+      
       const uniqueSources = new Set(activeAlerts.map(r => r.source));
-      let highestLevel: '正常' | '中風險' | '有缺料風險' = '正常';
-      for (const r of activeAlerts) {
-        if (r.riskLevel === '有缺料風險') {
-          highestLevel = 'safe' as any === 'high' ? '有缺料風險' : '有缺料風險'; // 確保為 string
-        } else if (r.riskLevel === '中風險' && highestLevel !== '有缺料風險') {
-          highestLevel = '中風險';
-        }
+      
+      if (uniqueSources.size >= 2) {
+        result[catId] = 'haveRisk' as any === 'high' ? '有缺料風險' : '有缺料風險'; // 確保為 string
+      } else if (uniqueSources.size === 1) {
+        result[catId] = '中風險';
+      } else {
+        result[catId] = '正常';
       }
-      if (uniqueSources.size >= 2 && highestLevel === '中風險') {
-        highestLevel = '有缺料風險';
-      }
-      result[catId] = highestLevel;
     }
     return result;
   }, [marketReports]);
