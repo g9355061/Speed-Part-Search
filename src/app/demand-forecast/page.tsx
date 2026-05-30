@@ -500,10 +500,18 @@ export default function DemandForecastPage() {
                 </div>
               </div>
               <div>
-                <strong>⚠️ 水位警示說明：</strong>
-                <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-                  <li><strong>安全水位：</strong>庫存低於此安全值時直接觸發 🟡 中風險 警示。</li>
-                  <li><strong>補貨水位：</strong>庫存低於此水位且補貨交期拉長（&gt;= 12週觸發 🟡，&gt;= 20週觸發 🔴）時觸發警示。</li>
+                <strong>⚠️ 水位定義與警示說明：</strong>
+                <ul style={{ margin: '4px 0 0', paddingLeft: 16, listStyleType: 'disc' }}>
+                  <li style={{ marginBottom: 4 }}>
+                    <strong style={{ borderBottom: '1px dashed var(--text-3)', cursor: 'help' }} title="維持生產不中斷的底線庫存。一旦跌破，代表安全緩衝已遭消耗，系統會直接觸發中風險 (🟡) 警示，此時交期長短將被忽略。">
+                      安全水位 (Safety Stock)
+                    </strong>：維持生產營運不中斷的**底線防禦庫存**。低於此水位直接觸發 🟡 中風險 警示（忽略交期長短）。
+                  </li>
+                  <li>
+                    <strong style={{ borderBottom: '1px dashed var(--text-3)', cursor: 'help' }} title="啟動採購補貨流程的預警庫存線。當庫存低於此水位但高於安全水位時，僅在最短補貨交期拉長（>= 12週觸發 🟡，>= 20週觸發 🔴）時才會警示；若交期短於 12 週仍視為安全 (🟢)。">
+                      補貨水位 (Reorder Point)
+                    </strong>：啟動採購補貨的**預警庫存界線**。低於此水位且最短補貨交期拉長（&gt;= 12週觸發 🟡，&gt;= 20週觸發 🔴）時觸發警示。
+                  </li>
                 </ul>
               </div>
             </div>
@@ -562,7 +570,8 @@ export default function DemandForecastPage() {
                             <span>{categoryName(cat.categoryId, cat.category)}</span>
                           </div>
                           <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 4, marginLeft: 30 }}>
-                            安全水位: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.minStock.toLocaleString()}</span> | 補貨水位: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.lowStock.toLocaleString()}</span> 顆
+                            <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="安全水位 (Safety Stock)：維持生產不中斷的底線緩衝庫存。低於此數值會直接觸發中風險 (🟡)。">安全水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.minStock.toLocaleString()}</span> |{' '}
+                            <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="補貨水位 (Reorder Point)：啟動採購補貨流程的預警庫存線。介於補貨與安全水位之間時，僅在補貨交期拉長時觸發警示。">補貨水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{thresholds.lowStock.toLocaleString()}</span> 顆
                           </div>
                         </td>
                         <td
