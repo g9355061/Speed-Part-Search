@@ -13,13 +13,12 @@
 
 ---
 
-### 2026-05-30 — 修復 Railway 部署路徑解析錯誤
+### 2026-05-30 — 修復 Railway 部署忽略 src/data/ 資料夾問題
 
-- [x] **將 JSON 導入路徑由別名改為相對路徑**
-  - 由於根目錄包含 `data/` 資料夾，當 Next.js 在 Linux (Railway) 下進行建置時，`@/data/...` 引入別名會與根目錄 `data` 衝突，進而導致 `Module not found` 建置編譯失敗。
-  - 修改 `src/app/manufacturer-mapping/page.tsx` 中的 `@/data/manufacturer-display-names.json` 為相對路徑 `../../data/manufacturer-display-names.json`。
-  - 修改 `src/lib/manufacturers.ts` 中的 `@/data/manufacturer-aliases.json` 為相對路徑 `../data/manufacturer-aliases.json`。
-  - 徹底解決 Railway 自動編譯時 `webpack errors` 的問題。
+- [x] **修正 .gitignore 規則，避免誤濾 src/data/**
+  - 根目錄原先使用 `data/` 規則忽略 SQLite 資料庫目錄，但由於該規則缺乏領頭斜線，導致 Linux (Railway up) 自動建置時誤將 `src/data/` 一併忽略，造成部署包內完全沒有製造商 JSON 對照表，因而觸發 `webpack errors`。
+  - 將 `.gitignore` 的 `data/` 修正為 `/data/`，僅忽略根目錄的 `data` 資料夾。
+  - 將 `src/app/manufacturer-mapping/page.tsx` 和 `src/lib/manufacturers.ts` 內先前為了繞過此問題而改寫的相對路徑還原為原始的 `@/data/...` 別名導入，保持程式碼的整潔性與一致性。
 
 ---
 

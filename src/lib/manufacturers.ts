@@ -1,4 +1,4 @@
-import rawManufacturerAliases from '../data/manufacturer-aliases.json';
+import rawManufacturerAliases from '@/data/manufacturer-aliases.json';
 
 export const MANUFACTURER_ALIASES: Record<string, string> = rawManufacturerAliases;
 

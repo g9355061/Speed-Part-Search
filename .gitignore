@@ -1,5 +1,5 @@
 # User database (SQLite)
-data/
+/data/
 
 # Dependencies
 node_modules/
