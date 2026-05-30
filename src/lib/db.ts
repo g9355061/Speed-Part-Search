@@ -176,6 +176,11 @@ function initSqlite() {
       low_stock INTEGER NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS demand_forecast_cache (
+      key TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     CREATE TABLE IF NOT EXISTS demand_forecast_snapshots (
       mpn TEXT NOT NULL,
       date TEXT NOT NULL,
@@ -446,15 +451,24 @@ export async function getDemandForecastCache(): Promise<any | null> {
       console.error("[DB-CACHE] Failed to get demand forecast cache:", err);
       return null;
     }
+  } else {
+    try {
+      const db = getSqlite();
+      const row = db.prepare("SELECT data FROM demand_forecast_cache WHERE key = ?").get('default') as any;
+      if (!row) return null;
+      return JSON.parse(row.data);
+    } catch (err) {
+      console.error("[DB-CACHE] Failed to get demand forecast cache (sqlite):", err);
+      return null;
+    }
   }
-  return null;
 }
 
 export async function setDemandForecastCache(data: any): Promise<void> {
   await ensureDb();
+  const dataStr = JSON.stringify(data);
   if (isPostgres) {
     try {
-      const dataStr = JSON.stringify(data);
       await getPool().query(
         `
           INSERT INTO demand_forecast_cache (key, data, updated_at)
@@ -466,6 +480,80 @@ export async function setDemandForecastCache(data: any): Promise<void> {
       );
     } catch (err) {
       console.error("[DB-CACHE] Failed to set demand forecast cache:", err);
+    }
+  } else {
+    try {
+      getSqlite()
+        .prepare(
+          `
+            INSERT INTO demand_forecast_cache (key, data)
+            VALUES (?, ?)
+            ON CONFLICT (key) DO UPDATE
+            SET data = excluded.data
+          `
+        )
+        .run('default', dataStr);
+    } catch (err) {
+      console.error("[DB-CACHE] Failed to set demand forecast cache (sqlite):", err);
+    }
+  }
+}
+
+export async function getMarketReportsCache(): Promise<any | null> {
+  await ensureDb();
+  if (isPostgres) {
+    try {
+      const result = await getPool().query("SELECT data FROM demand_forecast_cache WHERE key = $1", ['market_reports']);
+      if (result.rowCount === 0) return null;
+      return JSON.parse(result.rows[0].data);
+    } catch (err) {
+      console.error("[DB-CACHE] Failed to get market reports cache:", err);
+      return null;
+    }
+  } else {
+    try {
+      const db = getSqlite();
+      const row = db.prepare("SELECT data FROM demand_forecast_cache WHERE key = ?").get('market_reports') as any;
+      if (!row) return null;
+      return JSON.parse(row.data);
+    } catch (err) {
+      console.error("[DB-CACHE] Failed to get market reports cache (sqlite):", err);
+      return null;
+    }
+  }
+}
+
+export async function setMarketReportsCache(data: any): Promise<void> {
+  await ensureDb();
+  const dataStr = JSON.stringify(data);
+  if (isPostgres) {
+    try {
+      await getPool().query(
+        `
+          INSERT INTO demand_forecast_cache (key, data, updated_at)
+          VALUES ($1, $2, now())
+          ON CONFLICT (key) DO UPDATE
+          SET data = EXCLUDED.data, updated_at = now()
+        `,
+        ['market_reports', dataStr]
+      );
+    } catch (err) {
+      console.error("[DB-CACHE] Failed to set market reports cache:", err);
+    }
+  } else {
+    try {
+      getSqlite()
+        .prepare(
+          `
+            INSERT INTO demand_forecast_cache (key, data)
+            VALUES (?, ?)
+            ON CONFLICT (key) DO UPDATE
+            SET data = excluded.data
+          `
+        )
+        .run('market_reports', dataStr);
+    } catch (err) {
+      console.error("[DB-CACHE] Failed to set market reports cache (sqlite):", err);
     }
   }
 }

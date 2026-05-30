@@ -1,6 +1,28 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-30（新增大畫面水位門檻彈窗、右上角 X 關閉、管理員編輯與唯讀模式切換、Icon 元件 settings 圖標擴充、快取料件風險動態重算機制、缺料預測機制改名、類別特定庫存門檻與交期判定邏輯優化、RSS 預警天數調整為 14 天、新增每日快照與歷史趨勢預警機制、新增新聞與 PCN 生命週期分類小標籤及快速篩選過濾連結、新增安全與補貨水位定義懸浮提示、修復 Railway 部署路徑解析錯誤、新增 15 類別水位對照表）
+> 最後更新：2026-05-30（新增「市場報告 / 產業情報預警」第四預警管道、新增大畫面水位門檻彈窗、右上角 X 關閉、管理員編輯與唯讀模式切換、Icon 元件 settings 圖標擴充、快取料件風險動態重算機制、缺料預測機制改名、類別特定庫存門檻與交期判定邏輯優化、RSS 預警天數調整為 14 天、新增每日快照與歷史趨勢預警機制、新增新聞與 PCN 生命週期分類小標籤及快速篩選過濾連結、新增安全與補貨水位定義懸浮提示、修復 Railway 部署路徑解析錯誤、新增 15 類別水位對照表）
+
+---
+
+### 2026-05-30 — 新增「市場報告 / 產業情報預警」第四預警管道
+
+- [x] **新增市場報告抓取與規則分析引擎**
+  - 在 `src/lib/demand-forecast/market-report-fetcher.ts` 中建立抓取器與規則引擎。已全面支援並對接規定的全部 7 個免費公開情報報告管道（TTI MarketEYE、TTI Lead Time Trends、PPSI Electronics Supply Chain Risk Report、Fusion Worldwide Market Intelligence、Sourceability Lead Time Report、Future Electronics Market Conditions Report、SiliconExpert Impact Reports），對應 15 個既有料件類別。
+  - 設計評估算法：同一類別被 2 個以上可信來源命中時升一級；報告超過 30 天則自動降級，降低假陽性。
+  - graceful fallback 策略：內建 2026 Q1/Q2 產業情報基底數據，當抓取失敗時提供 fallback，保證功能不中斷。
+
+- [x] **新增後端資料庫快取 API 路由**
+  - 在 `src/app/api/demand-forecast/market-reports/route.ts` 實作 API 端點，支援 SQLite / PostgreSQL 快取結構。
+  - 使用 SWR (Stale-While-Revalidate) 快取更新機制，設定 TTL 為 7 天。當快取過期時，自動在背景觸發非同步更新而不阻塞頁面初始載入。
+
+- [x] **前端預警風險對照矩陣更新**
+  - 於 `src/app/demand-forecast/page.tsx` 將對照矩陣欄位由三欄擴充至四欄，並將「市場報告 / 產業情報」放置於第一欄（其後為 RSS 新聞監測、生命週期公告、實時通路庫存）。
+  - 將類別的市場預警綜合風險動態計算為三色狀態（🔴 / 🟡 / 🟢），點擊對照矩陣的單元格會流暢滾動（Smooth Scroll）至下方的情報預警摘要面板。
+
+- [x] **新增「市場報告與產業情報預警摘要」面板**
+  - 在頁面下方（API 料件查詢上方）設計全寬的 Glassmorphic 質感預警摘要面板。
+  - 展示每個被命中類別的情報來源、日期、信心度、風險標籤、中文翻譯摘要、證據原文片段與原文超連結。
+  - 完美與頂部類別過濾 state 整合，且當無資料時顯示「目前沒有市場報告預警訊號」。
 
 ---
 

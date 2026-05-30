@@ -308,6 +308,9 @@ export default function DemandForecastPage() {
   const [thresholdsError, setThresholdsError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
+  const [marketReports, setMarketReports] = useState<any[]>([]);
+  const [loadingMarketReports, setLoadingMarketReports] = useState(false);
+
   const handleMatrixClick = (categoryId: string, targetId: string) => {
     setCategory(categoryId);
     setTimeout(() => {
@@ -363,11 +366,56 @@ export default function DemandForecastPage() {
       }
     })();
     loadThresholds();
+    
+    // 載入市場報告 (產業情報)
+    setLoadingMarketReports(true);
+    fetch('/api/demand-forecast/market-reports')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.reports) {
+          setMarketReports(json.reports);
+        }
+      })
+      .catch((err) => console.error('Failed to load market reports:', err))
+      .finally(() => setLoadingMarketReports(false));
+
     fetch('/api/health')
       .then((resp) => resp.json())
       .then((json) => setHealth({ live: json.liveSourceCount ?? 0, total: json.totalSourceCount ?? 1 }))
       .catch(() => setHealth({ live: 0, total: 1 }));
   }, []);
+
+  const categoryMarketRisk = useMemo(() => {
+    const result: Record<string, '正常' | '中風險' | '有缺料風險'> = {};
+    for (const cat of DEMAND_CATEGORIES) {
+      result[cat.categoryId] = '正常';
+    }
+    const catReportMap: Record<string, any[]> = {};
+    for (const rep of marketReports) {
+      for (const catId of rep.categoryIds) {
+        if (!catReportMap[catId]) catReportMap[catId] = [];
+        catReportMap[catId].push(rep);
+      }
+    }
+    for (const [catId, reps] of Object.entries(catReportMap)) {
+      const activeAlerts = reps.filter(r => r.riskLevel !== '正常');
+      if (activeAlerts.length === 0) continue;
+      const uniqueSources = new Set(activeAlerts.map(r => r.source));
+      let highestLevel: '正常' | '中風險' | '有缺料風險' = '正常';
+      for (const r of activeAlerts) {
+        if (r.riskLevel === '有缺料風險') {
+          highestLevel = 'safe' as any === 'high' ? '有缺料風險' : '有缺料風險'; // 確保為 string
+        } else if (r.riskLevel === '中風險' && highestLevel !== '有缺料風險') {
+          highestLevel = '中風險';
+        }
+      }
+      if (uniqueSources.size >= 2 && highestLevel === '中風險') {
+        highestLevel = '有缺料風險';
+      }
+      result[catId] = highestLevel;
+    }
+    return result;
+  }, [marketReports]);
 
   const fallbackParts: ForecastPart[] = BENCHMARK_PARTS.map((part) => ({
     ...part,
@@ -563,23 +611,29 @@ export default function DemandForecastPage() {
               </div>
             </div>
             <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 800 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '32%' }}>料件類別與安全/補貨門檻</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '22%' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '24%' }}>料件類別與安全/補貨門檻</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '19%' }}>
+                      <div>市場報告 / 產業情報</div>
+                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
+                        抓取免費公開市場報告，對應 15 類別生成缺料風險
+                      </div>
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '19%' }}>
                       <div>RSS 新聞監測</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         14 天內 ≥2 則含缺料關鍵字新聞 → 風險
                       </div>
                     </th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '22%' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '19%' }}>
                       <div>生命週期公告 (PCN/EOL)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         14 天內 ≥2 則含 EOL/PCN/停產關鍵字 → 風險
                       </div>
                     </th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '24%' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '19%' }}>
                       <div>實時通路庫存 (API)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         🔴 庫存=0、(庫存 &lt; 補貨水位 且 最短交期 &gt;= 20週) 或 7天庫存暴跌 &gt; 80%<br />
@@ -602,6 +656,10 @@ export default function DemandForecastPage() {
                     // Determine API risk level for 3-color badge
                     const apiRiskLevel: 'high' | 'medium' | 'none' = apiSummary === '有缺料風險' ? 'high' : apiSummary === '中風險' ? 'medium' : 'none';
                     
+                    // Determine Market Risk level
+                    const marketRisk = categoryMarketRisk[cat.categoryId] || '正常';
+                    const marketRiskLevel: 'high' | 'medium' | 'none' = marketRisk === '有缺料風險' ? 'high' : marketRisk === '中風險' ? 'medium' : 'none';
+                    
                     return (
                       <tr key={cat.categoryId} style={{ borderTop: '1px solid var(--hairline)', background: '#fff' }}>
                         <td
@@ -620,6 +678,14 @@ export default function DemandForecastPage() {
                             <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="安全水位 (Safety Stock)：維持生產不中斷的底線緩衝庫存。低於此數值會直接觸發中風險 (🟡)。">安全水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{catThresholds.minStock.toLocaleString()}</span> |{' '}
                             <span style={{ cursor: 'help', borderBottom: '1px dashed #bbb' }} title="補貨水位 (Reorder Point)：啟動採購補貨流程的預警庫存線。介於補貨與安全水位之間時，僅在補貨交期拉長時觸發警示。">補貨水位</span>: <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{catThresholds.lowStock.toLocaleString()}</span> 顆
                           </div>
+                        </td>
+                        <td
+                          className="matrix-cell-interactive"
+                          title="點擊跳轉查看該類別的市場情報報告"
+                          onClick={() => handleMatrixClick(cat.categoryId, 'market-reports-panel')}
+                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
+                        >
+                          <RiskCellBadge level={marketRiskLevel} />
                         </td>
                         <td
                           className="matrix-cell-interactive"
@@ -702,6 +768,13 @@ export default function DemandForecastPage() {
             badge="PCN / EOL"
           />
         </section>
+
+        <MarketReportsPanel
+          id="market-reports-panel"
+          category={category}
+          reports={marketReports}
+          onSelectCategory={setCategory}
+        />
 
         <Panel id="api-parts-panel" title="15 個類別 × 每類 10 顆料件查詢" tone="api">
           <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -1503,5 +1576,238 @@ function RiskCellBadge({ level, highLabel = '有缺料風險', medLabel = '中�
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: config.dot }}></span>
       {config.text}
     </span>
+  );
+}
+
+const RISK_TYPE_LABELS: Record<string, string> = {
+  lead_time_increase: '交期拉長',
+  allocation: '產能配給 (Allocation)',
+  price_increase: '價格調漲',
+  demand_surge: '需求暴增',
+  constrained_supply: '供貨吃緊',
+  geopolitical: '地緣政治風險',
+  lifecycle: '生命週期 EOL/PCN'
+};
+
+function MarketReportsPanel({
+  id,
+  category,
+  reports,
+  onSelectCategory,
+}: {
+  id: string;
+  category: string;
+  reports: any[];
+  onSelectCategory: (cat: string) => void;
+}) {
+  const filteredReports = useMemo(() => {
+    if (category === 'all') return reports;
+    return reports.filter((r) => r.categoryIds.includes(category));
+  }, [reports, category]);
+
+  const selectedCategoryLabel = category === 'all'
+    ? '全部類別'
+    : categoryName(category, DEMAND_CATEGORIES.find((item) => item.categoryId === category)?.category ?? category);
+
+  return (
+    <section
+      id={id}
+      style={{
+        border: '1px solid #BBF7D0',
+        borderLeft: '4px solid #16A34A',
+        borderRadius: 8,
+        background: '#F0FDF4',
+        padding: 20,
+        marginBottom: 18,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="globe" size={16} /> 市場報告 / 產業情報預警摘要：{selectedCategoryLabel}
+          </h2>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-3)' }}>
+            每週自動追蹤免費公開市場情報，並利用規則引擎對應至 15 個料件類別。
+          </p>
+        </div>
+        
+        {/* 快速篩選資訊 */}
+        {category !== 'all' && (
+          <button
+            onClick={() => onSelectCategory('all')}
+            style={{
+              background: '#fff',
+              border: '1px solid #BBF7D0',
+              borderRadius: 6,
+              padding: '4px 10px',
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#166534',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            重設篩選 (顯示全部)
+          </button>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: 16 }}>
+        {filteredReports.map((report) => {
+          const repLevel = report.riskLevel;
+          const reportDate = report.publishedAt ? new Date(report.publishedAt).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '未知時間';
+          
+          return (
+            <div
+              key={report.id}
+              style={{
+                background: '#fff',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                padding: 16,
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: 12,
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.06)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.02)';
+              }}
+            >
+              <div>
+                {/* 頂部資訊列 */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', background: '#DCFCE7', borderRadius: 4, padding: '2px 6px' }}>
+                      {report.source}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 8 }}>
+                      {reportDate}
+                    </span>
+                  </div>
+                  <RiskCellBadge level={repLevel === '有缺料風險' ? 'high' : repLevel === '中風險' ? 'medium' : 'none'} />
+                </div>
+
+                {/* 標題 */}
+                <h4 style={{ margin: '0 0 8px 0', fontSize: 13, fontWeight: 700, color: 'var(--text)', lineHeight: 1.4 }}>
+                  {report.title}
+                </h4>
+
+                {/* 影響類別 & 信心度 & 風險類型 */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                  {report.categoryIds.map((catId: string) => (
+                    <span
+                      key={catId}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectCategory(catId);
+                      }}
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        backgroundColor: 'var(--surface-3)',
+                        color: 'var(--text-2)',
+                        borderRadius: 4,
+                        padding: '1px 6px',
+                        cursor: 'pointer',
+                        border: '1px solid var(--border)'
+                      }}
+                      title="點擊篩選此類別"
+                    >
+                      🏷️ {categoryName(catId, catId)}
+                    </span>
+                  ))}
+                  
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    backgroundColor: report.confidence === 'high' ? '#E0F2FE' : report.confidence === 'medium' ? '#FFFAEB' : '#F2F4F7',
+                    color: report.confidence === 'high' ? '#0369A1' : report.confidence === 'medium' ? '#B54708' : '#475467',
+                    borderRadius: 4,
+                    padding: '1px 6px',
+                    border: '1px solid transparent'
+                  }}>
+                    🎯 信心度: {report.confidence === 'high' ? '高' : report.confidence === 'medium' ? '中' : '低'}
+                  </span>
+
+                  {report.riskTypes.map((type: string) => (
+                    <span
+                      key={type}
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        backgroundColor: '#F3F4F6',
+                        color: '#374151',
+                        borderRadius: 4,
+                        padding: '1px 6px',
+                        border: '1px solid #E5E7EB'
+                      }}
+                    >
+                      ⚡ {RISK_TYPE_LABELS[type] || type}
+                    </span>
+                  ))}
+                </div>
+
+                {/* 中文摘要 */}
+                <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 8 }}>
+                  {report.summaryZh}
+                </div>
+
+                {/* 證據原文片段 */}
+                {report.evidenceText && (
+                  <div style={{
+                    fontSize: 11.5,
+                    color: 'var(--text-3)',
+                    lineHeight: 1.45,
+                    borderLeft: '3px solid #BBF7D0',
+                    paddingLeft: 8,
+                    fontStyle: 'italic',
+                    background: 'var(--bg)',
+                    padding: '6px 8px',
+                    borderRadius: '0 4px 4px 0'
+                  }}>
+                    "{report.evidenceText}"
+                  </div>
+                )}
+              </div>
+
+              {/* 原文連結 */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                <a
+                  href={report.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: '#166534',
+                    textDecoration: 'none',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  查看情報原文 ↗
+                </a>
+              </div>
+            </div>
+          );
+        })}
+        {filteredReports.length === 0 && (
+          <div style={{ gridColumn: '1 / -1', border: '1px dashed #BBF7D0', borderRadius: 8, padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+            目前沒有市場報告預警訊號
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
