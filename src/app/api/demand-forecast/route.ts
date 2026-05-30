@@ -377,10 +377,12 @@ async function translateToZh(text: string): Promise<string> {
   const cleaned = text.trim();
   if (!cleaned) return "";
   if (translationCache.has(cleaned)) {
+    console.log("[TRANSLATOR] Cache hit for:", cleaned.substring(0, 20) + "...");
     return translationCache.get(cleaned)!;
   }
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(cleaned)}`;
+    console.log("[TRANSLATOR] Requesting translation for:", cleaned.substring(0, 20) + "...");
     const resp = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -391,6 +393,7 @@ async function translateToZh(text: string): Promise<string> {
     const json = await resp.json();
     const translated = json[0].map((item: any) => item[0]).join('');
     if (translated) {
+      console.log("[TRANSLATOR] Success! Translated to:", translated.substring(0, 20) + "...");
       translationCache.set(cleaned, translated);
       return translated;
     }
