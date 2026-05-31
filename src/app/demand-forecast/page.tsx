@@ -2037,15 +2037,28 @@ function MarketReportsListPanel({
                 {report.summaryZh}
               </div>
 
-              {/* Evidence text */}
-              {(report.evidenceTextZh || report.evidenceText) && (
+              {/* Evidence text (Bilingual Comparison) */}
+              {report.evidenceText && (
                 <div style={{
-                  fontSize: 11, color: 'var(--text-3)', lineHeight: 1.4,
-                  borderLeft: '2px solid #C7D2FE', paddingLeft: 6,
-                  fontStyle: 'italic', background: 'var(--bg)',
-                  padding: '4px 6px', borderRadius: '0 4px 4px 0'
+                  fontSize: 11, lineHeight: 1.5,
+                  borderLeft: '2px solid #C7D2FE', paddingLeft: 8,
+                  background: 'var(--bg)',
+                  padding: '6px 8px', borderRadius: '0 4px 4px 0'
                 }}>
-                  "{report.evidenceTextZh || report.evidenceText}"
+                  {report.evidenceTextZh && report.evidenceTextZh !== report.evidenceText ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ color: 'var(--text-2)', fontWeight: 500 }}>
+                        “{report.evidenceTextZh}”
+                      </div>
+                      <div style={{ color: 'var(--text-3)', fontStyle: 'italic', fontSize: 10, opacity: 0.85 }}>
+                        “{report.evidenceText}”
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ color: 'var(--text-3)', fontStyle: 'italic' }}>
+                      “{report.evidenceText}”
+                    </span>
+                  )}
                 </div>
               )}
 
