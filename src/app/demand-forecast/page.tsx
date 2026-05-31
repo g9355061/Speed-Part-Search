@@ -1560,8 +1560,8 @@ function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string
 
 function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險' }) {
   const config = {
-    '尚未查詢': { bg: '#F2F4F7', color: '#344054', dot: '#98A2B3', border: '#E4E7EC' },
-    '無代理商資料': { bg: '#F8F9FA', color: '#475467', dot: '#D0D5DD', border: '#E4E7EC' },
+    '尚未查詢': { bg: '#F8F9FA', color: '#475467', dot: '#98A2B3', border: '#E4E7EC' },
+    '無代理商資料': { bg: '#F8F9FA', color: '#475467', dot: '#98A2B3', border: '#E4E7EC' },
     '中風險': { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', border: '#FEDF89' },
     '有缺料風險': { bg: '#FFF1F0', color: '#B42318', dot: '#F04438', border: '#FECDCA' },
     '正常': { bg: '#ECFDF3', color: '#027A48', dot: '#12B76A', border: '#D1FADF' },
@@ -1572,10 +1572,10 @@ function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
         borderRadius: 999,
-        padding: '4px 10px',
-        fontSize: 11,
+        padding: '5px 12px',
+        fontSize: 12,
         fontWeight: 700,
         background: config.bg,
         color: config.color,
@@ -1583,7 +1583,7 @@ function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查
         boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)',
       }}
     >
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
+      <span style={{ width: 10, height: 10, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
       {value}
     </span>
   );
@@ -1595,50 +1595,50 @@ function LifecycleBadge({ status }: { status?: string | null }) {
   }
   const lower = status.toLowerCase();
   
-  // Obsolete / Discontinued / EOL / End of Life
+  // Obsolete / Discontinued / EOL / End of Life -> Red
   if (lower.includes('obsolete') || lower.includes('discontinued') || lower.includes('end of life') || lower === 'eol') {
     return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, background: '#FEF3F2', color: '#B42318', border: '1px solid #FECDCA', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F04438', display: 'inline-block' }}></span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#FFF1F0', color: '#B42318', border: '1px solid #FECDCA', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F04438', display: 'inline-block' }}></span>
         停產 ({status})
       </span>
     );
   }
   
-  // Last Time Buy / LTB
+  // Last Time Buy / LTB -> Red
   if (lower.includes('last time buy') || lower.includes('ltb')) {
     return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, background: '#FFFAEB', color: '#B54708', border: '1px solid #FEDF89', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F79009', display: 'inline-block' }}></span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#FFF1F0', color: '#B42318', border: '1px solid #FECDCA', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F04438', display: 'inline-block' }}></span>
         最後採購 ({status})
       </span>
     );
   }
   
-  // NRND
+  // NRND -> Yellow
   if (lower.includes('nrnd') || lower.includes('not recommended')) {
     return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, background: '#FFF6ED', color: '#C4320A', border: '1px solid #FFEDD5', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F05252', display: 'inline-block' }}></span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#FFFAEB', color: '#B54708', border: '1px solid #FEDF89', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F79009', display: 'inline-block' }}></span>
         不推薦新設計 ({status})
       </span>
     );
   }
 
-  // Active / In Production / New Product
+  // Active / In Production / New Product -> Green
   if (lower.includes('active') || lower.includes('new product') || lower.includes('production')) {
     return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, background: '#ECFDF3', color: '#027A48', border: '1px solid #D1FADF', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#12B76A', display: 'inline-block' }}></span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#ECFDF3', color: '#027A48', border: '1px solid #D1FADF', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#12B76A', display: 'inline-block' }}></span>
         生產中 ({status})
       </span>
     );
   }
 
-  // Other statuses
+  // Other statuses -> Grey
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999, padding: '4px 10px', fontSize: 11, fontWeight: 700, background: '#F9FAFB', color: '#475467', border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#98A2B3', display: 'inline-block' }}></span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#F8F9FA', color: '#475467', border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
+      <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#98A2B3', display: 'inline-block' }}></span>
       {status}
     </span>
   );
@@ -1667,10 +1667,10 @@ function RiskCellBadge({ level, highLabel = '有缺料風險', medLabel = '中�
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
         borderRadius: 999,
-        padding: '4px 10px',
-        fontSize: 11,
+        padding: '5px 12px',
+        fontSize: 12,
         fontWeight: 700,
         background: config.bg,
         color: config.color,
@@ -1678,7 +1678,7 @@ function RiskCellBadge({ level, highLabel = '有缺料風險', medLabel = '中�
         boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)',
       }}
     >
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
+      <span style={{ width: 10, height: 10, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
       {config.text}
     </span>
   );
@@ -1695,10 +1695,10 @@ const RISK_TYPE_LABELS: Record<string, string> = {
 };
 
 const SIGNAL_BADGE_CONFIG = {
-  no_signal: { bg: '#F2F4F7', color: '#475467', dot: '#98A2B3', border: '#E4E7EC', text: '正常(無缺料情報)' },
-  source_unavailable: { bg: '#F9FAFB', color: '#667085', dot: '#D0D5DD', border: '#E4E7EC', text: '來源未取得' },
-  info: { bg: '#EFF8FF', color: '#175CD3', dot: '#2E90FA', border: '#B2DDFF', text: '一份報告顯示缺料' },
-  multi_source: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', border: '#FEDF89', text: '兩份報告以上顯示缺料' },
+  no_signal: { bg: '#ECFDF3', color: '#027A48', dot: '#12B76A', border: '#D1FADF', text: '正常(無缺料情報)' },
+  source_unavailable: { bg: '#F8F9FA', color: '#475467', dot: '#98A2B3', border: '#E4E7EC', text: '來源未取得' },
+  info: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', border: '#FEDF89', text: '一份報告顯示缺料' },
+  multi_source: { bg: '#FFF1F0', color: '#B42318', dot: '#F04438', border: '#FECDCA', text: '兩份報告以上顯示缺料' },
 };
 
 function MarketSignalBadge({ level }: { level: keyof typeof SIGNAL_BADGE_CONFIG }) {
@@ -1708,10 +1708,10 @@ function MarketSignalBadge({ level }: { level: keyof typeof SIGNAL_BADGE_CONFIG 
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
         borderRadius: 999,
-        padding: '4px 10px',
-        fontSize: 11,
+        padding: '5px 12px',
+        fontSize: 12,
         fontWeight: 700,
         background: config.bg,
         color: config.color,
@@ -1719,7 +1719,7 @@ function MarketSignalBadge({ level }: { level: keyof typeof SIGNAL_BADGE_CONFIG 
         boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)',
       }}
     >
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
+      <span style={{ width: 10, height: 10, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
       {config.text}
     </span>
   );
