@@ -85,4 +85,4 @@ export interface MarketReportsFetchResult {
   schemaVersion: number;
 }
 
-export const MARKET_REPORTS_SCHEMA_VERSION = 8;
+export const MARKET_REPORTS_SCHEMA_VERSION = 9;

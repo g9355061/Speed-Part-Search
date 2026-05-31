@@ -237,9 +237,10 @@ async function summarizeWithGemini(
 Read the following market report snippet for the category "${categoryName}" (ID: ${categoryId}):
 "${evidenceText}"
 
-Write a concise, 1-sentence summary in Traditional Chinese explaining the market status, shortages, allocation, or lead time trends.
+Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Traditional Chinese explaining the market status, shortages, allocation, or lead time trends.
+- The summary MUST be a complete sentence (with subject and verb). Do NOT just output component names or keywords.
 - Do NOT write generic greetings or intros. Speak like a professional analyst.
-- Max 45 Chinese characters.`;
+- Output ONLY the summary.`;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     
@@ -256,7 +257,7 @@ Write a concise, 1-sentence summary in Traditional Chinese explaining the market
           parts: [{ text: prompt }]
         }],
         generationConfig: {
-          maxOutputTokens: 120,
+          maxOutputTokens: 1000,
           temperature: 0.2
         }
       }),
