@@ -14,16 +14,17 @@
   - 在 `src/lib/demand-forecast/market-report-fetcher.ts` 內解析網頁 HTML 時，優化 PDF 的 Regex 比對與解析。
   - 改用標準 `new URL(href, url).href` 進行相對網址（包括以 `/` 開頭或不帶 `/` 的相對路徑）與絕對網址的解析，確保產生的 PDF 連結絕對完整、可直接在瀏覽器開啟。
 
-- [x] **新增市場報告「雙語對照」證據片段顯示**
-  - 在 `MarketReportsListPanel` 元件中重新設計了 `Evidence text` 的區塊排版。
-  - 當同時具備英文原文（`evidenceText`）與中文翻譯（`evidenceTextZh`）且內容不相同時，會以精美明晰的上下堆疊結構同時顯示中英文段落（中文在上加粗、英文在下斜體呈現），實現真正無需點開 PDF 即可對照閱讀原文細節的「雙語對照」體驗。
+- [x] **將 PDF/網頁核心缺料中文內容置於卡片主摘要區，並建立雙語對照**
+  - 移除了卡片上原先乾癟且無具體業務價值的模板化罐頭文字（例如：「來源頁面在相近段落中提及...」）。
+  - 將解析出的 **PDF 核心缺料中文翻譯內容（`evidenceTextZh`）直接放入卡片主摘要區**（當尚未載入翻譯時自動優雅地降級為顯示 `summaryZh` 罐頭文字，確保體驗流暢）。
+  - 在主摘要區下方，將**英文原始缺料段落（`evidenceText`）以精美的斜體引用框呈現**，實現無需下載點開 PDF，在卡片上即可直接完成「中英雙語對照」與核心情報檢視的極佳閱讀體驗。
 
 - [x] **更新快取架構版本以強制重新整理資料**
   - 將 `src/lib/demand-forecast/market-report-types.ts` 中的快取版本 `MARKET_REPORTS_SCHEMA_VERSION` 提升至 `5`。
   - 由於之前抓取的報告網址可能未解析為 PDF，提升版本號會使舊快取自動失效，強迫系統在重新載入時重新抓取所有市場情報，進而用最新優化後的抓取器找出 PDF 直連連結並寫入資料庫。
 
 - **修改檔案**：
-  - [page.tsx](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/app/demand-forecast/page.tsx) — 移除 `showReaderModal` 邏輯，調整 PDF 與原文直連，實作中英雙語對照排版。
+  - [page.tsx](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/app/demand-forecast/page.tsx) — 移除 `showReaderModal` 邏輯，調整 PDF 與原文直連，實作中英雙語對照與摘要置換排版。
   - [market-report-fetcher.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-fetcher.ts) — 使用 `new URL` 增強 PDF 連結解析。
   - [market-report-types.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-types.ts) — 升級 `MARKET_REPORTS_SCHEMA_VERSION` 為 `5`。
 

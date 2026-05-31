@@ -2032,33 +2032,21 @@ function MarketReportsListPanel({
                 </strong>
               </a>
 
-              {/* Chinese summary */}
-              <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
-                {report.summaryZh}
+              {/* Chinese summary (Actual translated shortage description or original non-English quote) */}
+              <div style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.55, fontWeight: 500 }}>
+                {report.evidenceTextZh || (!looksLikeEnglish(report.evidenceText) ? report.evidenceText : report.summaryZh)}
               </div>
 
-              {/* Evidence text (Bilingual Comparison) */}
-              {report.evidenceText && (
+              {/* Original English quote block for verification */}
+              {looksLikeEnglish(report.evidenceText) && report.evidenceTextZh && report.evidenceTextZh !== report.evidenceText && (
                 <div style={{
-                  fontSize: 11, lineHeight: 1.5,
+                  fontSize: 11, lineHeight: 1.4,
                   borderLeft: '2px solid #C7D2FE', paddingLeft: 8,
                   background: 'var(--bg)',
-                  padding: '6px 8px', borderRadius: '0 4px 4px 0'
+                  padding: '6px 8px', borderRadius: '0 4px 4px 0',
+                  color: 'var(--text-3)', fontStyle: 'italic', opacity: 0.85
                 }}>
-                  {report.evidenceTextZh && report.evidenceTextZh !== report.evidenceText ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ color: 'var(--text-2)', fontWeight: 500 }}>
-                        “{report.evidenceTextZh}”
-                      </div>
-                      <div style={{ color: 'var(--text-3)', fontStyle: 'italic', fontSize: 10, opacity: 0.85 }}>
-                        “{report.evidenceText}”
-                      </div>
-                    </div>
-                  ) : (
-                    <span style={{ color: 'var(--text-3)', fontStyle: 'italic' }}>
-                      “{report.evidenceText}”
-                    </span>
-                  )}
+                  “{report.evidenceText}”
                 </div>
               )}
 
