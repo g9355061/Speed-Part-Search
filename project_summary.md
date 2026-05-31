@@ -1,13 +1,13 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-31（移除閱讀器彈窗，優化直連 PDF 網址解析，實作完整句子的單字邊界語意摘錄與雙語對照，並修復批次翻譯 Bug）
+> 最後更新：2026-05-31（移除閱讀器彈窗，優化直連 PDF 網址解析，實作完整句子的單字邊界語意摘錄，整合 Gemini 2.5 Flash 智能摘要與每月 $5 預算自動超額防護機制）
 
 ---
 
 ### 2026-05-31 — 移除閱讀器彈窗、優化 PDF 連結直連與快取版本更新
 
 - [x] **徹底移除內部閱讀器彈窗 (Reader Modal)**
-  - 移成了先前實作的內部文章翻譯閱讀器彈窗（Reader Modal），解決使用者對於閱讀器介面不美觀的抱怨。
+  - 移成了先前實作 of 內部文章翻譯閱讀器彈窗（Reader Modal），解決使用者對於閱讀器介面不美觀的抱怨。
   - 將市場報告面板中的卡片點擊與「閱讀 PDF ↗」/「查看原文 ↗」連結直接指向報告的原始網址（`report.url`），改由瀏覽器原生分頁開啟。
 
 - [x] **優化自動抓取器的 PDF 連結解析與相對路徑支援**
@@ -19,9 +19,30 @@
   - 將解析出的 **PDF 核心缺料中文翻譯內容（`evidenceTextZh`）直接放入卡片主摘要區**（當尚未載入翻譯時自動優雅地降級為顯示 `summaryZh` 罐頭文字，確保體驗流暢）。
   - 在主摘要區下方，將**英文原始缺料段落（`evidenceText`）以精美的斜體引用框呈現**，實現無需下載點開 PDF，在卡片上即可直接完成「中英雙語對照」與核心情報檢視的極佳閱讀體驗。
 
+- [x] **對接 Gemini 2.5 Flash 產生高品質專業中文摘要與 $5 月預算防護機制**
+  - **背景需求**：即使有了語意邊界對齊的長擷取段落，直接進行英翻中所得出的字詞依然有些生硬（例如：把 Allocation 翻成配置、配置配給等），不易讀懂。
+  - **解決方案**：
+    1. 在 `market-report-fetcher.ts` 中整合 Gemini 2.5 Flash API。在抓取到資料時，將摘錄出的 400 字元語段送給大模型進行「資深供應鏈分析師角度的中文摘要（最大 45 中文字）」產出。
+    2. **API 限額保護機制**：在 `db.ts` 新增 `getGenericCache` 與 `setGenericCache` 通用快取讀寫，並在 `market-report-fetcher.ts` 內設計每月 **$5 美元自動超額熔斷器**。若當月累積估算花費達 $5.0 美元（或當月呼叫達 4000 次），會自動警告並停止向 Gemini 發送請求，安全降級為一般用戶端直翻，有效防止 API 金鑰遭刷爆或無限迴圈。
+    3. 前端 [page.tsx](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/app/demand-forecast/page.tsx) 配合 `isAiSummary` 標記：若是 AI 摘要，則直接在卡片摘要區顯示，下方展示英文原文做對照，達到最完美的閱讀感受。
+
 - [x] **擴大摘錄長度並支援單字與語意邊界完整對齊**
   - **背景問題**：先前僅擷取匹配關鍵字前後各 60 字元的極短字串，導致摘錄在單字中途斷開（如 `gh capacitance` 而非 `High capacitance`），語意十分破碎難懂。
   - **解決方案**：在 `market-report-fetcher.ts` 中建立 `extractSensibleQuote` 函數，擴展摘錄範圍至前後 200 字元左右（約 400 字元的上下文句段），並在文字兩端自動對齊至最近的空格（單字邊界），徹底避免單字被切成兩半的尷尬，大幅提升語意完整度與專業可讀性。
+
+- [x] **修正 Google 批次翻譯分隔符號解析錯誤的嚴重 Bug**
+  - **背景問題**：先前使用 `###SPLIT###` 作為翻譯分塊的拼接分隔符號，但在實際翻譯過程中，Google 翻譯常會將其翻譯為中文 `###分割###`，導致 Regex 拆分失敗，進而把 8 條不同卡片的翻譯結果全部揉成一團展示，出現嚴重的亂碼。
+  - **解決方案**：將分隔符號改為純數字 `999888999`（Google 翻譯絕不會將其翻譯成中文），並在 Regex split 中同時相容 `999888999` 與以前翻譯過的 `###分割###` 等字串，完美解決分割失敗所導致的亂碼與揉字問題。
+
+- [x] **更新快取架構版本以強制重新整理資料**
+  - 將 `src/lib/demand-forecast/market-report-types.ts` 中的快取版本 `MARKET_REPORTS_SCHEMA_VERSION` 提升至 `7`。
+  - 提升版本號會使舊快取自動失效，強迫系統在重新整理網頁時，在背景以最新優化後的摘錄函數及 Gemini 智慧摘要呼叫重新進行多管道抓取，寫入最完整清晰的數據。
+
+- **修改檔案**：
+  - [page.tsx](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/app/demand-forecast/page.tsx) — 移除 `showReaderModal` 邏輯，調整 PDF 與原文直連，實作中英雙語對照與摘要置換排版，並修復分隔符號解析 Bug。
+  - [db.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/db.ts) — 新增 `getGenericCache` 與 `setGenericCache` 通用快取讀寫。
+  - [market-report-fetcher.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-fetcher.ts) — 使用 `new URL` 增強 PDF 連結解析，新增 `extractSensibleQuote` 完整對齊摘錄函數，對接 Gemini API，並設計每月 $5 熔斷限額。
+  - [market-report-types.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-types.ts) — 升級 `MARKET_REPORTS_SCHEMA_VERSION` 為 `7`。��文字兩端自動對齊至最近的空格（單字邊界），徹底避免單字被切成兩半的尷尬，大幅提升語意完整度與專業可讀性。
 
 - [x] **修正 Google 批次翻譯分隔符號解析錯誤的嚴重 Bug**
   - **背景問題**：先前使用 `###SPLIT###` 作為翻譯分塊的拼接分隔符號，但在實際翻譯過程中，Google 翻譯常會將其翻譯為中文 `###分割###`，導致 Regex 拆分失敗，進而把 8 條不同卡片的翻譯結果全部揉成一團展示，出現嚴重的亂碼。

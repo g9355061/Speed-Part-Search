@@ -1,4 +1,5 @@
 import { DEMAND_CATEGORIES } from './benchmark';
+import { getGenericCache, setGenericCache } from '@/lib/db';
 import { MARKET_REPORT_SOURCES, type MarketReportSourceConfig } from './market-report-sources';
 import {
   MARKET_REPORTS_SCHEMA_VERSION,
@@ -197,7 +198,111 @@ function extractSensibleQuote(text: string, matchIndex: number, matchLength: num
   return quote;
 }
 
-function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string): MarketReport[] {
+async function summarizeWithGemini(
+  evidenceText: string,
+  categoryId: string,
+  categoryName: string
+): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return null; // Fallback silently if API key is not configured
+  }
+
+  try {
+    // 1. Check monthly API budget limit ($5 USD cap)
+    const currentMonth = new Date().toISOString().slice(0, 7); // e.g. "2026-05"
+    const tracking = (await getGenericCache('gemini_monthly_usage')) || {
+      month: currentMonth,
+      cost: 0,
+      calls: 0,
+    };
+
+    // Reset if it's a new month
+    if (tracking.month !== currentMonth) {
+      tracking.month = currentMonth;
+      tracking.cost = 0;
+      tracking.calls = 0;
+    }
+
+    // $5 USD cap check (or max 4000 calls to be safe)
+    if (tracking.cost >= 5.0 || tracking.calls >= 4000) {
+      console.warn(
+        `[Gemini] Monthly API budget cap of $5 reached ($${tracking.cost.toFixed(4)} USD, ${tracking.calls} calls). Skipping Gemini summary.`
+      );
+      return null;
+    }
+
+    // 2. Call Gemini 2.5 Flash API
+    const prompt = `You are a senior electronic component procurement and supply chain analyst.
+Read the following market report snippet for the category "${categoryName}" (ID: ${categoryId}):
+"${evidenceText}"
+
+Write a concise, 1-sentence summary in Traditional Chinese explaining the market status, shortages, allocation, or lead time trends.
+- Do NOT write generic greetings or intros. Speak like a professional analyst.
+- Max 45 Chinese characters.`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000); // 6s timeout
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          maxOutputTokens: 120,
+          temperature: 0.2
+        }
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      console.warn(`[Gemini] API error: ${res.status} ${res.statusText}`);
+      return null;
+    }
+
+    const json = await res.json();
+    const summary = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+    if (!summary) {
+      return null;
+    }
+
+    // Clean up summary markdown formatting if any
+    const cleanSummary = summary.replace(/[\n\r]+/g, ' ').trim();
+
+    // 3. Update monthly usage tracking
+    const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
+    const estimatedOutputTokens = Math.ceil(cleanSummary.length * 2.5);
+    const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
+
+    tracking.cost = (tracking.cost || 0) + callCost;
+    tracking.calls = (tracking.calls || 0) + 1;
+    await setGenericCache('gemini_monthly_usage', tracking);
+
+    console.log(`[Gemini] Summary generated successfully. Monthly Cost: $${tracking.cost.toFixed(4)} USD (${tracking.calls} calls).`);
+
+    return cleanSummary;
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      console.warn('[Gemini] Request timed out after 6 seconds.');
+    } else {
+      console.error('[Gemini] Failed to generate AI summary:', err.message);
+    }
+    return null;
+  }
+}
+
+async function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string): Promise<MarketReport[]> {
   const reports: MarketReport[] = [];
   const now = new Date().toISOString();
   const lowerText = text.toLowerCase();
@@ -275,6 +380,10 @@ function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string
           break; // already have entry for this cat, skip to next keyword
         }
 
+        const evidenceTextVal = evidenceFragments[0] || `偵測到關鍵字: ${keyword}`;
+        const catNameZh = DEMAND_CATEGORIES.find(c => c.categoryId === catId)?.category || catId;
+        const aiSummary = await summarizeWithGemini(evidenceTextVal, catId, catNameZh);
+
         reports.push({
           id: `auto-${sourceName.toLowerCase().replace(/\s+/g, '-')}-${catId}-${Date.now()}`,
           source: sourceName,
@@ -285,12 +394,13 @@ function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string
           categoryIds: [catId],
           signalLevel: 'info',
           riskTypes,
-          summaryZh,
-          evidenceText: evidenceFragments[0] || `偵測到關鍵字: ${keyword}`,
+          summaryZh: aiSummary || summaryZh,
+          evidenceText: evidenceTextVal,
           confidence,
           status: 'auto',
           extractionMethod: 'html_scrape',
           sourceStatus: 'ok',
+          isAiSummary: !!aiSummary,
         });
         break; // found match for this keyword, move to next catId
       }
@@ -367,7 +477,7 @@ async function fetchSource(config: MarketReportSourceConfig): Promise<SourceFetc
     if (pdfUrl) {
       result.url = pdfUrl;
     }
-    const analyzed = analyzeTextWindowed(text, config.name, finalUrl);
+    const analyzed = await analyzeTextWindowed(text, config.name, finalUrl);
     result.reports = analyzed;
   } catch (e) {
     result.sourceStatus = 'parse_failed';

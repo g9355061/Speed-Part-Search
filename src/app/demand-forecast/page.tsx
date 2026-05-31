@@ -2032,13 +2032,16 @@ function MarketReportsListPanel({
                 </strong>
               </a>
 
-              {/* Chinese summary (Actual translated shortage description or original non-English quote) */}
+              {/* Chinese summary (AI summary or translated raw text) */}
               <div style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.55, fontWeight: 500 }}>
-                {report.evidenceTextZh || (!looksLikeEnglish(report.evidenceText) ? report.evidenceText : report.summaryZh)}
+                {report.isAiSummary 
+                  ? report.summaryZh 
+                  : (report.evidenceTextZh || (!looksLikeEnglish(report.evidenceText) ? report.evidenceText : report.summaryZh))
+                }
               </div>
 
               {/* Original English quote block for verification */}
-              {looksLikeEnglish(report.evidenceText) && report.evidenceTextZh && report.evidenceTextZh !== report.evidenceText && (
+              {looksLikeEnglish(report.evidenceText) && (report.isAiSummary || (report.evidenceTextZh && report.evidenceTextZh !== report.evidenceText)) && (
                 <div style={{
                   fontSize: 11, lineHeight: 1.4,
                   borderLeft: '2px solid #C7D2FE', paddingLeft: 8,

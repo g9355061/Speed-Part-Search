@@ -62,6 +62,7 @@ export interface MarketReport {
   status: 'auto';
   extractionMethod: ExtractionMethod;
   sourceStatus: SourceStatus;
+  isAiSummary?: boolean;
 }
 
 /** 單一來源的抓取結果 */
@@ -84,4 +85,4 @@ export interface MarketReportsFetchResult {
   schemaVersion: number;
 }
 
-export const MARKET_REPORTS_SCHEMA_VERSION = 6;
+export const MARKET_REPORTS_SCHEMA_VERSION = 7;

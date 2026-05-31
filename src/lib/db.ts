@@ -558,6 +558,65 @@ export async function setMarketReportsCache(data: any): Promise<void> {
   }
 }
 
+export async function getGenericCache(key: string): Promise<any | null> {
+  await ensureDb();
+  if (isPostgres) {
+    try {
+      const result = await getPool().query("SELECT data FROM demand_forecast_cache WHERE key = $1", [key]);
+      if (result.rowCount === 0) return null;
+      return JSON.parse(result.rows[0].data);
+    } catch (err) {
+      console.error(`[DB-CACHE] Failed to get cache for key ${key}:`, err);
+      return null;
+    }
+  } else {
+    try {
+      const db = getSqlite();
+      const row = db.prepare("SELECT data FROM demand_forecast_cache WHERE key = ?").get(key) as any;
+      if (!row) return null;
+      return JSON.parse(row.data);
+    } catch (err) {
+      console.error(`[DB-CACHE] Failed to get cache for key ${key} (sqlite):`, err);
+      return null;
+    }
+  }
+}
+
+export async function setGenericCache(key: string, data: any): Promise<void> {
+  await ensureDb();
+  const dataStr = JSON.stringify(data);
+  if (isPostgres) {
+    try {
+      await getPool().query(
+        `
+          INSERT INTO demand_forecast_cache (key, data, updated_at)
+          VALUES ($1, $2, now())
+          ON CONFLICT (key) DO UPDATE
+          SET data = EXCLUDED.data, updated_at = now()
+        `,
+        [key, dataStr]
+      );
+    } catch (err) {
+      console.error(`[DB-CACHE] Failed to set cache for key ${key}:`, err);
+    }
+  } else {
+    try {
+      getSqlite()
+        .prepare(
+          `
+            INSERT INTO demand_forecast_cache (key, data)
+            VALUES (?, ?)
+            ON CONFLICT (key) DO UPDATE
+            SET data = excluded.data
+          `
+        )
+        .run(key, dataStr);
+    } catch (err) {
+      console.error(`[DB-CACHE] Failed to set cache for key ${key} (sqlite):`, err);
+    }
+  }
+}
+
 export async function saveDemandForecastSnapshot(
   mpn: string,
   totalStock: number,
