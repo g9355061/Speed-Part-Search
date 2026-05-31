@@ -137,6 +137,54 @@ function useClientTranslatedNews(news: ForecastNews[]): ForecastNews[] {
   return translated.length > 0 ? translated : news;
 }
 
+function useClientTranslatedReports(reports: any[]): any[] {
+  const [translated, setTranslated] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!reports.length) { setTranslated([]); return; }
+
+    setTranslated(reports);
+
+    const allTexts: string[] = [];
+    for (const r of reports) {
+      const title = r.title || '';
+      const evidence = r.evidenceText || '';
+      if (looksLikeEnglish(title)) allTexts.push(title.trim());
+      if (looksLikeEnglish(evidence)) allTexts.push(evidence.trim());
+    }
+
+    if (allTexts.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const unique = [...new Set(allTexts)];
+        const translations = await translateBatchClient(unique);
+
+        if (cancelled) return;
+
+        const updated = reports.map((r) => {
+          const title = r.title || '';
+          const evidence = r.evidenceText || '';
+          return {
+            ...r,
+            titleZh: translations.get(title.trim()) || r.titleZh || title,
+            evidenceTextZh: translations.get(evidence.trim()) || r.evidenceTextZh || evidence,
+          };
+        });
+        setTranslated(updated);
+      } catch (err) {
+        console.error('[CLIENT_TRANSLATOR] Market reports translation failed:', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [reports]);
+
+  return translated.length > 0 ? translated : reports;
+}
+
 // --- End client-side translation utilities ---
 
 interface ForecastPart {
@@ -310,6 +358,7 @@ export default function DemandForecastPage() {
   const [isEditing, setIsEditing] = useState(false);
 
   const [marketReports, setMarketReports] = useState<any[]>([]);
+  const translatedMarketReports = useClientTranslatedReports(marketReports);
   const [marketSourceResults, setMarketSourceResults] = useState<any[]>([]);
   const [loadingMarketReports, setLoadingMarketReports] = useState(false);
 
@@ -807,13 +856,13 @@ export default function DemandForecastPage() {
             category={category}
             onSelect={setCategory}
             items={marketCategorySummary}
-            marketReports={marketReports}
+            marketReports={translatedMarketReports}
             sourceResults={marketSourceResults}
           />
           <MarketReportsListPanel
             id="market-reports-panel"
             category={category}
-            reports={marketReports}
+            reports={translatedMarketReports}
             sourceResults={marketSourceResults}
             onSelectCategory={setCategory}
           />
@@ -1979,7 +2028,7 @@ function MarketReportsListPanel({
               {/* Title */}
               <a href={report.url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
                 <strong style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.35, display: 'block', marginBottom: 4 }}>
-                  {report.title}
+                  {report.titleZh || report.title}
                 </strong>
               </a>
 
@@ -1989,14 +2038,14 @@ function MarketReportsListPanel({
               </div>
 
               {/* Evidence text */}
-              {report.evidenceText && (
+              {(report.evidenceTextZh || report.evidenceText) && (
                 <div style={{
                   fontSize: 11, color: 'var(--text-3)', lineHeight: 1.4,
                   borderLeft: '2px solid #C7D2FE', paddingLeft: 6,
                   fontStyle: 'italic', background: 'var(--bg)',
                   padding: '4px 6px', borderRadius: '0 4px 4px 0'
                 }}>
-                  "{report.evidenceText}"
+                  "{report.evidenceTextZh || report.evidenceText}"
                 </div>
               )}
 
