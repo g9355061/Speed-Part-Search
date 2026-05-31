@@ -1,6 +1,6 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-31（移除閱讀器彈窗，優化直連 PDF 網址解析，實作完整句子的單字邊界語意摘錄，整合 Gemini 2.5 Flash 智能摘要與每月 $5 預算自動超額防護機制）
+> 最後更新：2026-05-31（移除閱讀器彈窗，優化直連 PDF 網址解析，實作完整句子的單字邊界語意摘錄，整合 Gemini 2.5 Flash 智能摘要與每月 $5 預算自動超額防護機制，並已成功完成 Railway 外部網站環境變數設定與生產環境部署）
 
 ---
 
@@ -42,7 +42,7 @@
   - [page.tsx](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/app/demand-forecast/page.tsx) — 移除 `showReaderModal` 邏輯，調整 PDF 與原文直連，實作中英雙語對照與摘要置換排版，並修復分隔符號解析 Bug。
   - [db.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/db.ts) — 新增 `getGenericCache` 與 `setGenericCache` 通用快取讀寫。
   - [market-report-fetcher.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-fetcher.ts) — 使用 `new URL` 增強 PDF 連結解析，新增 `extractSensibleQuote` 完整對齊摘錄函數，對接 Gemini API，並設計每月 $5 熔斷限額。
-  - [market-report-types.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-types.ts) — 升級 `MARKET_REPORTS_SCHEMA_VERSION` 為 `7`。��文字兩端自動對齊至最近的空格（單字邊界），徹底避免單字被切成兩半的尷尬，大幅提升語意完整度與專業可讀性。
+  - [market-report-types.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-types.ts) — 升級 `MARKET_REPORTS_SCHEMA_VERSION` 為 `7`。文字兩端自動對齊至最近的空格（單字邊界），徹底避免單字被切成兩半的尷尬，大幅提升語意完整度與專業可讀性。
 
 - [x] **修正 Google 批次翻譯分隔符號解析錯誤的嚴重 Bug**
   - **背景問題**：先前使用 `###SPLIT###` 作為翻譯分塊的拼接分隔符號，但在實際翻譯過程中，Google 翻譯常會將其翻譯為中文 `###分割###`，導致 Regex 拆分失敗，進而把 8 條不同卡片的翻譯結果全部揉成一團展示，出現嚴重的亂碼。
