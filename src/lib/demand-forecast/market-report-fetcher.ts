@@ -279,6 +279,8 @@ Write a concise, 1-sentence summary in Traditional Chinese explaining the market
 
     // Clean up summary markdown formatting if any
     const cleanSummary = summary.replace(/[\n\r]+/g, ' ').trim();
+    console.log('[Gemini DEBUG] Prompt for ' + categoryName + ':', prompt);
+    console.log('[Gemini DEBUG] Output:', cleanSummary);
 
     // 3. Update monthly usage tracking
     const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
