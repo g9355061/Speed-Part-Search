@@ -362,6 +362,61 @@ export default function DemandForecastPage() {
   const [marketSourceResults, setMarketSourceResults] = useState<any[]>([]);
   const [loadingMarketReports, setLoadingMarketReports] = useState(false);
 
+  // Reader Modal States
+  const [showReaderModal, setShowReaderModal] = useState(false);
+  const [readerUrl, setReaderUrl] = useState<string | null>(null);
+  const [readerSource, setReaderSource] = useState<string | null>(null);
+  const [readerLoading, setReaderLoading] = useState(false);
+  const [readerError, setReaderError] = useState<string | null>(null);
+  const [readerData, setReaderData] = useState<{ title: string; paragraphs: string[]; url: string } | null>(null);
+  const [readerTranslatedTitle, setReaderTranslatedTitle] = useState('');
+  const [readerTranslatedParagraphs, setReaderTranslatedParagraphs] = useState<string[]>([]);
+  const [showEnglishText, setShowEnglishText] = useState(false);
+
+  const openReaderModal = (url: string, source: string) => {
+    setReaderUrl(url);
+    setReaderSource(source);
+    setShowReaderModal(true);
+    setReaderLoading(true);
+    setReaderError(null);
+    setReaderData(null);
+    setReaderTranslatedTitle('');
+    setReaderTranslatedParagraphs([]);
+    setShowEnglishText(false);
+
+    fetch(`/api/demand-forecast/report-detail?url=${encodeURIComponent(url)}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(async (json) => {
+        if (json.error) {
+          throw new Error(json.error);
+        }
+        setReaderData(json);
+
+        const allTexts = [json.title, ...(json.paragraphs || [])];
+        try {
+          const translations = await translateBatchClient(allTexts);
+          const translatedTitle = translations.get(json.title) || json.title;
+          const translatedParas = (json.paragraphs || []).map((p: string) => translations.get(p) || p);
+          setReaderTranslatedTitle(translatedTitle);
+          setReaderTranslatedParagraphs(translatedParas);
+        } catch (tErr) {
+          console.error('[READER_TRANSLATOR] Translation failed:', tErr);
+          setReaderTranslatedTitle(json.title);
+          setReaderTranslatedParagraphs(json.paragraphs || []);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load report detail:', err);
+        setReaderError(err instanceof Error ? err.message : '無法取得網頁內容');
+      })
+      .finally(() => {
+        setReaderLoading(false);
+      });
+  };
+
   const fetchMarketReports = () => {
     setLoadingMarketReports(true);
     fetch('/api/demand-forecast/market-reports')
@@ -865,6 +920,7 @@ export default function DemandForecastPage() {
             reports={translatedMarketReports}
             sourceResults={marketSourceResults}
             onSelectCategory={setCategory}
+            onOpenReader={openReaderModal}
           />
         </section>
 
@@ -934,6 +990,215 @@ export default function DemandForecastPage() {
           </div>
         </Panel>
       </main>
+
+      {/* Reader Modal for Market Reports */}
+      {showReaderModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            backdropFilter: 'blur(16px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+          onClick={() => setShowReaderModal(false)}
+        >
+          <style>{`
+            @keyframes readerSpin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+              width: '90%',
+              maxWidth: 720,
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              border: '1px solid var(--border)',
+              overflow: 'hidden',
+              animation: 'modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '18px 24px',
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--surface-2)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#312E81', background: '#EEF2FF', borderRadius: 4, padding: '3px 8px', border: '1px solid #C7D2FE' }}>
+                  {readerSource}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)' }}>
+                  市場情報閱讀器
+                </span>
+              </div>
+              <button
+                onClick={() => setShowReaderModal(false)}
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  fontSize: 20,
+                  cursor: 'pointer',
+                  color: 'var(--text-3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  transition: 'background 0.2s',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-3)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '24px 30px' }}>
+              {readerLoading && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 16 }}>
+                  <div style={{ width: 40, height: 40, border: '4px solid var(--border)', borderTop: '4px solid #6366F1', borderRadius: '50%', animation: 'readerSpin 1s linear infinite' }}></div>
+                  <div style={{ fontSize: 14, color: 'var(--text-2)', fontWeight: 600 }}>
+                    正在從 {readerSource} 擷取文章內容與翻譯中...
+                  </div>
+                </div>
+              )}
+
+              {readerError && (
+                <div style={{ padding: '20px 0', textAlign: 'center' }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+                  <h4 style={{ margin: '0 0 8px', color: '#B42318' }}>內容載入失敗</h4>
+                  <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-3)' }}>{readerError}</p>
+                  <a
+                    href={readerUrl || '#'}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      background: '#6366F1',
+                      color: '#fff',
+                      padding: '8px 18px',
+                      borderRadius: 8,
+                      textDecoration: 'none',
+                      fontWeight: 600,
+                      fontSize: 13,
+                    }}
+                  >
+                    前往原始英文網頁 ↗
+                  </a>
+                </div>
+              )}
+
+              {readerData && (
+                <div>
+                  <h2 style={{ fontSize: 20, color: 'var(--text)', margin: '0 0 16px', lineHeight: 1.4, fontWeight: 800 }}>
+                    {readerTranslatedTitle || readerData.title}
+                  </h2>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingBottom: 12, borderBottom: '1px solid var(--hairline)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                      🌐 智慧中文翻譯已自動啟用
+                    </div>
+                    <button
+                      onClick={() => setShowEnglishText(!showEnglishText)}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'var(--text-2)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {showEnglishText ? '隱藏原文對照' : '顯示英文原文'}
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 16 }}>
+                    {readerData.paragraphs.map((p, idx) => {
+                      const translatedP = readerTranslatedParagraphs[idx + 1] || '';
+                      return (
+                        <div key={idx} style={{ lineHeight: 1.7, fontSize: 14 }}>
+                          <p style={{ color: 'var(--text-2)', margin: 0, fontWeight: 500 }}>
+                            {translatedP || '正在翻譯中...'}
+                          </p>
+                          {showEnglishText && (
+                            <p style={{ color: 'var(--text-3)', fontSize: 12.5, margin: '6px 0 0', fontStyle: 'italic', borderLeft: '3px solid #E2E8F0', paddingLeft: 10 }}>
+                              {p}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {readerData && (
+              <div
+                style={{
+                  padding: '16px 24px',
+                  borderTop: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <a
+                  href={readerUrl || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: 13, color: 'var(--text-3)', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  前往原始英文網頁 ↗
+                </a>
+                <button
+                  onClick={() => setShowReaderModal(false)}
+                  style={{
+                    background: '#6366F1',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 8,
+                    padding: '8px 20px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  關閉
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal Dialog for Thresholds */}
       {showThresholdsModal && (
@@ -1876,12 +2141,14 @@ function MarketReportsListPanel({
   reports,
   sourceResults,
   onSelectCategory,
+  onOpenReader,
 }: {
   id: string;
   category: string;
   reports: any[];
   sourceResults: any[];
   onSelectCategory: (cat: string) => void;
+  onOpenReader: (url: string, source: string) => void;
 }) {
   const toneStyle = {
     bg: '#F8FAFC',
@@ -2025,8 +2292,12 @@ function MarketReportsListPanel({
                 <MarketSignalBadge level={signalLevel} />
               </div>
 
-              {/* Title (Redirects to Google Translated version) */}
-              <a href={`https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(report.url)}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
+              {/* Title (Opens Reader Modal with translation) */}
+              <a 
+                href={report.url} 
+                onClick={(e) => { e.preventDefault(); onOpenReader(report.url, report.source); }}
+                style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
+              >
                 <strong style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.35, display: 'block', marginBottom: 4 }}>
                   {report.titleZh || report.title}
                 </strong>
@@ -2082,8 +2353,12 @@ function MarketReportsListPanel({
                 <a href={report.url} target="_blank" rel="noreferrer" style={{ color: 'var(--text-3)', textDecoration: 'none', fontWeight: 600 }}>
                   原文連結 ↗
                 </a>
-                <a href={`https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(report.url)}`} target="_blank" rel="noreferrer" style={{ color: toneStyle.accent, textDecoration: 'none', fontWeight: 700 }}>
-                  翻譯網頁 ↗
+                <a 
+                  href={report.url} 
+                  onClick={(e) => { e.preventDefault(); onOpenReader(report.url, report.source); }}
+                  style={{ color: toneStyle.accent, textDecoration: 'none', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  閱讀翻譯 ↗
                 </a>
               </div>
             </div>
