@@ -1687,10 +1687,10 @@ const RISK_TYPE_LABELS: Record<string, string> = {
 };
 
 const SIGNAL_BADGE_CONFIG = {
-  no_signal: { bg: '#F2F4F7', color: '#475467', dot: '#98A2B3', text: '無情報' },
+  no_signal: { bg: '#F2F4F7', color: '#475467', dot: '#98A2B3', text: '正常(無缺料情報)' },
   source_unavailable: { bg: '#F9FAFB', color: '#667085', dot: '#D0D5DD', text: '來源未取得' },
-  info: { bg: '#EFF8FF', color: '#175CD3', dot: '#2E90FA', text: '有情報' },
-  multi_source: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', text: '多來源佐證' },
+  info: { bg: '#EFF8FF', color: '#175CD3', dot: '#2E90FA', text: '一份報告顯示缺料' },
+  multi_source: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', text: '兩份報告以上顯示缺料' },
 };
 
 function MarketSignalBadge({ level }: { level: keyof typeof SIGNAL_BADGE_CONFIG }) {
