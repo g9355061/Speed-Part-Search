@@ -1,7 +1,7 @@
 import { getToken } from 'next-auth/jwt';
 import { NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password'];
+const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/api/debug-reports'];
 const PUBLIC_API_PREFIXES = ['/api/auth/'];
 
 export async function middleware(req: NextRequest) {
