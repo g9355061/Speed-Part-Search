@@ -3,6 +3,7 @@ import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { getMarketReportsCache } from '@/lib/db';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const cache = await getMarketReportsCache();
