@@ -2025,8 +2025,8 @@ function MarketReportsListPanel({
                 <MarketSignalBadge level={signalLevel} />
               </div>
 
-              {/* Title */}
-              <a href={report.url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
+              {/* Title (Redirects to Google Translated version) */}
+              <a href={`https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(report.url)}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
                 <strong style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.35, display: 'block', marginBottom: 4 }}>
                   {report.titleZh || report.title}
                 </strong>
@@ -2077,10 +2077,13 @@ function MarketReportsListPanel({
                 </div>
               )}
 
-              {/* Footer with original link */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: 11 }}>
+              {/* Footer with original link and translated web link */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, fontSize: 11 }}>
                 <a href={report.url} target="_blank" rel="noreferrer" style={{ color: 'var(--text-3)', textDecoration: 'none', fontWeight: 600 }}>
                   原文連結 ↗
+                </a>
+                <a href={`https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(report.url)}`} target="_blank" rel="noreferrer" style={{ color: toneStyle.accent, textDecoration: 'none', fontWeight: 700 }}>
+                  翻譯網頁 ↗
                 </a>
               </div>
             </div>
