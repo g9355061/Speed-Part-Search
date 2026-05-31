@@ -364,7 +364,7 @@ export default function DemandForecastPage() {
 
   const fetchMarketReports = () => {
     setLoadingMarketReports(true);
-    fetch('/api/demand-forecast/market-reports')
+    fetch('/api/demand-forecast/market-reports?t=' + Date.now(), { cache: 'no-store' })
       .then((r) => r.json())
       .then((json) => {
         if (json.reports) {
