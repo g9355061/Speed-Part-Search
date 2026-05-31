@@ -1,6 +1,27 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-30（取消人工審核，將市場報告與產業情報佐證功能恢復為全自動化抓取與信號生成；清理手動匯入與審核相關端點、狀態、彈窗，保留對照矩陣優化排版）
+> 最後更新：2026-05-31（移除閱讀器彈窗，優化直連 PDF 網址解析與快取更新機制，確保外部連結可直接開啟 PDF 檔或前往原文與翻譯頁面）
+
+---
+
+### 2026-05-31 — 移除閱讀器彈窗、優化 PDF 連結直連與快取版本更新
+
+- [x] **徹底移除內部閱讀器彈窗 (Reader Modal)**
+  - 移除了先前實作的內部文章翻譯閱讀器彈窗（Reader Modal），解決使用者對於閱讀器介面不美觀的抱怨。
+  - 將市場報告面板中的卡片點擊與「閱讀 PDF ↗」/「查看原文 ↗」連結直接指向報告的原始網址（`report.url`），改由瀏覽器原生分頁開啟。
+
+- [x] **優化自動抓取器的 PDF 連結解析與相對路徑支援**
+  - 在 `src/lib/demand-forecast/market-report-fetcher.ts` 內解析網頁 HTML 時，優化 PDF 的 Regex 比對與解析。
+  - 改用標準 `new URL(href, url).href` 進行相對網址（包括以 `/` 開頭或不帶 `/` 的相對路徑）與絕對網址的解析，確保產生的 PDF 連結絕對完整、可直接在瀏覽器開啟。
+
+- [x] **更新快取架構版本以強制重新整理資料**
+  - 將 `src/lib/demand-forecast/market-report-types.ts` 中的快取版本 `MARKET_REPORTS_SCHEMA_VERSION` 提升至 `5`。
+  - 由於之前抓取的報告網址可能未解析為 PDF，提升版本號會使舊快取自動失效，強迫系統在重新載入時重新抓取所有市場情報，進而用最新優化後的抓取器找出 PDF 直連連結並寫入資料庫。
+
+- **修改檔案**：
+  - [page.tsx](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/app/demand-forecast/page.tsx) — 移除 `showReaderModal` 邏輯，調整 PDF 與原文直連。
+  - [market-report-fetcher.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-fetcher.ts) — 使用 `new URL` 增強 PDF 連結解析。
+  - [market-report-types.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-types.ts) — 升級 `MARKET_REPORTS_SCHEMA_VERSION` 為 `5`。
 
 ---
 

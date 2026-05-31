@@ -68,7 +68,7 @@ function isGatedOrFormPage(text: string): boolean {
 
 // ==================== Fetching ====================
 
-async function fetchPageText(url: string): Promise<{ text: string; status: SourceStatus }> {
+async function fetchPageText(url: string): Promise<{ text: string; status: SourceStatus; pdfUrl?: string | null }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
@@ -83,6 +83,21 @@ async function fetchPageText(url: string): Promise<{ text: string; status: Sourc
     if (res.status === 403 || res.status === 401) return { text: '', status: 'blocked' };
     if (!res.ok) return { text: '', status: 'parse_failed' };
     const html = await res.text();
+
+    // 嘗試解析頁面中的第一個 PDF 連結
+    let pdfUrl: string | null = null;
+    const pdfRegex = /href=["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi;
+    let match;
+    while ((match = pdfRegex.exec(html)) !== null) {
+      const href = match[1];
+      try {
+        pdfUrl = new URL(href, url).href;
+      } catch {
+        pdfUrl = href;
+      }
+      break;
+    }
+
     const text = html
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -92,7 +107,7 @@ async function fetchPageText(url: string): Promise<{ text: string; status: Sourc
     if (!text || text.length < 100) return { text: '', status: 'no_new_report' };
     if (isGatedOrFormPage(text)) return { text, status: 'form_required' };
     if (!isSubstantiveContent(text)) return { text: '', status: 'no_new_report' };
-    return { text, status: 'ok' };
+    return { text, status: 'ok', pdfUrl };
   } catch (e: any) {
     clearTimeout(timer);
     if (e?.name === 'AbortError') return { text: '', status: 'timeout' };
@@ -301,9 +316,9 @@ async function fetchSource(config: MarketReportSourceConfig): Promise<SourceFetc
       return result;
     }
 
-    const { text, status } = await fetchPageText(targetUrl);
+    const { text, status, pdfUrl } = await fetchPageText(targetUrl);
     result.sourceStatus = status;
-
+ 
     if (status === 'blocked') {
       result.warning = `${config.name} 回傳 403/401，可能需登入或被封鎖。`;
     } else if (status === 'form_required') {
@@ -315,10 +330,14 @@ async function fetchSource(config: MarketReportSourceConfig): Promise<SourceFetc
     } else if (status === 'parse_failed') {
       result.warning = `${config.name} 頁面解析失敗。`;
     }
-
+ 
     if (status !== 'ok' || !text) return result;
-
-    const analyzed = analyzeTextWindowed(text, config.name, targetUrl);
+ 
+    const finalUrl = pdfUrl || targetUrl;
+    if (pdfUrl) {
+      result.url = pdfUrl;
+    }
+    const analyzed = analyzeTextWindowed(text, config.name, finalUrl);
     result.reports = analyzed;
   } catch (e) {
     result.sourceStatus = 'parse_failed';
