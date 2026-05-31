@@ -38,16 +38,16 @@ async function translateBatchClient(texts: string[]): Promise<Map<string, string
   for (let i = 0; i < toTranslate.length; i += chunkSize) {
     const chunk = toTranslate.slice(i, i + chunkSize);
     try {
-      // Concatenate with delimiter for batch translation
-      const delimiter = '\n\n###SPLIT###\n\n';
+      // Concatenate with delimiter for batch translation (using a number to prevent Google Translate from translating it)
+      const delimiter = '\n\n999888999\n\n';
       const combined = chunk.join(delimiter);
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(combined)}`;
       const resp = await fetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
       const translated = (json[0] as any[]).map((item: any) => item[0]).join('');
-      // Split back
-      const parts = translated.split(/\s*###SPLIT###\s*/);
+      // Split back, supporting translated versions or standard number delimiter
+      const parts = translated.split(/\s*(?:999888999|###分割###|### 分割 ###|###SPLIT###)\s*/i);
       for (let j = 0; j < chunk.length; j++) {
         const result = parts[j]?.trim() || chunk[j];
         clientTranslationCache.set(chunk[j], result);

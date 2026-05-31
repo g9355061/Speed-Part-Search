@@ -19,12 +19,16 @@
   - 將解析出的 **PDF 核心缺料中文翻譯內容（`evidenceTextZh`）直接放入卡片主摘要區**（當尚未載入翻譯時自動優雅地降級為顯示 `summaryZh` 罐頭文字，確保體驗流暢）。
   - 在主摘要區下方，將**英文原始缺料段落（`evidenceText`）以精美的斜體引用框呈現**，實現無需下載點開 PDF，在卡片上即可直接完成「中英雙語對照」與核心情報檢視的極佳閱讀體驗。
 
+- [x] **修正 Google 批次翻譯分隔符號解析錯誤的嚴重 Bug**
+  - **背景問題**：先前使用 `###SPLIT###` 作為翻譯分塊的拼接分隔符號，但在實際翻譯過程中，Google 翻譯常會將其翻譯為中文 `###分割###`，導致 Regex 拆分失敗，進而把 8 條不同卡片的翻譯結果全部揉成一團展示，出現嚴重的亂碼。
+  - **解決方案**：將分隔符號改為純數字 `999888999`（Google 翻譯絕不會將其翻譯成中文），並在 Regex split 中同時相容 `999888999` 與以前翻譯過的 `###分割###` 等字串，完美解決分割失敗所導致的亂碼與揉字問題。
+
 - [x] **更新快取架構版本以強制重新整理資料**
   - 將 `src/lib/demand-forecast/market-report-types.ts` 中的快取版本 `MARKET_REPORTS_SCHEMA_VERSION` 提升至 `5`。
   - 由於之前抓取的報告網址可能未解析為 PDF，提升版本號會使舊快取自動失效，強迫系統在重新載入時重新抓取所有市場情報，進而用最新優化後的抓取器找出 PDF 直連連結並寫入資料庫。
 
 - **修改檔案**：
-  - [page.tsx](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/app/demand-forecast/page.tsx) — 移除 `showReaderModal` 邏輯，調整 PDF 與原文直連，實作中英雙語對照與摘要置換排版。
+  - [page.tsx](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/app/demand-forecast/page.tsx) — 移除 `showReaderModal` 邏輯，調整 PDF 與原文直連，實作中英雙語對照與摘要置換排版，並修復分隔符號解析 Bug。
   - [market-report-fetcher.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-fetcher.ts) — 使用 `new URL` 增強 PDF 連結解析。
   - [market-report-types.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-types.ts) — 升級 `MARKET_REPORTS_SCHEMA_VERSION` 為 `5`。
 
