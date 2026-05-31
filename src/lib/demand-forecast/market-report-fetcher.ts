@@ -165,7 +165,37 @@ async function findLatestArticleUrl(listUrl: string, allowedDomains: string[]): 
 
 // ==================== Windowed Analysis ====================
 
-const EVIDENCE_WINDOW = 400; // chars around category keyword to search for risk keywords
+const EVIDENCE_WINDOW = 800; // chars around category keyword to search for risk keywords
+
+function extractSensibleQuote(text: string, matchIndex: number, matchLength: number): string {
+  // Go back 180 chars and forward 220 chars to get a larger context (about 400 chars total)
+  let start = Math.max(0, matchIndex - 180);
+  let end = Math.min(text.length, matchIndex + matchLength + 220);
+
+  // Align start to the beginning of the next word to avoid truncated word (like "gh")
+  if (start > 0) {
+    const nextSpace = text.indexOf(' ', start);
+    if (nextSpace !== -1 && nextSpace < matchIndex) {
+      start = nextSpace + 1;
+    }
+  }
+
+  // Align end to the end of the previous word
+  if (end < text.length) {
+    const prevSpace = text.lastIndexOf(' ', end);
+    if (prevSpace !== -1 && prevSpace > (matchIndex + matchLength)) {
+      end = prevSpace;
+    }
+  }
+
+  let quote = text.slice(start, end).trim();
+  
+  // Add ellipsis if we trimmed the text
+  if (start > 0) quote = '...' + quote;
+  if (end < text.length) quote = quote + '...';
+
+  return quote;
+}
 
 function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string): MarketReport[] {
   const reports: MarketReport[] = [];
@@ -196,9 +226,9 @@ function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string
             if (match) {
               riskTypes.push(riskType as RiskType);
               const mIdx = window.indexOf(match[0]);
-              const fragStart = Math.max(0, mIdx - 60);
-              const fragEnd = Math.min(window.length, mIdx + match[0].length + 60);
-              evidenceFragments.push(`...${window.slice(fragStart, fragEnd).trim()}...`);
+              const absoluteMatchIdx = windowStart + mIdx;
+              const quote = extractSensibleQuote(text, absoluteMatchIdx, match[0].length);
+              evidenceFragments.push(quote);
               break;
             }
           }
