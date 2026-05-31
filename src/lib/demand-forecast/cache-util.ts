@@ -85,6 +85,13 @@ export async function recalculateForecastPart(part: any, customThresholds?: Reco
   const minLeadTimeDays = part.minLeadTimeDays ?? null;
   const lowestPriceUsd = part.lowestPriceUsd ?? null;
 
+  // --- Lifecycle status detection from cached data ---
+  const lcStatus = (part.lifecycleStatus || part.availabilityStatus || '').toLowerCase().trim();
+  const isObsolete = lcStatus.includes('obsolete') || lcStatus.includes('discontinued') || lcStatus === 'end of life' || lcStatus === 'eol';
+  const isLastTimeBuy = lcStatus.includes('last time buy') || lcStatus.includes('ltb');
+  const isNRND = lcStatus.includes('nrnd') || lcStatus.includes('not recommended');
+  const lifecycleLabel = part.lifecycleStatus || null;
+
   const thresholds = (customThresholds && customThresholds[part.categoryId]) || CATEGORY_THRESHOLDS[part.categoryId] || { minStock: 1000, lowStock: 5000 };
   const noStockAfterMatch = hasApiMatch && totalStock <= 0;
   const veryLongLead = minLeadTimeDays !== null && minLeadTimeDays >= 140; // >= 20 weeks
@@ -103,8 +110,9 @@ export async function recalculateForecastPart(part: any, customThresholds?: Reco
   const priceRise30 = snapshot7DaysAgo && snapshot7DaysAgo.lowestPriceUsd !== null && lowestPriceUsd !== null && lowestPriceUsd > 0 && ((lowestPriceUsd - snapshot7DaysAgo.lowestPriceUsd) / snapshot7DaysAgo.lowestPriceUsd) >= 0.3;
   const leadTimeIncrease56 = snapshot7DaysAgo && snapshot7DaysAgo.minLeadTimeDays !== null && minLeadTimeDays !== null && (minLeadTimeDays - snapshot7DaysAgo.minLeadTimeDays) >= 56;
 
-  const highRisk = noStockAfterMatch || (totalStock < thresholds.lowStock && veryLongLead) || !!(snapshot7DaysAgo && stockDrop80);
+  const highRisk = noStockAfterMatch || isObsolete || isLastTimeBuy || (totalStock < thresholds.lowStock && veryLongLead) || !!(snapshot7DaysAgo && stockDrop80);
   const mediumRisk = !highRisk && (
+    isNRND ||
     (totalStock < thresholds.minStock) ||
     (totalStock < thresholds.lowStock && mediumLead) ||
     !!(snapshot7DaysAgo && (stockDrop50 || supplierDrop || priceRise30 || leadTimeIncrease56))
@@ -115,6 +123,9 @@ export async function recalculateForecastPart(part: any, customThresholds?: Reco
 
   const riskReasons = [
     !hasApiMatch ? 'API 未找到此料，無授權代理商通路資料' : '',
+    isObsolete ? `🔴 生命週期：原廠已標示停產 (${lifecycleLabel})，庫存售完即止` : '',
+    isLastTimeBuy ? `🔴 生命週期：原廠已進入最後採購期 (${lifecycleLabel})` : '',
+    isNRND ? `🟡 生命週期：原廠不建議新設計採用 (${lifecycleLabel})` : '',
     noStockAfterMatch ? '🔴 API 找到料件但授權供應商庫存為 0' : '',
     (totalStock < thresholds.lowStock && veryLongLead) ? `🔴 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週（超過 20 週）` : '',
     (snapshot7DaysAgo && stockDrop80) ? `🔴 趨勢警告：庫存 7 天內暴跌超過 80%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',

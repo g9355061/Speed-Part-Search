@@ -32,6 +32,7 @@ export interface PartResult {
   productUrl: string;
   leadTimeDays?: number | null;
   availabilityStatus?: string | null;
+  lifecycleStatus?: string | null;
   lastUpdated: string;
 }
 

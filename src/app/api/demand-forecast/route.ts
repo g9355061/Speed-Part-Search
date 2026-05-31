@@ -446,6 +446,31 @@ function summarizePart(
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
     .sort((a, b) => a - b)[0] ?? null;
 
+  // --- Lifecycle status detection from API responses ---
+  const lifecycleStatuses = results
+    .map((item) => item.lifecycleStatus ?? item.availabilityStatus ?? '')
+    .filter(Boolean)
+    .map((s) => s.trim());
+  const normalizedStatuses = lifecycleStatuses.map((s) => s.toLowerCase());
+
+  const isObsolete = normalizedStatuses.some((s) =>
+    s.includes('obsolete') || s.includes('discontinued') || s === 'end of life' || s === 'eol'
+  );
+  const isLastTimeBuy = normalizedStatuses.some((s) =>
+    s.includes('last time buy') || s.includes('ltb')
+  );
+  const isNRND = normalizedStatuses.some((s) =>
+    s.includes('nrnd') || s.includes('not recommended')
+  );
+  // The best (most severe) lifecycle status string for display
+  const lifecycleLabel = isObsolete
+    ? lifecycleStatuses.find((s) => /obsolete|discontinued|end.of.life|eol/i.test(s)) ?? 'Obsolete'
+    : isLastTimeBuy
+      ? lifecycleStatuses.find((s) => /last.time.buy|ltb/i.test(s)) ?? 'Last Time Buy'
+      : isNRND
+        ? lifecycleStatuses.find((s) => /nrnd|not.recommended/i.test(s)) ?? 'NRND'
+        : null;
+
   const thresholds = (customThresholds && customThresholds[part.categoryId]) || CATEGORY_THRESHOLDS[part.categoryId] || { minStock: 1000, lowStock: 5000 };
   const noStockAfterMatch = hasApiMatch && totalStock <= 0;
   const veryLongLead = minLeadTimeDays !== null && minLeadTimeDays >= 140; // >= 20 weeks
@@ -459,10 +484,12 @@ function summarizePart(
   const leadTimeIncrease56 = snapshot7DaysAgo && snapshot7DaysAgo.minLeadTimeDays !== null && minLeadTimeDays !== null && (minLeadTimeDays - snapshot7DaysAgo.minLeadTimeDays) >= 56;
 
   // Three-tier risk: High Risk > Medium Risk > Normal
-  // High Risk: No stock OR Stock is below lowStock threshold AND replenishment lead time is very long (>= 20 weeks) OR stock drop > 80%
-  const highRisk = noStockAfterMatch || (totalStock < thresholds.lowStock && veryLongLead) || !!(snapshot7DaysAgo && stockDrop80);
-  // Medium Risk: Stock is below minStock threshold (always medium risk) OR Stock is below lowStock threshold AND lead time is medium (>= 12 weeks) OR other trend warnings
+  // Obsolete/Discontinued/EOL → always high risk
+  // Last Time Buy → high risk
+  // NRND → medium risk (at minimum)
+  const highRisk = noStockAfterMatch || isObsolete || isLastTimeBuy || (totalStock < thresholds.lowStock && veryLongLead) || !!(snapshot7DaysAgo && stockDrop80);
   const mediumRisk = !highRisk && (
+    isNRND ||
     (totalStock < thresholds.minStock) ||
     (totalStock < thresholds.lowStock && mediumLead) ||
     !!(snapshot7DaysAgo && (stockDrop50 || supplierDrop || priceRise30 || leadTimeIncrease56))
@@ -480,6 +507,7 @@ function summarizePart(
     maxLeadTimeDays,
     minLeadTimeDays,
     availabilityStatus: best?.availabilityStatus ?? '',
+    lifecycleStatus: lifecycleLabel,
     productUrl: best?.productUrl ?? '',
     checkedSuppliers: results.map((item) => item.supplier),
     errors,
@@ -487,6 +515,9 @@ function summarizePart(
     summary: highRisk ? '有缺料風險' : mediumRisk ? '中風險' : (hasApiMatch ? '正常' : '無代理商資料'),
     riskReasons: [
       !hasApiMatch ? 'API 未找到此料，無授權代理商通路資料' : '',
+      isObsolete ? `🔴 生命週期：原廠已標示停產 (${lifecycleLabel})，庫存售完即止` : '',
+      isLastTimeBuy ? `🔴 生命週期：原廠已進入最後採購期 (${lifecycleLabel})` : '',
+      isNRND ? `🟡 生命週期：原廠不建議新設計採用 (${lifecycleLabel})` : '',
       noStockAfterMatch ? '🔴 API 找到料件但授權供應商庫存為 0' : '',
       (totalStock < thresholds.lowStock && veryLongLead) ? `🔴 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週（超過 20 週）` : '',
       (snapshot7DaysAgo && stockDrop80) ? `🔴 趨勢警告：庫存 7 天內暴跌超過 80%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',

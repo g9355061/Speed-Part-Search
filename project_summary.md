@@ -1209,3 +1209,31 @@ npm test                   # 跑單元測試
 curl "http://localhost:5280/api/health"
 curl "http://localhost:5280/api/search?partNumber=NE555P"
 ```
+
+## 13. 缺料預警生命週期與 API 資料對接功能更新
+
+我們已成功將 DigiKey 與 Mouser API 的生命週期狀態（Lifecycle Status）接入風險判定與前端展示系統中。
+
+### 1. API 欄位對接 (Data Mapping)
+- **DigiKey (`src/lib/suppliers/digikey/index.ts`)**：從 `ProductStatus?.Status` 取出狀態值並對應至 `lifecycleStatus`。
+- **Mouser (`src/lib/suppliers/mouser/index.ts`)**：從 `LifecycleStatus` 取出狀態值，若無則降級使用 `availabilityStatus`。
+- **型別定義 (`src/lib/suppliers/types.ts`)**：在 `PartResult` 介面新增 `lifecycleStatus?: string | null`。
+
+### 2. 風險判定邏輯重構 (Risk Classification Rules)
+在 `src/app/api/demand-forecast/route.ts` 及 `src/lib/demand-forecast/cache-util.ts` 中整合生命週期分析：
+- **高風險 (`High Risk` / 有缺料風險)**：
+  - 若偵測到停產 (`Obsolete`、`Discontinued`、`End of Life`、`EOL`)，直接列為高風險，並在風險原因加上 `🔴 生命週期：原廠已標示停產 (狀態值)，庫存售完即止`。
+  - 若偵測到最後採購期 (`Last Time Buy`、`LTB`)，列為高風險，原因加上 `🔴 生命週期：原廠已進入最後採購期 (狀態值)`。
+- **中風險 (`Medium Risk` / 中風險)**：
+  - 若偵測到不推薦新設計 (`NRND`、`Not Recommended for New Designs`)，列為中風險，原因加上 `🟡 生命週期：原廠不建議新設計採用 (狀態值)`。
+
+### 3. 前端介面與精美徽章展示 (Frontend UI)
+在 `src/app/demand-forecast/page.tsx` 中：
+- 在 15 個類別料件查詢表格中，新增「生命週期」表頭與欄位。
+- 實作 `LifecycleBadge` 元件，針對不同的生命週期狀態渲染不同樣式的彩色標籤：
+  - **停產/EOL** (紅底紅字紅框，如 `FEF3F2` / `B42318` / `FECDCA`)
+  - **最後採購** (橙底橙字橙框，如 `FFFAEB` / `B54708` / `FEDF89`)
+  - **不推薦新設計** (橘底橘字橘框，如 `FFF6ED` / `C4320A` / `FFEDD5`)
+  - **生產中/Active** (綠底綠字綠框，如 `ECFDF3` / `027A48` / `D1FADF`)
+  - 其他狀態 (灰底灰字灰框，如 `F9FAFB` / `475467` / `E4E7EC`)
+

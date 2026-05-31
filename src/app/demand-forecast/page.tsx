@@ -154,6 +154,7 @@ interface ForecastPart {
   maxLeadTimeDays: number | null;
   minLeadTimeDays?: number | null;
   availabilityStatus?: string;
+  lifecycleStatus?: string | null;
   productUrl?: string;
   checkedSuppliers?: string[];
   errors?: string[];
@@ -840,6 +841,7 @@ export default function DemandForecastPage() {
                   <Th align="right">總庫存</Th>
                   <Th align="right">最低價</Th>
                   <Th align="right">補貨交期 (最快/慢)</Th>
+                  <Th>生命週期</Th>
                   <Th>總結</Th>
                 </tr>
               </thead>
@@ -866,6 +868,9 @@ export default function DemandForecastPage() {
                           `${Math.round(part.minLeadTimeDays / 7)} ~ ${Math.round(part.maxLeadTimeDays / 7)} 週`
                         )
                       )}
+                    </Td>
+                    <Td>
+                      <LifecycleBadge status={part.lifecycleStatus} />
                     </Td>
                     <Td>
                       <RiskBadge value={part.summary} />
@@ -1579,6 +1584,56 @@ function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 700, background: risk ? '#FFF1F0' : '#ECFDF3', color: risk ? '#B42318' : '#027A48' }}>
       {value}
+    </span>
+  );
+}
+
+function LifecycleBadge({ status }: { status?: string | null }) {
+  if (!status) {
+    return <span style={{ color: 'var(--text-3)' }}>-</span>;
+  }
+  const lower = status.toLowerCase();
+  
+  // Obsolete / Discontinued / EOL / End of Life
+  if (lower.includes('obsolete') || lower.includes('discontinued') || lower.includes('end of life') || lower === 'eol') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 600, background: '#FEF3F2', color: '#B42318', border: '1px solid #FECDCA' }}>
+        停產 ({status})
+      </span>
+    );
+  }
+  
+  // Last Time Buy / LTB
+  if (lower.includes('last time buy') || lower.includes('ltb')) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 600, background: '#FFFAEB', color: '#B54708', border: '1px solid #FEDF89' }}>
+        最後採購 ({status})
+      </span>
+    );
+  }
+  
+  // NRND
+  if (lower.includes('nrnd') || lower.includes('not recommended')) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 600, background: '#FFF6ED', color: '#C4320A', border: '1px solid #FFEDD5' }}>
+        不推薦新設計 ({status})
+      </span>
+    );
+  }
+
+  // Active / In Production / New Product
+  if (lower.includes('active') || lower.includes('new product') || lower.includes('production')) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 600, background: '#ECFDF3', color: '#027A48', border: '1px solid #D1FADF' }}>
+        生產中 ({status})
+      </span>
+    );
+  }
+
+  // Other statuses
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 600, background: '#F9FAFB', color: '#475467', border: '1px solid #E4E7EC' }}>
+      {status}
     </span>
   );
 }

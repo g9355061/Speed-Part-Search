@@ -35,6 +35,7 @@ interface MouserPart {
   Mult?: string;                  // step quantity
   ProductAttributes?: MouserProductAttribute[];
   RestrictionMessage?: string;    // 廠商限制訊息（非授權經銷商）
+  LifecycleStatus?: string;       // e.g. "New Product", "End of Life", "Not Recommended for New Designs", "Obsolete"
 }
 
 interface MouserSearchResponse {
@@ -119,7 +120,8 @@ function mapPart(p: MouserPart, currency: string, supplier: string): PartResult 
         : `https://www.mouser.com${p.ProductDetailUrl}`
       : '',
     leadTimeDays: parseLeadDays(p.LeadTime),
-    availabilityStatus: stock > 0 ? 'In Stock' : 'Out of Stock',
+    availabilityStatus: p.LifecycleStatus || (stock > 0 ? 'In Stock' : 'Out of Stock'),
+    lifecycleStatus: p.LifecycleStatus || null,
     lastUpdated: new Date().toISOString(),
   };
 }

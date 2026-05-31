@@ -146,6 +146,7 @@ function mapProduct(p: DKProduct, currency: string): PartResult {
       : '',
     leadTimeDays: leadWeeksToDays(p.ManufacturerLeadWeeks),
     availabilityStatus: p.ProductStatus?.Status ?? null,
+    lifecycleStatus: p.ProductStatus?.Status ?? null,
     lastUpdated: new Date().toISOString(),
   };
 }
