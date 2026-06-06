@@ -61,6 +61,9 @@
 
 - [x] **價格曲線「金額看不到」排查 + 保險修法（commit `d3b48fb`）**：使用者回報欄位只剩小痕跡、看不到金額。逐項驗證確認**伺服器端全部正常**——Railway 最新部署 SUCCESS（跑最新 commit）、API 回 150 顆 parts、price-history 回 140 個 key 且與 parts.mpn 完全對得上（各 3 點）、前端抓取與渲染程式碼正確且未被並行 session 覆蓋。研判為使用者瀏覽器端 history fetch 未成功或吃到舊 JS 快取。保險修法：`PriceSparkline` 新增 `fallbackPrice` 參數，歷史未載入時改用 `part.lowestPriceUsd` 顯示單點+金額，確保金額一定可見，歷史載入後再升級為曲線。建議使用者強制重整（Cmd+Shift+R）。
 
+- [x] **真因確認 + 修復（commit `f84dc6f`）**：金額顯示但 tooltip 仍標「目前」→ 證實真歷史 fetch 在瀏覽器拿到空資料。根因：部署環境前面有邊緣快取，專案其他 fetch（如 market-reports）都加 `?t=Date.now()` 破快取，但 price-history fetch 只設了 `cache:'no-store'`（只破瀏覽器快取）漏了 `t=`，導致瀏覽器吃到邊緣快取裡早期的空回應（curl 帶 `x-cron-secret` header 走不同快取 key 故誤判正常）。修法：fetch 加 `&t=${Date.now()}`，後端 price-history 回應加 `Cache-Control: no-store`。正式站驗證回應已帶 no-store 標頭且回 3 個歷史點，使用者畫面確認曲線正常顯示。
+
+- [x] **價格漲跌幅 %（commit `5442f9e`）**：欄位內價格旁顯示**週變動**色塊（最新點 vs 前一點，漲▲紅／跌▼綠／平–灰）；hover 浮窗加「週變動 + 月變動」摘要。月變動取「最接近 30 天前」的點且跨度須 ≥21 天，否則顯示「資料不足」。基準採「資料點相對比較」而非死的日曆天數，以配合每週一點的快照節奏。新增 `pctColor/pctArrow/fmtPct/changePct` 工具函式。`npx tsc --noEmit` 通過。
 - **修改檔案**
   - `src/middleware.ts` — 新增 CRON_SECRET header 後門。
   - `.github/workflows/weekly-forecast.yml` — 新增（每週排程）。
