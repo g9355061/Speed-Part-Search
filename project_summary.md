@@ -52,6 +52,8 @@
 - [x] **正式站驗證**：帶 `x-cron-secret` 打 production `/api/demand-forecast?mode=cached` → 回 **200**（部署初期舊版回 307，新版上線後轉 200），證明後門生效、Railway 密鑰與程式碼一致。
   - 待辦（選用）：GitHub Actions 頁手動 `Run workflow` 跑一次 `mode=full` 端到端測試；否則等首個週日 03:00 ET 自動執行。
 
+- [x] **價格曲線 UI 修正（commit `9a6c538`）**：金額顏色由過淡的 `--text-3` 改為 `--text-2`+半粗體（淺綠底也清楚）；價格全平的線改畫在格子垂直中線（原本壓在最底像痕跡）；改用自製 hover 浮窗列出每點「日期：價格」，取代延遲的原生 title。正式站資料庫現況：139/154 顆料件已各有 3 個價格點（6/01、6/03、6/06），可正常繪製曲線。
+
 - **修改檔案**
   - `src/middleware.ts` — 新增 CRON_SECRET header 後門。
   - `.github/workflows/weekly-forecast.yml` — 新增（每週排程）。

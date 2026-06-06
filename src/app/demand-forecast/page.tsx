@@ -936,7 +936,7 @@ export default function DemandForecastPage() {
                     <Td align="right">{part.totalStock === null ? '-' : part.totalStock.toLocaleString()}</Td>
                     <Td align="right">{part.lowestPriceUsd === null ? '-' : `$${part.lowestPriceUsd.toFixed(4)}`}</Td>
                     <Td>
-                      <PriceSparkline points={priceHistory[part.mpn]} />
+                      <PriceSparkline points={priceHistory[part.mpn]} fallbackPrice={part.lowestPriceUsd} />
                     </Td>
                     <Td align="right">
                       {part.minLeadTimeDays === null || part.minLeadTimeDays === undefined ? (
@@ -1736,12 +1736,27 @@ function Td({ children, align = 'left', mono = false }: { children: ReactNode; a
   return <td style={{ padding: '10px 12px', textAlign: align, verticalAlign: 'top', fontFamily: mono ? 'var(--font-mono)' : undefined }}>{children}</td>;
 }
 
-function PriceSparkline({ points }: { points?: { date: string; price: number }[] }) {
+function PriceSparkline({
+  points,
+  fallbackPrice,
+}: {
+  points?: { date: string; price: number }[];
+  fallbackPrice?: number | null;
+}) {
   const [hover, setHover] = useState(false);
 
-  if (!points || points.length === 0) {
+  // 歷史尚未載入（或抓取失敗）時，至少用目前最低價顯示一個點，確保金額看得到
+  const effectivePoints =
+    points && points.length > 0
+      ? points
+      : fallbackPrice != null
+        ? [{ date: '目前', price: fallbackPrice }]
+        : [];
+
+  if (effectivePoints.length === 0) {
     return <span style={{ color: 'var(--text-3)' }}>-</span>;
   }
+  points = effectivePoints;
 
   // 趨勢顏色：最新一點 vs 前一點，漲→紅、跌→綠、平→灰
   const last = points[points.length - 1];
