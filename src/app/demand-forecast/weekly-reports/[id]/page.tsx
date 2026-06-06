@@ -208,12 +208,17 @@ function SignalBadge({ tone }: { tone: 'high' | 'medium' | 'normal' }) {
   return <span style={{ display: 'inline-flex', borderRadius: 999, padding: '3px 8px', background: bg, color, fontSize: 11, fontWeight: 800 }}>{text}</span>;
 }
 
-function HighlightLink({ item }: { item: { title: string; source: string; url: string; summary: string } }) {
+function HighlightLink({ item }: { item: { title: string; source: string; url: string; summary: string; comment?: string } }) {
   return (
-    <a href={item.url} target="_blank" rel="noreferrer" style={{ display: 'block', border: '1px solid var(--hairline)', borderRadius: 8, padding: '12px 14px', background: '#fff', color: 'inherit', textDecoration: 'none' }}>
+    <a href={item.url} target="_blank" rel="noreferrer" style={{ display: 'block', border: '1px solid var(--hairline)', borderRadius: 8, padding: '14px 16px', background: '#fff', color: 'inherit', textDecoration: 'none' }}>
       <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 5, fontWeight: 800 }}>{item.source}</div>
       <strong style={{ display: 'block', fontSize: 15, lineHeight: 1.45, color: 'var(--text)' }}>{item.title}</strong>
       {item.summary && <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.65, color: 'var(--text-2)' }}>{item.summary}</p>}
+      {item.comment && (
+        <p style={{ margin: '9px 0 0', borderLeft: '3px solid #0F766E', paddingLeft: 10, fontSize: 13, lineHeight: 1.7, color: 'var(--text)', fontWeight: 650 }}>
+          我們怎麼看：{item.comment}
+        </p>
+      )}
     </a>
   );
 }

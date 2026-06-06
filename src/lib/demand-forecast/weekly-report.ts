@@ -99,6 +99,7 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     url: string;
     publishedAt: string | null;
     summary: string;
+    comment: string;
   }>;
   recommendedActions: string[];
 }
@@ -262,6 +263,45 @@ function categoryReportNotes(categoryId: string, reports: any[]) {
     });
 }
 
+function reportCategoryIds(report: any): string[] {
+  return Array.isArray(report.categoryIds) ? report.categoryIds : [];
+}
+
+function reportCategoryNames(report: any) {
+  return reportCategoryIds(report).map((categoryId) => categoryLabel(categoryId)).join('、');
+}
+
+function reportComment(report: any) {
+  const categoryIds = reportCategoryIds(report);
+  if (categoryIds.includes('C04')) {
+    return '對公司來說，這代表用到 DRAM、DDR、Flash 的案子要先看需求是否有上修，採購也要提早問價格與交期。';
+  }
+  if (categoryIds.includes('C01')) {
+    return '對公司來說，這不是所有電容都要搶料，而是高容值、小尺寸、車規或高用量 MLCC 要先確認可供量。';
+  }
+  if (categoryIds.includes('C03')) {
+    return '對公司來說，這類功率料先不用直接判定缺料，但常用 MOSFET、Nexperia 或 onsemi 料號要先確認通路狀況。';
+  }
+  if (categoryIds.length > 0) {
+    return `對公司來說，這份報告主要影響 ${reportCategoryNames(report)}，若現有案子用到相關類別，建議先確認交期與替代料。`;
+  }
+  return '對公司來說，這份報告可作為供應風險的背景參考；若與現有 BOM 類別重疊，再進一步追料號。';
+}
+
+function reportHeadline(report: any) {
+  const categoryIds = reportCategoryIds(report);
+  if (categoryIds.includes('C04')) {
+    return '記憶體配給與成本壓力升高，先問 DDR / Flash 交期';
+  }
+  if (categoryIds.includes('C01')) {
+    return '高容值 MLCC 開始配貨，先確認可供量';
+  }
+  if (categoryIds.includes('C03')) {
+    return 'MOSFET 供應風險浮現，先查常用功率料';
+  }
+  return report.titleZh || report.title || '公開報告提醒供應狀況需留意';
+}
+
 function shortCategoryName(label: string) {
   return label.split('/')[0].trim();
 }
@@ -395,11 +435,12 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   }));
 
   const marketHighlights = marketReports.slice(0, 6).map((report: any) => ({
-    title: report.titleZh || report.title || '未命名公開報告',
+    title: reportHeadline(report),
     source: report.source || '公開報告',
     url: report.url || '#',
     publishedAt: report.publishedAt || null,
-    summary: report.summaryZh || report.evidenceTextZh || report.evidenceText || '',
+    summary: reportSummary(report),
+    comment: reportComment(report),
   }));
 
   const recommendedActions = riskLevel === 'high'
