@@ -739,34 +739,38 @@ export async function getDemandForecastSnapshot7DaysAgo(mpn: string): Promise<an
   }
 }
 
-export type PricePoint = { date: string; price: number };
+export type HistoryPoint = { date: string; price: number | null; stock: number };
 
 /**
- * 批次讀取多顆料件的歷史最低價曲線（依日期升冪）。
- * 只回傳有價格（lowest_price_usd 非 null）的快照點，每顆料最多取最近 limit 個點。
- * 回傳結構：{ [mpn]: PricePoint[] }
+ * 批次讀取多顆料件的歷史快照（最低價 + 總庫存，依日期升冪）。
+ * 回傳所有快照點（price 可能為 null；stock 一律有值），每顆料最多取最近 limit 個點。
+ * 回傳結構：{ [mpn]: HistoryPoint[] }
  */
 export async function getDemandForecastPriceHistory(
   mpns: string[],
   limit = 26
-): Promise<Record<string, PricePoint[]>> {
+): Promise<Record<string, HistoryPoint[]>> {
   await ensureDb();
-  const result: Record<string, PricePoint[]> = {};
+  const result: Record<string, HistoryPoint[]> = {};
   if (mpns.length === 0) return result;
 
   if (isPostgres) {
     try {
       const res = await getPool().query(
         `
-          SELECT mpn, date, lowest_price_usd
+          SELECT mpn, date, lowest_price_usd, total_stock
           FROM demand_forecast_snapshots
-          WHERE mpn = ANY($1) AND lowest_price_usd IS NOT NULL
+          WHERE mpn = ANY($1)
           ORDER BY mpn ASC, date ASC
         `,
         [mpns]
       );
       for (const row of res.rows) {
-        (result[row.mpn] ??= []).push({ date: row.date, price: Number(row.lowest_price_usd) });
+        (result[row.mpn] ??= []).push({
+          date: row.date,
+          price: row.lowest_price_usd == null ? null : Number(row.lowest_price_usd),
+          stock: Number(row.total_stock),
+        });
       }
     } catch (err) {
       console.error("[DB-SNAPSHOT] Failed to get postgres price history:", err);
@@ -777,15 +781,19 @@ export async function getDemandForecastPriceHistory(
       const rows = getSqlite()
         .prepare(
           `
-            SELECT mpn, date, lowest_price_usd
+            SELECT mpn, date, lowest_price_usd, total_stock
             FROM demand_forecast_snapshots
-            WHERE mpn IN (${placeholders}) AND lowest_price_usd IS NOT NULL
+            WHERE mpn IN (${placeholders})
             ORDER BY mpn ASC, date ASC
           `
         )
         .all(...mpns) as any[];
       for (const row of rows) {
-        (result[row.mpn] ??= []).push({ date: row.date, price: Number(row.lowest_price_usd) });
+        (result[row.mpn] ??= []).push({
+          date: row.date,
+          price: row.lowest_price_usd == null ? null : Number(row.lowest_price_usd),
+          stock: Number(row.total_stock),
+        });
       }
     } catch (err) {
       console.error("[DB-SNAPSHOT] Failed to get sqlite price history:", err);

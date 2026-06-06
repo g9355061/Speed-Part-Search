@@ -356,7 +356,7 @@ export default function DemandForecastPage() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [health, setHealth] = useState({ live: 0, total: 1 });
-  const [priceHistory, setPriceHistory] = useState<Record<string, { date: string; price: number }[]>>({});
+  const [history, setHistory] = useState<Record<string, { date: string; price: number | null; stock: number }[]>>({});
 
   const [showThresholdsModal, setShowThresholdsModal] = useState(false);
   const [thresholds, setThresholds] = useState<Record<string, { minStock: number; lowStock: number }>>(CATEGORY_THRESHOLDS);
@@ -465,7 +465,7 @@ export default function DemandForecastPage() {
     if (mpns.length === 0) return;
     fetch(`/api/demand-forecast/price-history?mpns=${encodeURIComponent(mpns.join(','))}&t=${Date.now()}`, { cache: 'no-store' })
       .then((r) => r.json())
-      .then((json) => setPriceHistory(json.history ?? {}))
+      .then((json) => setHistory(json.history ?? {}))
       .catch((err) => console.error('Failed to load price history:', err));
   }, [partsKey]);
 
@@ -914,9 +914,8 @@ export default function DemandForecastPage() {
                   <Th>廠商</Th>
                   <Th>基本資料</Th>
                   <Th align="right">供應商</Th>
-                  <Th align="right">總庫存</Th>
-                  <Th align="right">最低價</Th>
-                  <Th>價格曲線</Th>
+                  <Th align="right">總庫存 / 趨勢</Th>
+                  <Th align="right">最低價 / 趨勢</Th>
                   <Th align="right">補貨交期 (最快/慢)</Th>
                   <Th>生命週期</Th>
                   <Th>總結</Th>
@@ -933,10 +932,28 @@ export default function DemandForecastPage() {
                       <div style={{ color: 'var(--text-3)', marginTop: 2 }}>{part.subCategory}</div>
                     </Td>
                     <Td align="right">{part.supplierCount ?? '-'}</Td>
-                    <Td align="right">{part.totalStock === null ? '-' : part.totalStock.toLocaleString()}</Td>
-                    <Td align="right">{part.lowestPriceUsd === null ? '-' : `$${part.lowestPriceUsd.toFixed(4)}`}</Td>
-                    <Td>
-                      <PriceSparkline points={priceHistory[part.mpn]} fallbackPrice={part.lowestPriceUsd} />
+                    <Td align="right">
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                        <span>{part.totalStock === null ? '-' : part.totalStock.toLocaleString()}</span>
+                        <MetricSparkline
+                          points={history[part.mpn]?.map((p) => ({ date: p.date, value: p.stock }))}
+                          fallbackValue={part.totalStock}
+                          format={(v) => Math.round(v).toLocaleString()}
+                          title="歷史總庫存"
+                          invert
+                        />
+                      </div>
+                    </Td>
+                    <Td align="right">
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                        <span>{part.lowestPriceUsd === null ? '-' : `$${part.lowestPriceUsd.toFixed(4)}`}</span>
+                        <MetricSparkline
+                          points={history[part.mpn]?.filter((p) => p.price != null).map((p) => ({ date: p.date, value: p.price as number }))}
+                          fallbackValue={part.lowestPriceUsd}
+                          format={(v) => `$${v.toFixed(4)}`}
+                          title="歷史最低價"
+                        />
+                      </div>
                     </Td>
                     <Td align="right">
                       {part.minLeadTimeDays === null || part.minLeadTimeDays === undefined ? (
@@ -1736,10 +1753,6 @@ function Td({ children, align = 'left', mono = false }: { children: ReactNode; a
   return <td style={{ padding: '10px 12px', textAlign: align, verticalAlign: 'top', fontFamily: mono ? 'var(--font-mono)' : undefined }}>{children}</td>;
 }
 
-// 漲跌幅工具：漲→紅、跌→綠、平→灰，與曲線同色系
-function pctColor(p: number) {
-  return p > 0 ? '#F04438' : p < 0 ? '#12B76A' : '#667085';
-}
 function pctArrow(p: number) {
   return p > 0 ? '▲' : p < 0 ? '▼' : '–';
 }
@@ -1749,13 +1762,26 @@ function fmtPct(p: number) {
 function changePct(from: number, to: number): number | null {
   return from === 0 ? null : ((to - from) / from) * 100;
 }
+// 漲跌幅顏色：價格漲=紅(壞)/跌=綠(好)；庫存則相反(invert)，漲=綠(好)/跌=紅(缺料風險)
+function trendColorFor(delta: number, invert: boolean) {
+  if (delta === 0) return '#667085';
+  const isBad = invert ? delta < 0 : delta > 0;
+  return isBad ? '#F04438' : '#12B76A';
+}
 
-function PriceSparkline({
+// 通用迷你折線圖：價格與庫存共用。invert=true 時漲跌顏色語意反轉（庫存用）。
+function MetricSparkline({
   points,
-  fallbackPrice,
+  fallbackValue,
+  format,
+  title,
+  invert = false,
 }: {
-  points?: { date: string; price: number }[];
-  fallbackPrice?: number | null;
+  points?: { date: string; value: number }[];
+  fallbackValue?: number | null;
+  format: (v: number) => string;
+  title: string;
+  invert?: boolean;
 }) {
   const [hover, setHover] = useState(false);
 
@@ -1766,11 +1792,11 @@ function PriceSparkline({
   let monthInsufficient = false;
   if (realPoints && realPoints.length >= 2) {
     const lastP = realPoints[realPoints.length - 1];
-    weekPct = changePct(realPoints[realPoints.length - 2].price, lastP.price);
+    weekPct = changePct(realPoints[realPoints.length - 2].value, lastP.value);
     // 月變動：找最接近「30 天前」的點，且跨度須 >= 21 天才算數
     const lastMs = new Date(lastP.date).getTime();
     const targetMs = lastMs - 30 * 86400000;
-    let best: { date: string; price: number } | null = null;
+    let best: { date: string; value: number } | null = null;
     let bestDiff = Infinity;
     for (let i = 0; i < realPoints.length - 1; i++) {
       const diff = Math.abs(new Date(realPoints[i].date).getTime() - targetMs);
@@ -1780,32 +1806,33 @@ function PriceSparkline({
       }
     }
     if (best && (lastMs - new Date(best.date).getTime()) / 86400000 >= 21) {
-      monthPct = changePct(best.price, lastP.price);
+      monthPct = changePct(best.value, lastP.value);
     } else {
       monthInsufficient = true;
     }
   }
 
-  // 歷史尚未載入（或抓取失敗）時，至少用目前最低價顯示一個點，確保金額看得到
+  // 歷史尚未載入（或抓取失敗）時，至少用目前數值顯示一個點
   const effectivePoints =
     points && points.length > 0
       ? points
-      : fallbackPrice != null
-        ? [{ date: '目前', price: fallbackPrice }]
+      : fallbackValue != null
+        ? [{ date: '目前', value: fallbackValue }]
         : [];
 
   if (effectivePoints.length === 0) {
     return <span style={{ color: 'var(--text-3)' }}>-</span>;
   }
-  points = effectivePoints;
+  const pts = effectivePoints;
 
-  // 趨勢顏色：最新一點 vs 前一點，漲→紅、跌→綠、平→灰
-  const last = points[points.length - 1];
-  const prev = points.length >= 2 ? points[points.length - 2] : null;
-  const trendColor =
-    !prev || last.price === prev.price ? '#667085' : last.price > prev.price ? '#F04438' : '#12B76A';
+  const last = pts[pts.length - 1];
+  const prev = pts.length >= 2 ? pts[pts.length - 2] : null;
+  const trendColor = !prev ? '#667085' : trendColorFor(last.value - prev.value, invert);
 
-  // 滑鼠移上去顯示每個點的日期與價格（自製浮窗，不依賴瀏覽器原生 title 延遲）
+  const pctSpan = (p: number) => (
+    <span style={{ color: trendColorFor(p, invert), fontWeight: 700 }}>{pctArrow(p)} {fmtPct(p)}</span>
+  );
+
   const tooltip = hover ? (
     <div
       style={{
@@ -1824,43 +1851,28 @@ function PriceSparkline({
         boxShadow: '0 6px 18px rgba(15, 23, 42, 0.28)',
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: 2, color: '#CBD5E1' }}>歷史最低價</div>
-      {points.map((p) => (
+      <div style={{ fontWeight: 700, marginBottom: 2, color: '#CBD5E1' }}>{title}</div>
+      {pts.map((p) => (
         <div key={p.date}>
-          {p.date}：<span style={{ fontWeight: 700 }}>${p.price.toFixed(4)}</span>
+          {p.date}：<span style={{ fontWeight: 700 }}>{format(p.value)}</span>
         </div>
       ))}
       {realPoints && realPoints.length >= 2 && (
         <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.15)' }}>
-          <div>
-            週變動：
-            {weekPct === null ? (
-              <span style={{ color: '#94A3B8' }}>—</span>
-            ) : (
-              <span style={{ color: pctColor(weekPct), fontWeight: 700 }}>{pctArrow(weekPct)} {fmtPct(weekPct)}</span>
-            )}
-          </div>
+          <div>週變動：{weekPct === null ? <span style={{ color: '#94A3B8' }}>—</span> : pctSpan(weekPct)}</div>
           <div>
             月變動：
-            {monthPct !== null ? (
-              <span style={{ color: pctColor(monthPct), fontWeight: 700 }}>{pctArrow(monthPct)} {fmtPct(monthPct)}</span>
-            ) : (
-              <span style={{ color: '#94A3B8' }}>{monthInsufficient ? '資料不足' : '—'}</span>
-            )}
+            {monthPct !== null ? pctSpan(monthPct) : <span style={{ color: '#94A3B8' }}>{monthInsufficient ? '資料不足' : '—'}</span>}
           </div>
         </div>
       )}
     </div>
   ) : null;
 
-  const priceLabel = (
-    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>${last.price.toFixed(4)}</span>
-  );
-
   // 欄位內顯示週變動小色塊（僅在有真實歷史時）
   const weekChip =
     weekPct === null ? null : (
-      <span style={{ fontSize: 11, fontWeight: 700, color: pctColor(weekPct), whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: trendColorFor(weekPct, invert), whiteSpace: 'nowrap' }}>
         {pctArrow(weekPct)} {fmtPct(weekPct)}
       </span>
     );
@@ -1873,13 +1885,12 @@ function PriceSparkline({
     cursor: 'pointer',
   };
 
-  if (points.length === 1) {
+  if (pts.length === 1) {
     return (
       <span style={wrapStyle} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-        <svg width={48} height={24} style={{ display: 'block' }}>
-          <circle cx={24} cy={12} r={3} fill={trendColor} />
+        <svg width={48} height={20} style={{ display: 'block' }}>
+          <circle cx={24} cy={10} r={3} fill={trendColor} />
         </svg>
-        {priceLabel}
         {weekChip}
         {tooltip}
       </span>
@@ -1887,17 +1898,16 @@ function PriceSparkline({
   }
 
   const W = 72;
-  const H = 24;
+  const H = 20;
   const PAD = 4;
-  const prices = points.map((p) => p.price);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
+  const values = pts.map((p) => p.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
   const range = max - min;
-  const stepX = (W - PAD * 2) / (points.length - 1);
-  const coords = points.map((p, i) => {
+  const stepX = (W - PAD * 2) / (pts.length - 1);
+  const coords = pts.map((p, i) => {
     const x = PAD + i * stepX;
-    // 價格全平（range 0）時畫在垂直中線；否則依比例分布
-    const y = range === 0 ? H / 2 : PAD + (H - PAD * 2) * (1 - (p.price - min) / range);
+    const y = range === 0 ? H / 2 : PAD + (H - PAD * 2) * (1 - (p.value - min) / range);
     return [x, y] as const;
   });
   const polyline = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
@@ -1909,7 +1919,6 @@ function PriceSparkline({
         <polyline points={polyline} fill="none" stroke={trendColor} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
         <circle cx={lastX} cy={lastY} r={2.5} fill={trendColor} />
       </svg>
-      {priceLabel}
       {weekChip}
       {tooltip}
     </span>
