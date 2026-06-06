@@ -62,47 +62,48 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
           <Metric label="公開報告" value={report.metrics.marketReports} />
         </section>
 
-        <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(320px, 0.75fr)', gap: 16, alignItems: 'start' }}>
-          <Panel title="本週重點摘要">
-            <div style={{ display: 'grid', gap: 12 }}>
-              {report.openingNotes.map((note) => (
-                <p key={note} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.75, color: 'var(--text-2)' }}>{note}</p>
-              ))}
-              {report.executiveItems.length === 0 ? (
-                <EmptyText>本週沒有明顯外部訊號，維持例行監控即可。</EmptyText>
-              ) : (
-                report.executiveItems.map((item) => (
-                  <div key={item.category} style={{ border: '1px solid var(--hairline)', borderRadius: 8, padding: '13px 14px', background: '#fff' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 800 }}>{item.category}</div>
-                    </div>
-                    <h3 style={{ margin: '5px 0 8px', fontSize: 16, lineHeight: 1.35, color: 'var(--text)' }}>{item.headline}</h3>
-                    <p style={{ margin: '0 0 8px', fontSize: 13, lineHeight: 1.65, color: 'var(--text-2)' }}>{item.whyItMatters}</p>
-                    <div style={{ borderLeft: '3px solid #0F766E', paddingLeft: 10, marginTop: 9, fontSize: 13, lineHeight: 1.6, color: 'var(--text)', fontWeight: 650 }}>
-                      建議：{item.suggestedMove}
+        <div style={{ display: 'grid', gap: 18 }}>
+          <ArticleSection eyebrow="Editor's Note" title="本週先讀這段">
+            {report.openingNotes.map((note) => (
+              <p key={note} style={{ margin: '0 0 10px', fontSize: 16, lineHeight: 1.85, color: 'var(--text-2)' }}>{note}</p>
+            ))}
+          </ArticleSection>
+
+          <ArticleSection eyebrow="Lead Stories" title="本週三個重點">
+            {report.executiveItems.length === 0 ? (
+              <EmptyText>本週沒有明顯外部訊號，維持例行監控即可。</EmptyText>
+            ) : (
+              <div style={{ display: 'grid', gap: 18 }}>
+                {report.executiveItems.map((item, index) => (
+                  <article key={item.category} style={{ borderTop: index === 0 ? 'none' : '1px solid var(--hairline)', paddingTop: index === 0 ? 0 : 18 }}>
+                    <div style={{ fontSize: 12, color: '#0F766E', fontWeight: 900, letterSpacing: '0.04em', marginBottom: 6 }}>{item.category}</div>
+                    <h3 style={{ margin: '0 0 10px', fontSize: 22, lineHeight: 1.35, color: 'var(--text)' }}>{item.headline}</h3>
+                    <p style={{ margin: '0 0 10px', fontSize: 15.5, lineHeight: 1.8, color: 'var(--text-2)' }}>{item.whyItMatters}</p>
+                    <div style={{ borderLeft: '4px solid #0F766E', background: '#F0FDF4', padding: '10px 12px', borderRadius: 6, fontSize: 15, lineHeight: 1.75, color: 'var(--text)', fontWeight: 700 }}>
+                      下一步：{item.suggestedMove}
                     </div>
                     {item.evidence.length > 0 && (
-                      <div style={{ display: 'grid', gap: 4, marginTop: 10, fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-3)' }}>
-                        {item.evidence.map((evidence) => <span key={evidence}>佐證：{evidence}</span>)}
+                      <div style={{ display: 'grid', gap: 5, marginTop: 10, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-3)' }}>
+                        {item.evidence.map((evidence) => <span key={evidence}>來源：{evidence}</span>)}
                       </div>
                     )}
-                  </div>
-                ))
-              )}
-            </div>
-          </Panel>
+                  </article>
+                ))}
+              </div>
+            )}
+          </ArticleSection>
 
-          <Panel title="建議動作">
+          <ArticleSection eyebrow="Actions" title="本週建議動作">
             <div style={{ display: 'grid', gap: 10 }}>
               {report.recommendedActions.map((action) => (
-                <div key={action} style={{ border: '1px solid var(--hairline)', borderRadius: 8, padding: '10px 12px', background: 'var(--bg)', fontSize: 13, lineHeight: 1.6, color: 'var(--text-2)' }}>
+                <div key={action} style={{ border: '1px solid #D1FAE5', borderRadius: 8, padding: '12px 14px', background: '#F0FDF4', fontSize: 15, lineHeight: 1.7, color: 'var(--text-2)', fontWeight: 650 }}>
                   {action}
                 </div>
               ))}
             </div>
-          </Panel>
+          </ArticleSection>
 
-          <Panel title="值得放進觀察清單的類別">
+          <ArticleSection eyebrow="Watchlist" title="值得放進觀察清單的類別">
             {report.categorySignals.length === 0 ? (
               <EmptyText>本週外部訊號相對安靜，暫時沒有需要特別拉出來看的類別。</EmptyText>
             ) : (
@@ -123,9 +124,9 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                 ))}
               </div>
             )}
-          </Panel>
+          </ArticleSection>
 
-          <Panel title="新聞重點">
+          <ArticleSection eyebrow="Sources" title="新聞重點">
             {report.newsHighlights.length === 0 ? (
               <EmptyText>本週沒有明顯缺料/交期新聞。</EmptyText>
             ) : (
@@ -135,11 +136,11 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                 ))}
               </div>
             )}
-          </Panel>
+          </ArticleSection>
 
-          <Panel title="PCN / EOL 重點">
+          <ArticleSection eyebrow="Sources" title="PCN 或 EOL 重點">
             {report.lifecycleHighlights.length === 0 ? (
-              <EmptyText>本週沒有明顯 PCN/EOL 訊號。</EmptyText>
+              <EmptyText>本週沒有明顯 PCN 或 EOL 公告。</EmptyText>
             ) : (
               <div style={{ display: 'grid', gap: 8 }}>
                 {report.lifecycleHighlights.map((item) => (
@@ -147,9 +148,9 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                 ))}
               </div>
             )}
-          </Panel>
+          </ArticleSection>
 
-          <Panel title="公開報告重點">
+          <ArticleSection eyebrow="Sources" title="公開報告重點">
             {report.marketHighlights.length === 0 ? (
               <EmptyText>本週尚未取得可解析公開報告。</EmptyText>
             ) : (
@@ -159,8 +160,8 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                 ))}
               </div>
             )}
-          </Panel>
-        </section>
+          </ArticleSection>
+        </div>
       </main>
     </div>
   );
@@ -176,10 +177,11 @@ function Metric({ label, value, tone }: { label: string; value: number; tone?: '
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+function ArticleSection({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
   return (
-    <section style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', padding: 16 }}>
-      <h2 style={{ margin: '0 0 12px', fontSize: 15, color: 'var(--text)', fontWeight: 800 }}>{title}</h2>
+    <section style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', padding: '22px 24px' }}>
+      <div style={{ color: '#0F766E', fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{eyebrow}</div>
+      <h2 style={{ margin: '0 0 14px', fontSize: 22, lineHeight: 1.35, color: 'var(--text)', fontWeight: 900 }}>{title}</h2>
       {children}
     </section>
   );
@@ -198,10 +200,10 @@ function SignalBadge({ tone }: { tone: 'high' | 'medium' | 'normal' }) {
 
 function HighlightLink({ item }: { item: { title: string; source: string; url: string; summary: string } }) {
   return (
-    <a href={item.url} target="_blank" rel="noreferrer" style={{ display: 'block', border: '1px solid var(--hairline)', borderRadius: 8, padding: '10px 12px', background: '#fff', color: 'inherit', textDecoration: 'none' }}>
-      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 5 }}>{item.source}</div>
-      <strong style={{ display: 'block', fontSize: 13, lineHeight: 1.45, color: 'var(--text)' }}>{item.title}</strong>
-      {item.summary && <p style={{ margin: '6px 0 0', fontSize: 12, lineHeight: 1.6, color: 'var(--text-2)' }}>{item.summary}</p>}
+    <a href={item.url} target="_blank" rel="noreferrer" style={{ display: 'block', border: '1px solid var(--hairline)', borderRadius: 8, padding: '12px 14px', background: '#fff', color: 'inherit', textDecoration: 'none' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 5, fontWeight: 800 }}>{item.source}</div>
+      <strong style={{ display: 'block', fontSize: 15, lineHeight: 1.45, color: 'var(--text)' }}>{item.title}</strong>
+      {item.summary && <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.65, color: 'var(--text-2)' }}>{item.summary}</p>}
     </a>
   );
 }
