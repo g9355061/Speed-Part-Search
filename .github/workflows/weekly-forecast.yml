@@ -21,31 +21,39 @@ jobs:
             exit 1
           fi
 
-          echo "Triggering mode=full at $BASE_URL ..."
-          # mode=full 可能跑數分鐘（Mouser 限流）。即使連線逾時，伺服器端仍會跑完並寫入快照，
-          # 故 curl 逾時（exit 28）視為可接受（資料照樣進）；只有真正的錯誤碼才讓 job 失敗。
-          set +e
-          HTTP_CODE=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
-            --max-time 1500 \
-            -H "x-cron-secret: $CRON_SECRET" \
-            "$BASE_URL/api/demand-forecast?mode=full")
-          CURL_EXIT=$?
-          set -e
-
-          echo "curl exit=$CURL_EXIT http_code=$HTTP_CODE"
-          head -c 500 /tmp/resp.json 2>/dev/null || true
-          echo ""
-
-          if [ "$CURL_EXIT" -eq 28 ]; then
-            echo "::warning::curl 逾時（連線層），但伺服器端通常已跑完並寫入快照，視為成功。"
-            exit 0
-          fi
-          if [ "$CURL_EXIT" -ne 0 ]; then
-            echo "::error::curl 失敗 exit=$CURL_EXIT"
+          # mode=full 一次查不完 150 顆：Railway 邊緣會在約 50 秒切斷（502），且 Mouser 限流讓全程需數分鐘。
+          # 對策：迴圈呼叫多次。伺服器漸進寫入快照 + 12 小時快取跳過，已查過的會被略過，故可接力完成。
+          # 當所有料件都已是最新快取時，mode=full 會「快速回 200」(數秒) → 視為完成。
+          # 先用一次 mode=cached 驗證 CRON_SECRET 是否正確（避免整輪都因 307/401 失敗）。
+          AUTH_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -H "x-cron-secret: $CRON_SECRET" \
+            "$BASE_URL/api/demand-forecast?mode=cached")
+          if [ "$AUTH_CODE" != "200" ]; then
+            echo "::error::驗證失敗 HTTP $AUTH_CODE（307/401 代表 CRON_SECRET 與 Railway 不符）"
             exit 1
           fi
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::非預期 HTTP 狀態碼：$HTTP_CODE（401/307 代表 CRON_SECRET 不符或被導向登入）"
-            exit 1
+
+          DONE=0
+          for i in $(seq 1 8); do
+            echo "--- 第 $i 次 mode=full ---"
+            set +e
+            OUT=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" --max-time 120 \
+              -H "x-cron-secret: $CRON_SECRET" \
+              "$BASE_URL/api/demand-forecast?mode=full&t=$RANDOM$i")
+            set -e
+            CODE=$(echo "$OUT" | awk '{print $1}')
+            SECS=$(echo "$OUT" | awk '{print $2}')
+            echo "http=$CODE time=${SECS}s"
+            # 快速回 200（< 20 秒）代表全部已是最新快取 → 完成
+            if [ "$CODE" = "200" ] && awk "BEGIN{exit !($SECS < 20)}"; then
+              DONE=1
+              echo "全部料件已更新完成。"
+              break
+            fi
+            sleep 5
+          done
+
+          if [ "$DONE" = "1" ]; then
+            echo "Weekly forecast refresh OK."
+          else
+            echo "::warning::迴圈結束仍未偵測到「快速 200」；伺服器端通常仍在背景完成，資料會陸續寫入。"
           fi
-          echo "Weekly forecast refresh OK."

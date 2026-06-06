@@ -1,8 +1,18 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-06-06（物料預測週報改為不針對 150 顆料件的口語化外部訊號摘要；保留價格曲線 Phase II / Phase I）
+> 最後更新：2026-06-06（修正 Mouser HK/VN 供應商與庫存重複計算；替換 10 顆 EOL 基準料件為 API 驗證過的現役料件；保留價格/庫存趨勢圖與週報）
 
 ---
+
+### 2026-06-06 — Mouser 重複計算修正 + 10 顆 EOL 料件替換（commit `4c41776`）
+
+- [x] **Mouser HK/VN 重複計算修正**：啟用的 3 個 adapter（DigiKey、Mouser HK、Mouser VN）中，Mouser HK 與 VN 是同一家公司（同一全球庫存），原本 `supplierCount`（`new Set(supplier)`）與 `totalStock`（直接加總）把 Mouser 算成兩家、庫存加兩次（總庫存灌水近一倍）。修法：新增 `supplierCompany()` 將供應商正規化為公司（Mouser HK/VN/Mouser→Mouser），`supplierCount` = 公司數、`totalStock` = 各公司「該公司各地區最大庫存」再加總。`supplierDrop` 門檻由 `>=3` 調整為 `>=2`（合併後最多 2 家）。修改 `src/app/api/demand-forecast/route.ts`。
+  - 注意：此修正只影響「之後查詢/快照」；既有快取的 totalStock 仍為舊（灌水）值，需跑一次 `mode=full` 重新查詢才會更新（庫存趨勢圖會出現一次向下台階修正）。
+
+- [x] **10 顆 EOL/Obsolete 基準料件汰換**：由正式站 `/api/demand-forecast` 找出 lifecycle 為 EOL/Obsolete/停產的 10 顆，逐一挑代表性現役料件並以 `/api/search` 實測「查得到 + Active + 有庫存」後才寫入 `src/lib/demand-forecast/benchmark.ts`（避免重蹈過去 EMPTY_RESULT 覆轍）：
+  - C03 IRLML2502TRPBF→**AO3400A**；C04 AS4C256M16D3B→**W25Q128JVSIQ**(NOR Flash)；C08 PESD5V0S1UB→**USBLC6-2SC6**、PESD5V0L1UA→**ESD5Z5.0T1G**、PESD5V0X1BCSF→**SP0503BAHTG**；C09 LIS3DHHTR→**LIS2DH12TR**；C10 TJA1051T/3→**SN65HVD230DR**；C14 VSC8541XMV-03→**LAN8742A-CZ-TR**；C15 T412-400→**R-78E3.3-0.5**、V7805-1000R→**R-78E5.0-0.5**。
+  - 全部 `lifecycle=Active`、皆有庫存。`npx tsc --noEmit` 通過。
+  - 待辦：部署後跑一次 `mode=full`（GitHub Actions Run workflow 或頁面「全量查詢」）讓新料件被查詢、且 Mouser 去重後的庫存生效。
 
 ### 2026-06-06 — 週報改為口語化外部訊號摘要
 
@@ -1421,3 +1431,9 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
   - **無情報** (`no_signal`) 調整為：**正常(無缺料情報)**
   - **有情報** (`info`) 調整為：**一份報告顯示缺料**
   - **多來源佐證** (`multi_source`) 調整為：**兩份報告以上顯示缺料**
+
+## 14. 物料預測週報可讀性更新
+
+- 公開報告重點不再只顯示來源與 C 類別代碼，改成依內容產生白話標題，例如「高容值 MLCC 開始配貨，先確認可供量」。
+- 每張公開報告卡片至少顯示兩段內容：第一段說明報告提到什麼，第二段用「我們怎麼看」說明對採購、工程或 PM 的實際影響。
+- 週報資料產生邏輯新增類別化解讀：MLCC、MOSFET、記憶體會各自對應到不同的追蹤建議，避免只寫「有幾份公開報告」但沒有行動意義。
