@@ -115,6 +115,16 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                       <SignalBadge tone={item.tone} />
                     </div>
                     <p style={{ margin: '7px 0 0', fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-2)' }}>{item.plainText}</p>
+                    {item.reportNotes.length > 0 && (
+                      <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: '#F8FAFC', border: '1px solid var(--hairline)' }}>
+                        <div style={{ fontSize: 11, fontWeight: 900, color: '#475467', marginBottom: 6 }}>公開報告寫了什麼</div>
+                        <div style={{ display: 'grid', gap: 5 }}>
+                          {item.reportNotes.map((note) => (
+                            <p key={note} style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)' }}>{note}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, fontSize: 11, color: 'var(--text-3)' }}>
                       <span>新聞 {item.newsCount}</span>
                       <span>PCN 或 EOL {item.lifecycleCount}</span>

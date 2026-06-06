@@ -77,6 +77,7 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     marketReportCount: number;
     tone: WeeklyRiskLevel;
     plainText: string;
+    reportNotes: string[];
   }>;
   newsHighlights: Array<{
     title: string;
@@ -237,6 +238,30 @@ function describeCategorySignal(newsCount: number, lifecycleCount: number, marke
   return `這類本週有 ${pieces[0]}，先不用緊張，但值得保持追蹤。`;
 }
 
+function reportSummary(report: any) {
+  const summary = report.summaryZh || report.evidenceTextZh || report.evidenceText || report.titleZh || report.title || '';
+  const cleaned = String(summary).replace(/\s+/g, ' ').trim();
+  const text = cleaned.toLowerCase();
+  if (text.includes('dram') && text.includes('產能受限')) {
+    return '報告提到 DRAM 相關供應有產能受限或配給風險，可能影響記憶體交期與 BOM 成本。';
+  }
+  if (text.includes('mosfet') && text.includes('產能受限')) {
+    return '報告提到 MOSFET 相關供應有產能受限或配給風險，建議先確認常用功率料的通路供應。';
+  }
+  return cleaned;
+}
+
+function categoryReportNotes(categoryId: string, reports: any[]) {
+  return reports
+    .filter((report) => report.categoryIds?.includes(categoryId))
+    .slice(0, 3)
+    .map((report) => {
+      const source = report.source || '公開報告';
+      const summary = reportSummary(report);
+      return summary ? `${source}：${summary}` : `${source}：提到此類別供應狀況需留意`;
+    });
+}
+
 function shortCategoryName(label: string) {
   return label.split('/')[0].trim();
 }
@@ -284,7 +309,8 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const categorySignals = DEMAND_CATEGORIES.map((cat) => {
     const newsCount = shortageNews.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
     const lifecycleCount = lifecycleNews.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
-    const marketReportCount = marketReports.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
+    const reportNotes = categoryReportNotes(cat.categoryId, marketReports);
+    const marketReportCount = reportNotes.length;
     const signalKinds = [newsCount > 0, lifecycleCount > 0, marketReportCount > 0].filter(Boolean).length;
     const tone: WeeklyRiskLevel = signalKinds >= 2 ? 'high' : signalKinds === 1 ? 'medium' : 'normal';
     return {
@@ -295,6 +321,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       marketReportCount,
       tone,
       plainText: describeCategorySignal(newsCount, lifecycleCount, marketReportCount),
+      reportNotes,
     };
   }).filter((item) => item.newsCount > 0 || item.lifecycleCount > 0 || item.marketReportCount > 0)
     .sort((a, b) => {
@@ -346,7 +373,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       ...marketReports
         .filter((item: any) => item.categoryIds?.includes(signal.categoryId))
         .slice(0, 1)
-        .map((item: any) => `${item.source || '公開報告'}：${item.summaryZh || item.evidenceTextZh || item.titleZh || item.title || '公開報告提到此類別'}`),
+        .map((item: any) => `${item.source || '公開報告'}：${reportSummary(item) || '公開報告提到此類別'}`),
     ].slice(0, 3);
     return buildExecutiveItem(signal, evidence);
   });
