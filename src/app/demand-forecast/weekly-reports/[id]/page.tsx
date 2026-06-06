@@ -63,13 +63,13 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
         </section>
 
         <div style={{ display: 'grid', gap: 18 }}>
-          <ArticleSection eyebrow="Editor's Note" title="本週先讀這段">
+          <ArticleSection eyebrow="編輯室觀察" title="本週先讀這段">
             {report.openingNotes.map((note) => (
               <p key={note} style={{ margin: '0 0 10px', fontSize: 16, lineHeight: 1.85, color: 'var(--text-2)' }}>{note}</p>
             ))}
           </ArticleSection>
 
-          <ArticleSection eyebrow="Lead Stories" title="本週三個重點">
+          <ArticleSection eyebrow="封面故事" title="供應鏈正在出現哪些變化">
             {report.executiveItems.length === 0 ? (
               <EmptyText>本週沒有明顯外部訊號，維持例行監控即可。</EmptyText>
             ) : (
@@ -93,7 +93,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             )}
           </ArticleSection>
 
-          <ArticleSection eyebrow="Actions" title="本週建議動作">
+          <ArticleSection eyebrow="企業該怎麼做" title="給採購、工程與 PM 的提醒">
             <div style={{ display: 'grid', gap: 10 }}>
               {report.recommendedActions.map((action) => (
                 <div key={action} style={{ border: '1px solid #D1FAE5', borderRadius: 8, padding: '12px 14px', background: '#F0FDF4', fontSize: 15, lineHeight: 1.7, color: 'var(--text-2)', fontWeight: 650 }}>
@@ -103,7 +103,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             </div>
           </ArticleSection>
 
-          <ArticleSection eyebrow="Watchlist" title="值得放進觀察清單的類別">
+          <ArticleSection eyebrow="產業觀察" title="本週值得留意的料件類別">
             {report.categorySignals.length === 0 ? (
               <EmptyText>本週外部訊號相對安靜，暫時沒有需要特別拉出來看的類別。</EmptyText>
             ) : (
@@ -126,7 +126,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             )}
           </ArticleSection>
 
-          <ArticleSection eyebrow="Sources" title="新聞重點">
+          <ArticleSection eyebrow="資料來源" title="新聞重點">
             {report.newsHighlights.length === 0 ? (
               <EmptyText>本週沒有明顯缺料/交期新聞。</EmptyText>
             ) : (
@@ -138,7 +138,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             )}
           </ArticleSection>
 
-          <ArticleSection eyebrow="Sources" title="PCN 或 EOL 重點">
+          <ArticleSection eyebrow="資料來源" title="PCN 或 EOL 重點">
             {report.lifecycleHighlights.length === 0 ? (
               <EmptyText>本週沒有明顯 PCN 或 EOL 公告。</EmptyText>
             ) : (
@@ -150,7 +150,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             )}
           </ArticleSection>
 
-          <ArticleSection eyebrow="Sources" title="公開報告重點">
+          <ArticleSection eyebrow="資料來源" title="公開報告重點">
             {report.marketHighlights.length === 0 ? (
               <EmptyText>本週尚未取得可解析公開報告。</EmptyText>
             ) : (
