@@ -1,0 +1,51 @@
+name: Weekly Demand Forecast Refresh
+
+# 每週日凌晨 03:00 ET 跨期查詢 150 顆料件（mode=full），累積每週一筆價格曲線資料點。
+# GitHub Actions cron 使用 UTC：07:00 UTC = 03:00 EDT（夏令）/ 02:00 EST（冬令，會差 1 小時，屬正常 DST 偏移）。
+on:
+  schedule:
+    - cron: '0 7 * * 0'
+  workflow_dispatch: {} # 允許手動觸發測試
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger full forecast refresh
+        env:
+          BASE_URL: ${{ secrets.FORECAST_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::缺少 repo secrets：FORECAST_BASE_URL 或 CRON_SECRET"
+            exit 1
+          fi
+
+          echo "Triggering mode=full at $BASE_URL ..."
+          # mode=full 可能跑數分鐘（Mouser 限流）。即使連線逾時，伺服器端仍會跑完並寫入快照，
+          # 故 curl 逾時（exit 28）視為可接受（資料照樣進）；只有真正的錯誤碼才讓 job 失敗。
+          set +e
+          HTTP_CODE=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            --max-time 1500 \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$BASE_URL/api/demand-forecast?mode=full")
+          CURL_EXIT=$?
+          set -e
+
+          echo "curl exit=$CURL_EXIT http_code=$HTTP_CODE"
+          head -c 500 /tmp/resp.json 2>/dev/null || true
+          echo ""
+
+          if [ "$CURL_EXIT" -eq 28 ]; then
+            echo "::warning::curl 逾時（連線層），但伺服器端通常已跑完並寫入快照，視為成功。"
+            exit 0
+          fi
+          if [ "$CURL_EXIT" -ne 0 ]; then
+            echo "::error::curl 失敗 exit=$CURL_EXIT"
+            exit 1
+          fi
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::非預期 HTTP 狀態碼：$HTTP_CODE（401/307 代表 CRON_SECRET 不符或被導向登入）"
+            exit 1
+          fi
+          echo "Weekly forecast refresh OK."

@@ -20,6 +20,12 @@ export async function middleware(req: NextRequest) {
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
   if (PUBLIC_API_PREFIXES.some(p => pathname.startsWith(p))) return NextResponse.next();
 
+  // 排程器後門：帶正確 CRON_SECRET header 的請求放行（供每週自動查詢用，無 session）
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && pathname.startsWith('/api/') && req.headers.get('x-cron-secret') === cronSecret) {
+    return NextResponse.next();
+  }
+
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
 
   if (!token) {

@@ -739,6 +739,68 @@ export async function getDemandForecastSnapshot7DaysAgo(mpn: string): Promise<an
   }
 }
 
+export type PricePoint = { date: string; price: number };
+
+/**
+ * 批次讀取多顆料件的歷史最低價曲線（依日期升冪）。
+ * 只回傳有價格（lowest_price_usd 非 null）的快照點，每顆料最多取最近 limit 個點。
+ * 回傳結構：{ [mpn]: PricePoint[] }
+ */
+export async function getDemandForecastPriceHistory(
+  mpns: string[],
+  limit = 26
+): Promise<Record<string, PricePoint[]>> {
+  await ensureDb();
+  const result: Record<string, PricePoint[]> = {};
+  if (mpns.length === 0) return result;
+
+  if (isPostgres) {
+    try {
+      const res = await getPool().query(
+        `
+          SELECT mpn, date, lowest_price_usd
+          FROM demand_forecast_snapshots
+          WHERE mpn = ANY($1) AND lowest_price_usd IS NOT NULL
+          ORDER BY mpn ASC, date ASC
+        `,
+        [mpns]
+      );
+      for (const row of res.rows) {
+        (result[row.mpn] ??= []).push({ date: row.date, price: Number(row.lowest_price_usd) });
+      }
+    } catch (err) {
+      console.error("[DB-SNAPSHOT] Failed to get postgres price history:", err);
+    }
+  } else {
+    try {
+      const placeholders = mpns.map(() => '?').join(',');
+      const rows = getSqlite()
+        .prepare(
+          `
+            SELECT mpn, date, lowest_price_usd
+            FROM demand_forecast_snapshots
+            WHERE mpn IN (${placeholders}) AND lowest_price_usd IS NOT NULL
+            ORDER BY mpn ASC, date ASC
+          `
+        )
+        .all(...mpns) as any[];
+      for (const row of rows) {
+        (result[row.mpn] ??= []).push({ date: row.date, price: Number(row.lowest_price_usd) });
+      }
+    } catch (err) {
+      console.error("[DB-SNAPSHOT] Failed to get sqlite price history:", err);
+    }
+  }
+
+  // 每顆料只保留最近 limit 個點
+  for (const mpn of Object.keys(result)) {
+    if (result[mpn].length > limit) {
+      result[mpn] = result[mpn].slice(-limit);
+    }
+  }
+  return result;
+}
+
 export async function getCustomThresholds(): Promise<Record<string, { minStock: number; lowStock: number }> | null> {
   await ensureDb();
   if (isPostgres) {

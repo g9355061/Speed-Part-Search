@@ -247,6 +247,13 @@ interface ForecastResponse {
   parts: ForecastPart[];
 }
 
+interface WeeklyReportLink {
+  id: string;
+  title: string;
+  href: string;
+  date: string;
+}
+
 type PanelTone = 'shortage' | 'lifecycle' | 'api';
 
 const PANEL_TONES: Record<PanelTone, { bg: string; border: string; accent: string; title: string; soft: string; shadow: string }> = {
@@ -349,6 +356,7 @@ export default function DemandForecastPage() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [health, setHealth] = useState({ live: 0, total: 1 });
+  const [priceHistory, setPriceHistory] = useState<Record<string, { date: string; price: number }[]>>({});
 
   const [showThresholdsModal, setShowThresholdsModal] = useState(false);
   const [thresholds, setThresholds] = useState<Record<string, { minStock: number; lowStock: number }>>(CATEGORY_THRESHOLDS);
@@ -361,6 +369,7 @@ export default function DemandForecastPage() {
   const translatedMarketReports = useClientTranslatedReports(marketReports);
   const [marketSourceResults, setMarketSourceResults] = useState<any[]>([]);
   const [loadingMarketReports, setLoadingMarketReports] = useState(false);
+  const [weeklyReports, setWeeklyReports] = useState<WeeklyReportLink[]>([]);
 
   const fetchMarketReports = () => {
     setLoadingMarketReports(true);
@@ -438,11 +447,27 @@ export default function DemandForecastPage() {
     // 載入市場報告 (產業情報佐證)
     fetchMarketReports();
 
+    fetch('/api/demand-forecast/weekly-reports?t=' + Date.now(), { cache: 'no-store' })
+      .then((resp) => resp.json())
+      .then((json) => setWeeklyReports(Array.isArray(json.reports) ? json.reports : []))
+      .catch((err) => console.error('Failed to load weekly reports:', err));
+
     fetch('/api/health')
       .then((resp) => resp.json())
       .then((json) => setHealth({ live: json.liveSourceCount ?? 0, total: json.totalSourceCount ?? 1 }))
       .catch(() => setHealth({ live: 0, total: 1 }));
   }, []);
+
+  // 載入歷史最低價曲線（依目前料件清單批次抓取）
+  const partsKey = (data?.parts ?? []).map((p) => p.mpn).join(',');
+  useEffect(() => {
+    const mpns = (data?.parts ?? []).map((p) => p.mpn).filter(Boolean);
+    if (mpns.length === 0) return;
+    fetch(`/api/demand-forecast/price-history?mpns=${encodeURIComponent(mpns.join(','))}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((json) => setPriceHistory(json.history ?? {}))
+      .catch((err) => console.error('Failed to load price history:', err));
+  }, [partsKey]);
 
   // 情報佐證信號 (非風險判定)
   type MarketSignalLevel =
@@ -621,6 +646,8 @@ export default function DemandForecastPage() {
             </button>
           </div>
         </section>
+
+        <WeeklyReportsPanel reports={weeklyReports} />
 
         {error && (
           <div style={{ border: '1px solid #F5C2C7', background: '#FFF5F5', color: '#B42318', borderRadius: 8, padding: '10px 12px', marginBottom: 16, fontSize: 13 }}>
@@ -879,7 +906,7 @@ export default function DemandForecastPage() {
           </div>
 
           <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1180 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1300 }}>
               <thead>
                 <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
                   <Th>類別</Th>
@@ -889,6 +916,7 @@ export default function DemandForecastPage() {
                   <Th align="right">供應商</Th>
                   <Th align="right">總庫存</Th>
                   <Th align="right">最低價</Th>
+                  <Th>價格曲線</Th>
                   <Th align="right">補貨交期 (最快/慢)</Th>
                   <Th>生命週期</Th>
                   <Th>總結</Th>
@@ -907,6 +935,9 @@ export default function DemandForecastPage() {
                     <Td align="right">{part.supplierCount ?? '-'}</Td>
                     <Td align="right">{part.totalStock === null ? '-' : part.totalStock.toLocaleString()}</Td>
                     <Td align="right">{part.lowestPriceUsd === null ? '-' : `$${part.lowestPriceUsd.toFixed(4)}`}</Td>
+                    <Td>
+                      <PriceSparkline points={priceHistory[part.mpn]} />
+                    </Td>
                     <Td align="right">
                       {part.minLeadTimeDays === null || part.minLeadTimeDays === undefined ? (
                         part.maxLeadTimeDays === null ? '-' : `${Math.round(part.maxLeadTimeDays / 7)} 週`
@@ -1705,6 +1736,58 @@ function Td({ children, align = 'left', mono = false }: { children: ReactNode; a
   return <td style={{ padding: '10px 12px', textAlign: align, verticalAlign: 'top', fontFamily: mono ? 'var(--font-mono)' : undefined }}>{children}</td>;
 }
 
+function PriceSparkline({ points }: { points?: { date: string; price: number }[] }) {
+  if (!points || points.length === 0) {
+    return <span style={{ color: 'var(--text-3)' }}>-</span>;
+  }
+
+  // 趨勢顏色：最新一點 vs 前一點，漲→紅、跌→綠、平→灰
+  const last = points[points.length - 1];
+  const prev = points.length >= 2 ? points[points.length - 2] : null;
+  const trendColor =
+    !prev || last.price === prev.price ? '#667085' : last.price > prev.price ? '#F04438' : '#12B76A';
+
+  // 滑鼠懸停顯示每個點的日期與價格
+  const tip = points.map((p) => `${p.date}: $${p.price.toFixed(4)}`).join('\n');
+
+  if (points.length === 1) {
+    return (
+      <span title={tip} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+        <svg width={64} height={24} style={{ display: 'block' }}>
+          <circle cx={32} cy={12} r={3} fill={trendColor} />
+        </svg>
+        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>${last.price.toFixed(4)}</span>
+      </span>
+    );
+  }
+
+  const W = 72;
+  const H = 24;
+  const PAD = 3;
+  const prices = points.map((p) => p.price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  const stepX = (W - PAD * 2) / (points.length - 1);
+  const coords = points.map((p, i) => {
+    const x = PAD + i * stepX;
+    const y = PAD + (H - PAD * 2) * (1 - (p.price - min) / range);
+    return [x, y] as const;
+  });
+  const polyline = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const [lastX, lastY] = coords[coords.length - 1];
+
+  return (
+    <span title={tip} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+      <svg width={W} height={H} style={{ display: 'block' }}>
+        <polyline points={polyline} fill="none" stroke={trendColor} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+        <circle cx={lastX} cy={lastY} r={2.5} fill={trendColor} />
+      </svg>
+      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>${last.price.toFixed(4)}</span>
+    </span>
+  );
+}
+
 function RiskCellBadge({ level, highLabel = '有缺料風險', medLabel = '中風險' }: { level: 'high' | 'medium' | 'none'; highLabel?: string; medLabel?: string }) {
   const config = {
     high: { bg: '#FFF1F0', color: '#B42318', dot: '#F04438', border: '#FECDCA', text: highLabel },
@@ -1782,6 +1865,70 @@ const SOURCE_STATUS_LABELS: Record<string, { text: string; color: string }> = {
   no_report_found: { text: '未找到報告', color: '#475467' },
   timeout: { text: '逾時', color: '#B54708' },
 };
+
+function WeeklyReportsPanel({ reports }: { reports: WeeklyReportLink[] }) {
+  const toneStyle = {
+    bg: '#F8FAFC',
+    border: '#E2E8F0',
+    accent: '#0F766E',
+    title: '#134E4A',
+    soft: '#CCFBF1',
+  };
+
+  return (
+    <section
+      style={{
+        gridColumn: '1 / -1',
+        border: `1px solid ${toneStyle.border}`,
+        borderLeft: `4px solid ${toneStyle.accent}`,
+        borderRadius: 8,
+        background: toneStyle.bg,
+        padding: 16,
+        marginBottom: 18,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: toneStyle.title }}>物料預測週報</h2>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>先用新聞、PCN/EOL 與市場情報做口語摘要；確認內容後再接自動寄信。</div>
+        </div>
+      </div>
+
+      <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8, background: '#fff' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
+          <thead>
+            <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
+              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, width: '50%' }}>標題</th>
+              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800 }}>連結</th>
+              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, width: 150 }}>日期</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.length === 0 ? (
+              <tr>
+                <td colSpan={3} style={{ padding: 14, color: 'var(--text-3)', borderTop: '1px solid var(--hairline)' }}>
+                  週報連結產生中，請稍後重新整理。
+                </td>
+              </tr>
+            ) : (
+              reports.map((report) => (
+                <tr key={report.id} style={{ borderTop: '1px solid var(--hairline)' }}>
+                  <td style={{ padding: '10px 12px', color: 'var(--text)', fontWeight: 700 }}>{report.title}</td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <a href={report.href} style={{ color: toneStyle.accent, textDecoration: 'none', fontWeight: 800 }}>
+                      開啟週報 ↗
+                    </a>
+                  </td>
+                  <td style={{ padding: '10px 12px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{report.date}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
 function MarketReportsCategoryPanel({
   id,

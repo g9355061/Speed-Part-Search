@@ -1,6 +1,117 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-05-31（移除閱讀器彈窗，優化直連 PDF 網址解析，實作完整句子的單字邊界語意摘錄，整合 Gemini 2.5 Flash 智能摘要與每月 $5 預算自動超額防護機制，並已成功完成 Railway 外部網站環境變數設定與生產環境部署）
+> 最後更新：2026-06-06（物料預測週報改為不針對 150 顆料件的口語化外部訊號摘要；保留價格曲線 Phase II / Phase I）
+
+---
+
+### 2026-06-06 — 週報改為口語化外部訊號摘要
+
+- [x] **二次修正：週報上方改成真正可行動的重點摘要**
+  - 移除「抓到幾則新聞 / 幾筆市場情報」這種對讀者沒有決策價值的描述。
+  - 改成每個重點類別直接呈現：標題、為什麼重要、建議動作、佐證來源。
+  - 新增類別關鍵字過濾，避免 PMIC 這類弱訊號或錯分新聞被放進主摘要，也避免記憶體摘要混入 MLCC 佐證。
+  - 過濾 45 天以前的 RSS / PCN/EOL 舊新聞，避免週報混入過期內容。
+
+- [x] **週報不再針對 150 顆料件明細**
+  - 移除週報中的高 / 中風險料件表與料號層級摘要。
+  - 週報改以 RSS 缺料新聞、PCN/EOL 生命週期訊號、公開市場情報作為主要內容來源。
+
+- [x] **改成更適合 email 的口語描述**
+  - 首段改為「本週先看這裡」的口語摘要，避免像系統報表。
+  - 類別觀察改成「值得放進觀察清單的類別」，用中文類別名稱與自然語句說明。
+  - 建議動作改成採購、工程、PM / 業務可直接理解的口語行動。
+
+- [x] **週報頁面版面調整**
+  - 指標改為觀察類別、缺料新聞、PCN/EOL、市場情報。
+  - 新增新聞重點、PCN/EOL 重點、市場情報摘要區塊。
+  - 首頁週報置頂說明改為「先用新聞、PCN/EOL 與市場情報做口語摘要」。
+
+- **驗證**
+  - 已執行 `npm run build`，Next.js 編譯、型別檢查與路由收集皆通過。
+
+---
+
+### 2026-06-06 — Phase II：每週自動 full 查詢排程（GitHub Actions）
+
+- [x] **目標**：每週日凌晨 03:00 ET 自動跑一次 `mode=full`（查 150 顆料件），讓價格曲線每週累積一個資料點。
+
+- [x] **middleware cron 後門**（`src/middleware.ts`）
+  - 新增：當請求帶 `x-cron-secret` header 且等於環境變數 `CRON_SECRET`、且路徑為 `/api/`，直接放行（繞過 NextAuth session 檢查）。一般使用者登入流程完全不受影響。
+  - 本機驗證：無 header → 307 導 `/login`；密鑰錯 → 307；密鑰正確 → 200。✅
+
+- [x] **GitHub Actions 排程**（`.github/workflows/weekly-forecast.yml`）
+  - `cron: '0 7 * * 0'`（UTC）= **週日 03:00 EDT（夏令）/ 02:00 EST（冬令）**，DST 會差 1 小時屬正常。另開 `workflow_dispatch` 可手動觸發測試。
+  - 流程：curl `${FORECAST_BASE_URL}/api/demand-forecast?mode=full`，帶 `x-cron-secret: ${CRON_SECRET}`，`--max-time 1500`。
+  - 容錯：`mode=full` 數分鐘，伺服器端漸進寫快照，即使 curl 逾時（exit 28）也視為成功（資料照樣進）；非 200（如 307/401 = 密鑰不符）才讓 job 失敗。
+
+- [x] **待人工設定（部署層，非程式碼）**
+  1. **Railway** 環境變數新增 `CRON_SECRET`（建議值例：`16e7a0781d32e959ef48496ddcee97af7e83d270a6029033`）。
+  2. **GitHub repo → Settings → Secrets and variables → Actions** 新增兩個 secret：
+     - `CRON_SECRET`（與 Railway 同值）
+     - `FORECAST_BASE_URL` = `https://speed-part-search-production.up.railway.app`
+  3. push 後可在 GitHub Actions 頁手動 `Run workflow` 測一次。
+
+- **修改檔案**
+  - `src/middleware.ts` — 新增 CRON_SECRET header 後門。
+  - `.github/workflows/weekly-forecast.yml` — 新增（每週排程）。
+
+---
+
+### 2026-06-06 — 新增物料預測週報預覽連結與詳情頁
+
+- [x] **新增「物料預測週報」預覽入口**
+  - 在缺料預測頁的市場情報區塊附近新增週報列表卡片。
+  - 列表僅顯示使用者要求的三個欄位：週報標題、開啟連結、日期。
+  - 目前先以預覽連結形式提供，不自動發信，方便確認內容品質後再接續 email 自動化。
+
+- [x] **新增週報資料產生器與 API**
+  - 新增 `src/lib/demand-forecast/weekly-report.ts`，彙整現有缺料預測快取、新聞快取、PCN/EOL 生命週期訊號與市場情報快取。
+  - 新增 `/api/demand-forecast/weekly-reports`，回傳週報列表資料。
+  - 第一版產生「本週物料預測週報」一筆預覽連結，後續可擴充為歷史週報、多筆儲存與自動寄送。
+
+- [x] **新增週報詳情頁**
+  - 新增 `/demand-forecast/weekly-reports/[id]` 詳情頁。
+  - 內容包含整體風險摘要、核心指標、高 / 中風險料件、類別訊號、市場情報摘要與建議行動。
+
+- **驗證**
+  - 已執行 `npm run build`，Next.js 編譯、型別檢查與路由收集皆通過。
+
+- **修改檔案**：
+  - `src/app/demand-forecast/page.tsx` — 新增週報列表入口與 API 載入邏輯。
+  - `src/app/api/demand-forecast/weekly-reports/route.ts` — 新增週報列表 API。
+  - `src/app/demand-forecast/weekly-reports/[id]/page.tsx` — 新增週報詳情頁。
+  - `src/lib/demand-forecast/weekly-report.ts` — 新增週報資料彙整與內容產生器。
+  - `project_summary.md` — 記錄本次功能新增。
+
+---
+
+### 2026-06-06 — 缺料預測表格新增「價格曲線」欄（Phase I）
+
+- [x] **需求背景**
+  - 在缺料預測料件表格的「最低價」右邊新增「價格曲線」欄，把每次查詢的最低價標成趨勢曲線。
+  - Phase I：讀取現有歷史快照繪製曲線；Phase II（使用者自行設定）：以每週自動查詢累積資料點。
+  - 設計決定（已與使用者確認）：**沿用每日一點的既有快照表**（顆粒度），曲線放在**最低價右邊**，畫法用**純 SVG sparkline（零相依套件）**。
+
+- [x] **資料基礎（沿用既有快照表，未改 schema）**
+  - 既有 `demand_forecast_snapshots(mpn, date, lowest_price_usd, ...)` 主鍵 `(mpn, date)`，每次查詢已自動寫入當日最低價（同日多次查詢會覆蓋為最後一筆），完美對應「每週一查 = 每週一點」。
+
+- [x] **後端：批次讀取歷史價格曲線**
+  - `src/lib/db.ts` 新增 `getDemandForecastPriceHistory(mpns, limit=26)`：批次回傳 `{ [mpn]: {date, price}[] }`，依日期升冪、過濾無價格點、每顆料只留最近 26 點。Postgres 用 `mpn = ANY($1)`、SQLite 用 `IN (...)`。新增 `PricePoint` type。
+  - 新增 API 路由 `src/app/api/demand-forecast/price-history/route.ts`：`GET ?mpns=A,B,C` → `{ history }`。獨立端點，**完全不動**主預測路由與快取邏輯，風險最低。
+
+- [x] **前端：SVG sparkline 與整合**
+  - `src/app/demand-forecast/page.tsx` 新增 `PriceSparkline` 元件：純 SVG 折線，依「最新 vs 前一點」自動上色（漲🔴 #F04438／跌🟢 #12B76A／平⚪ #667085），滑鼠懸停 title 顯示每點「日期 + 價格」；1 筆顯示圓點＋現價、0 筆顯示 `-`，並在尾端標現價。
+  - 新增 `priceHistory` state；以 `partsKey`（料件 MPN 串）為依賴的 `useEffect` 在料件載入後批次抓取一次。
+  - 表頭於「最低價」後新增 `<Th>價格曲線</Th>`，對應 `<Td>` 渲染 `<PriceSparkline points={priceHistory[part.mpn]} />`；表格 `minWidth` 1180 → 1300。
+
+- [x] **驗證**
+  - `npx tsc --noEmit` 通過。
+  - dev server（5280）編譯無錯誤；新 API 與頁面皆正確落在登入驗證後（未登入回 307 導向 `/login`，與其他端點一致）。本機 SQLite 快照點少，曲線多顯示 `-`，待每日／每週累積後成形。
+
+- **修改檔案**
+  - `src/lib/db.ts` — 新增 `getDemandForecastPriceHistory` 與 `PricePoint` type。
+  - `src/app/api/demand-forecast/price-history/route.ts` — 新增（批次價格曲線端點）。
+  - `src/app/demand-forecast/page.tsx` — 新增 `PriceSparkline`、`priceHistory` state 與抓取、表格欄位與 `minWidth`。
 
 ---
 
@@ -1295,4 +1406,3 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
   - **無情報** (`no_signal`) 調整為：**正常(無缺料情報)**
   - **有情報** (`info`) 調整為：**一份報告顯示缺料**
   - **多來源佐證** (`multi_source`) 調整為：**兩份報告以上顯示缺料**
-
