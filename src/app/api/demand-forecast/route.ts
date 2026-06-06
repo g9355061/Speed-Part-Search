@@ -424,6 +424,14 @@ function bestResult(results: PartResult[]): PartResult | null {
   })[0] ?? null;
 }
 
+// 將供應商名稱正規化為「公司」：Mouser HK / Mouser VN / Mouser → Mouser，避免重複計算
+function supplierCompany(supplier: string): string {
+  const s = supplier.toLowerCase();
+  if (s.includes('mouser')) return 'Mouser';
+  if (s.includes('digikey') || s.includes('digi-key')) return 'DigiKey';
+  return supplier;
+}
+
 function summarizePart(
   part: BenchmarkPart,
   results: PartResult[],
@@ -432,8 +440,16 @@ function summarizePart(
   customThresholds?: Record<string, { minStock: number; lowStock: number }>
 ) {
   const best = bestResult(results);
-  const totalStock = results.reduce((sum, item) => sum + Math.max(0, item.quantityAvailable || 0), 0);
-  const supplierCount = new Set(results.map((item) => item.supplier)).size;
+  // Mouser HK / VN 是同一家公司（同一全球庫存），合併計算避免供應商數與庫存重複計算。
+  // 每家公司取「該公司各地區結果中的最大庫存」，再加總各公司。
+  const stockByCompany = new Map<string, number>();
+  for (const item of results) {
+    const company = supplierCompany(item.supplier);
+    const qty = Math.max(0, item.quantityAvailable || 0);
+    stockByCompany.set(company, Math.max(stockByCompany.get(company) ?? 0, qty));
+  }
+  const totalStock = Array.from(stockByCompany.values()).reduce((sum, q) => sum + q, 0);
+  const supplierCount = stockByCompany.size;
   const leadTimes = results
     .map((item) => item.leadTimeDays)
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
@@ -479,7 +495,8 @@ function summarizePart(
   // Trend analysis calculations
   const stockDrop50 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.5;
   const stockDrop80 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.8;
-  const supplierDrop = snapshot7DaysAgo && snapshot7DaysAgo.supplierCount >= 3 && supplierCount === 1;
+  // 供應商數最多 2 家（DigiKey + Mouser，已合併 HK/VN），故門檻由 >=3 調整為 >=2
+  const supplierDrop = snapshot7DaysAgo && snapshot7DaysAgo.supplierCount >= 2 && supplierCount === 1;
   const priceRise30 = snapshot7DaysAgo && snapshot7DaysAgo.lowestPriceUsd !== null && lowestPriceUsd !== null && lowestPriceUsd > 0 && ((lowestPriceUsd - snapshot7DaysAgo.lowestPriceUsd) / snapshot7DaysAgo.lowestPriceUsd) >= 0.3;
   const leadTimeIncrease56 = snapshot7DaysAgo && snapshot7DaysAgo.minLeadTimeDays !== null && minLeadTimeDays !== null && (minLeadTimeDays - snapshot7DaysAgo.minLeadTimeDays) >= 56;
 

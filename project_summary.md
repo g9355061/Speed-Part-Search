@@ -64,6 +64,8 @@
 - [x] **真因確認 + 修復（commit `f84dc6f`）**：金額顯示但 tooltip 仍標「目前」→ 證實真歷史 fetch 在瀏覽器拿到空資料。根因：部署環境前面有邊緣快取，專案其他 fetch（如 market-reports）都加 `?t=Date.now()` 破快取，但 price-history fetch 只設了 `cache:'no-store'`（只破瀏覽器快取）漏了 `t=`，導致瀏覽器吃到邊緣快取裡早期的空回應（curl 帶 `x-cron-secret` header 走不同快取 key 故誤判正常）。修法：fetch 加 `&t=${Date.now()}`，後端 price-history 回應加 `Cache-Control: no-store`。正式站驗證回應已帶 no-store 標頭且回 3 個歷史點，使用者畫面確認曲線正常顯示。
 
 - [x] **價格漲跌幅 %（commit `5442f9e`）**：欄位內價格旁顯示**週變動**色塊（最新點 vs 前一點，漲▲紅／跌▼綠／平–灰）；hover 浮窗加「週變動 + 月變動」摘要。月變動取「最接近 30 天前」的點且跨度須 ≥21 天，否則顯示「資料不足」。基準採「資料點相對比較」而非死的日曆天數，以配合每週一點的快照節奏。新增 `pctColor/pctArrow/fmtPct/changePct` 工具函式。`npx tsc --noEmit` 通過。
+
+- [x] **圖表移到數值下方 + 新增庫存趨勢圖（commit `c56febd`）**：依使用者要求，圖表改堆疊在數值下面，並移除獨立的「價格曲線」欄。`PriceSparkline` 通用化為 `MetricSparkline`（價格與庫存共用），新增 `invert` 參數讓庫存漲跌顏色語意反轉（庫存漲=綠(好)／跌=紅(缺料風險)，與價格相反）。`getDemandForecastPriceHistory` 與 price-history 端點改回傳 `total_stock`（型別 `PricePoint`→`HistoryPoint`，含 `price:number|null` 與 `stock:number`）。前端「總庫存」「最低價」兩欄各自堆疊「數值 + sparkline + 週變動 + hover 月變動」。正式站驗證 API 已回傳 stock 欄位（如 2,973,845）。`npx tsc --noEmit` 通過。
 - **修改檔案**
   - `src/middleware.ts` — 新增 CRON_SECRET header 後門。
   - `.github/workflows/weekly-forecast.yml` — 新增（每週排程）。
