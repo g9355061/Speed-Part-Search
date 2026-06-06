@@ -44,12 +44,13 @@
   - 流程：curl `${FORECAST_BASE_URL}/api/demand-forecast?mode=full`，帶 `x-cron-secret: ${CRON_SECRET}`，`--max-time 1500`。
   - 容錯：`mode=full` 數分鐘，伺服器端漸進寫快照，即使 curl 逾時（exit 28）也視為成功（資料照樣進）；非 200（如 307/401 = 密鑰不符）才讓 job 失敗。
 
-- [x] **待人工設定（部署層，非程式碼）**
-  1. **Railway** 環境變數新增 `CRON_SECRET`（建議值例：`16e7a0781d32e959ef48496ddcee97af7e83d270a6029033`）。
-  2. **GitHub repo → Settings → Secrets and variables → Actions** 新增兩個 secret：
-     - `CRON_SECRET`（與 Railway 同值）
-     - `FORECAST_BASE_URL` = `https://speed-part-search-production.up.railway.app`
-  3. push 後可在 GitHub Actions 頁手動 `Run workflow` 測一次。
+- [x] **部署層設定（已完成）**
+  1. ✅ **Railway** 已設 `CRON_SECRET`（設在 `Speed-Part-Search` service，非 Postgres）。
+  2. ✅ **GitHub Actions secrets** 已設 `CRON_SECRET`（同值）與 `FORECAST_BASE_URL`。
+  3. ✅ 已 commit+push 至 main（`aac3383`），Railway 自動重新部署完成。
+
+- [x] **正式站驗證**：帶 `x-cron-secret` 打 production `/api/demand-forecast?mode=cached` → 回 **200**（部署初期舊版回 307，新版上線後轉 200），證明後門生效、Railway 密鑰與程式碼一致。
+  - 待辦（選用）：GitHub Actions 頁手動 `Run workflow` 跑一次 `mode=full` 端到端測試；否則等首個週日 03:00 ET 自動執行。
 
 - **修改檔案**
   - `src/middleware.ts` — 新增 CRON_SECRET header 後門。

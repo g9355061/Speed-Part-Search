@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useSession } from 'next-auth/react';
 import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
@@ -1737,6 +1737,8 @@ function Td({ children, align = 'left', mono = false }: { children: ReactNode; a
 }
 
 function PriceSparkline({ points }: { points?: { date: string; price: number }[] }) {
+  const [hover, setHover] = useState(false);
+
   if (!points || points.length === 0) {
     return <span style={{ color: 'var(--text-3)' }}>-</span>;
   }
@@ -1747,43 +1749,83 @@ function PriceSparkline({ points }: { points?: { date: string; price: number }[]
   const trendColor =
     !prev || last.price === prev.price ? '#667085' : last.price > prev.price ? '#F04438' : '#12B76A';
 
-  // 滑鼠懸停顯示每個點的日期與價格
-  const tip = points.map((p) => `${p.date}: $${p.price.toFixed(4)}`).join('\n');
+  // 滑鼠移上去顯示每個點的日期與價格（自製浮窗，不依賴瀏覽器原生 title 延遲）
+  const tooltip = hover ? (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: '100%',
+        left: 0,
+        marginBottom: 6,
+        zIndex: 50,
+        background: '#0F172A',
+        color: '#fff',
+        padding: '6px 9px',
+        borderRadius: 6,
+        fontSize: 11,
+        lineHeight: 1.5,
+        whiteSpace: 'nowrap',
+        boxShadow: '0 6px 18px rgba(15, 23, 42, 0.28)',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 2, color: '#CBD5E1' }}>歷史最低價</div>
+      {points.map((p) => (
+        <div key={p.date}>
+          {p.date}：<span style={{ fontWeight: 700 }}>${p.price.toFixed(4)}</span>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  const priceLabel = (
+    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>${last.price.toFixed(4)}</span>
+  );
+
+  const wrapStyle: CSSProperties = {
+    position: 'relative',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    cursor: 'pointer',
+  };
 
   if (points.length === 1) {
     return (
-      <span title={tip} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
-        <svg width={64} height={24} style={{ display: 'block' }}>
-          <circle cx={32} cy={12} r={3} fill={trendColor} />
+      <span style={wrapStyle} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+        <svg width={48} height={24} style={{ display: 'block' }}>
+          <circle cx={24} cy={12} r={3} fill={trendColor} />
         </svg>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>${last.price.toFixed(4)}</span>
+        {priceLabel}
+        {tooltip}
       </span>
     );
   }
 
   const W = 72;
   const H = 24;
-  const PAD = 3;
+  const PAD = 4;
   const prices = points.map((p) => p.price);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
-  const range = max - min || 1;
+  const range = max - min;
   const stepX = (W - PAD * 2) / (points.length - 1);
   const coords = points.map((p, i) => {
     const x = PAD + i * stepX;
-    const y = PAD + (H - PAD * 2) * (1 - (p.price - min) / range);
+    // 價格全平（range 0）時畫在垂直中線；否則依比例分布
+    const y = range === 0 ? H / 2 : PAD + (H - PAD * 2) * (1 - (p.price - min) / range);
     return [x, y] as const;
   });
   const polyline = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   const [lastX, lastY] = coords[coords.length - 1];
 
   return (
-    <span title={tip} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+    <span style={wrapStyle} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <svg width={W} height={H} style={{ display: 'block' }}>
         <polyline points={polyline} fill="none" stroke={trendColor} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
         <circle cx={lastX} cy={lastY} r={2.5} fill={trendColor} />
       </svg>
-      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>${last.price.toFixed(4)}</span>
+      {priceLabel}
+      {tooltip}
     </span>
   );
 }
