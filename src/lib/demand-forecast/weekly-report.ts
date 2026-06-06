@@ -242,6 +242,34 @@ function describeCategorySignal(newsCount: number, lifecycleCount: number, marke
   return `這類本週有 ${pieces[0]}，先不用緊張，但值得保持追蹤。`;
 }
 
+function shortCategoryName(label: string) {
+  return label.split('/')[0].trim();
+}
+
+function buildWeeklyTitle(dateText: string, signals: Array<{ categoryId: string; category: string; tone: WeeklyRiskLevel; newsCount: number; lifecycleCount: number; marketReportCount: number }>) {
+  const primary = signals[0];
+  const secondary = signals[1];
+  if (!primary) return `物料預測週報｜${dateText}｜本週外部訊號平穩`;
+
+  if (primary.categoryId === 'C04' && secondary?.categoryId === 'C01') {
+    return `物料預測週報｜${dateText}｜記憶體與 MLCC 供應訊號升溫`;
+  }
+  if (primary.categoryId === 'C01') {
+    return `物料預測週報｜${dateText}｜高容值 MLCC 交期需先確認`;
+  }
+  if (primary.categoryId === 'C04') {
+    return `物料預測週報｜${dateText}｜記憶體成本與交期壓力升高`;
+  }
+  if (primary.categoryId === 'C03') {
+    return `物料預測週報｜${dateText}｜功率元件列入供應觀察`;
+  }
+
+  const categoryText = secondary && primary.tone === 'high'
+    ? `${shortCategoryName(primary.category)}與${shortCategoryName(secondary.category)}`
+    : shortCategoryName(primary.category);
+  return `物料預測週報｜${dateText}｜${categoryText}需列入觀察`;
+}
+
 export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const now = new Date();
   const start = weekStart(now);
@@ -300,8 +328,8 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     ? focusCategories.map((categoryId) => categoryLabel(categoryId)).join('、')
     : '目前無明顯高風險類別';
 
-  const riskText = riskLevel === 'high' ? '高' : riskLevel === 'medium' ? '中' : '低';
-  const title = `物料預測週報｜${formatDate(start)}｜本週先看這幾類`;
+  const dateText = formatDate(start);
+  const title = buildWeeklyTitle(dateText, focusSignalList);
 
   const summary = riskLevel === 'high'
     ? `本週有幾個類別同時被新聞、PCN/EOL 或市場情報提到，不是立刻代表缺料，但已經值得先拉高注意。重點先看：${focusText}。`
@@ -373,7 +401,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     id,
     title,
     href: `/demand-forecast/weekly-reports/${id}`,
-    date: formatDate(start),
+    date: dateText,
     generatedAt: now.toISOString(),
     riskLevel,
     summary,

@@ -1736,6 +1736,20 @@ function Td({ children, align = 'left', mono = false }: { children: ReactNode; a
   return <td style={{ padding: '10px 12px', textAlign: align, verticalAlign: 'top', fontFamily: mono ? 'var(--font-mono)' : undefined }}>{children}</td>;
 }
 
+// 漲跌幅工具：漲→紅、跌→綠、平→灰，與曲線同色系
+function pctColor(p: number) {
+  return p > 0 ? '#F04438' : p < 0 ? '#12B76A' : '#667085';
+}
+function pctArrow(p: number) {
+  return p > 0 ? '▲' : p < 0 ? '▼' : '–';
+}
+function fmtPct(p: number) {
+  return `${p > 0 ? '+' : ''}${p.toFixed(1)}%`;
+}
+function changePct(from: number, to: number): number | null {
+  return from === 0 ? null : ((to - from) / from) * 100;
+}
+
 function PriceSparkline({
   points,
   fallbackPrice,
@@ -1744,6 +1758,33 @@ function PriceSparkline({
   fallbackPrice?: number | null;
 }) {
   const [hover, setHover] = useState(false);
+
+  // 以真實歷史點計算漲跌幅（fallback 單點不計算）
+  const realPoints = points && points.length > 0 ? points : null;
+  let weekPct: number | null = null;
+  let monthPct: number | null = null;
+  let monthInsufficient = false;
+  if (realPoints && realPoints.length >= 2) {
+    const lastP = realPoints[realPoints.length - 1];
+    weekPct = changePct(realPoints[realPoints.length - 2].price, lastP.price);
+    // 月變動：找最接近「30 天前」的點，且跨度須 >= 21 天才算數
+    const lastMs = new Date(lastP.date).getTime();
+    const targetMs = lastMs - 30 * 86400000;
+    let best: { date: string; price: number } | null = null;
+    let bestDiff = Infinity;
+    for (let i = 0; i < realPoints.length - 1; i++) {
+      const diff = Math.abs(new Date(realPoints[i].date).getTime() - targetMs);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = realPoints[i];
+      }
+    }
+    if (best && (lastMs - new Date(best.date).getTime()) / 86400000 >= 21) {
+      monthPct = changePct(best.price, lastP.price);
+    } else {
+      monthInsufficient = true;
+    }
+  }
 
   // 歷史尚未載入（或抓取失敗）時，至少用目前最低價顯示一個點，確保金額看得到
   const effectivePoints =
@@ -1789,12 +1830,40 @@ function PriceSparkline({
           {p.date}：<span style={{ fontWeight: 700 }}>${p.price.toFixed(4)}</span>
         </div>
       ))}
+      {realPoints && realPoints.length >= 2 && (
+        <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.15)' }}>
+          <div>
+            週變動：
+            {weekPct === null ? (
+              <span style={{ color: '#94A3B8' }}>—</span>
+            ) : (
+              <span style={{ color: pctColor(weekPct), fontWeight: 700 }}>{pctArrow(weekPct)} {fmtPct(weekPct)}</span>
+            )}
+          </div>
+          <div>
+            月變動：
+            {monthPct !== null ? (
+              <span style={{ color: pctColor(monthPct), fontWeight: 700 }}>{pctArrow(monthPct)} {fmtPct(monthPct)}</span>
+            ) : (
+              <span style={{ color: '#94A3B8' }}>{monthInsufficient ? '資料不足' : '—'}</span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   ) : null;
 
   const priceLabel = (
     <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>${last.price.toFixed(4)}</span>
   );
+
+  // 欄位內顯示週變動小色塊（僅在有真實歷史時）
+  const weekChip =
+    weekPct === null ? null : (
+      <span style={{ fontSize: 11, fontWeight: 700, color: pctColor(weekPct), whiteSpace: 'nowrap' }}>
+        {pctArrow(weekPct)} {fmtPct(weekPct)}
+      </span>
+    );
 
   const wrapStyle: CSSProperties = {
     position: 'relative',
@@ -1811,6 +1880,7 @@ function PriceSparkline({
           <circle cx={24} cy={12} r={3} fill={trendColor} />
         </svg>
         {priceLabel}
+        {weekChip}
         {tooltip}
       </span>
     );
@@ -1840,6 +1910,7 @@ function PriceSparkline({
         <circle cx={lastX} cy={lastY} r={2.5} fill={trendColor} />
       </svg>
       {priceLabel}
+      {weekChip}
       {tooltip}
     </span>
   );
@@ -1925,10 +1996,10 @@ const SOURCE_STATUS_LABELS: Record<string, { text: string; color: string }> = {
 
 function WeeklyReportsPanel({ reports }: { reports: WeeklyReportLink[] }) {
   const toneStyle = {
-    bg: '#F8FAFC',
-    border: '#E2E8F0',
+    bg: '#ECFDF5',
+    border: '#A7F3D0',
     accent: '#0F766E',
-    title: '#134E4A',
+    title: '#064E3B',
     soft: '#CCFBF1',
   };
 
@@ -1940,43 +2011,44 @@ function WeeklyReportsPanel({ reports }: { reports: WeeklyReportLink[] }) {
         borderLeft: `4px solid ${toneStyle.accent}`,
         borderRadius: 8,
         background: toneStyle.bg,
-        padding: 16,
+        padding: 20,
         marginBottom: 18,
+        boxShadow: '0 10px 30px rgba(15, 118, 110, 0.08)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
         <div>
-          <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: toneStyle.title }}>物料預測週報</h2>
-          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>先用新聞、PCN/EOL 與市場情報做口語摘要；確認內容後再接自動寄信。</div>
+          <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: toneStyle.title }}>物料預測週報</h2>
+          <div style={{ fontSize: 14, color: '#475467', fontWeight: 600 }}>先用新聞、PCN/EOL 與市場情報整理重點；確認內容後再接自動寄信。</div>
         </div>
       </div>
 
-      <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8, background: '#fff' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
+      <div style={{ overflow: 'auto', border: '1px solid #D1FAE5', borderRadius: 8, background: '#fff' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15, minWidth: 720 }}>
           <thead>
-            <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
-              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, width: '50%' }}>標題</th>
-              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800 }}>連結</th>
-              <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, width: 150 }}>日期</th>
+            <tr style={{ background: '#F0FDF4', color: '#344054' }}>
+              <th style={{ padding: '14px 16px', textAlign: 'left', fontWeight: 800, width: '56%' }}>標題</th>
+              <th style={{ padding: '14px 16px', textAlign: 'left', fontWeight: 800 }}>連結</th>
+              <th style={{ padding: '14px 16px', textAlign: 'left', fontWeight: 800, width: 170 }}>日期</th>
             </tr>
           </thead>
           <tbody>
             {reports.length === 0 ? (
               <tr>
-                <td colSpan={3} style={{ padding: 14, color: 'var(--text-3)', borderTop: '1px solid var(--hairline)' }}>
+                <td colSpan={3} style={{ padding: 18, color: 'var(--text-3)', borderTop: '1px solid #D1FAE5', fontSize: 15 }}>
                   週報連結產生中，請稍後重新整理。
                 </td>
               </tr>
             ) : (
               reports.map((report) => (
-                <tr key={report.id} style={{ borderTop: '1px solid var(--hairline)' }}>
-                  <td style={{ padding: '10px 12px', color: 'var(--text)', fontWeight: 700 }}>{report.title}</td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <a href={report.href} style={{ color: toneStyle.accent, textDecoration: 'none', fontWeight: 800 }}>
+                <tr key={report.id} style={{ borderTop: '1px solid #D1FAE5' }}>
+                  <td style={{ padding: '16px', color: '#101828', fontWeight: 800, lineHeight: 1.45 }}>{report.title}</td>
+                  <td style={{ padding: '16px' }}>
+                    <a href={report.href} style={{ color: toneStyle.accent, textDecoration: 'none', fontWeight: 800, fontSize: 15 }}>
                       開啟週報 ↗
                     </a>
                   </td>
-                  <td style={{ padding: '10px 12px', color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{report.date}</td>
+                  <td style={{ padding: '16px', color: '#475467', whiteSpace: 'nowrap', fontWeight: 700 }}>{report.date}</td>
                 </tr>
               ))
             )}
