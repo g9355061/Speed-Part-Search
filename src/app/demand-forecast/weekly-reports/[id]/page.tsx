@@ -58,8 +58,8 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 18 }}>
           <Metric label="觀察類別" value={report.metrics.watchedCategories} tone={report.metrics.watchedCategories > 0 ? 'warning' : undefined} />
           <Metric label="缺料新聞" value={report.metrics.shortageNews} />
-          <Metric label="PCN/EOL" value={report.metrics.lifecycleNews} />
-          <Metric label="市場情報" value={report.metrics.marketReports} />
+          <Metric label="PCN 或 EOL" value={report.metrics.lifecycleNews} />
+          <Metric label="公開報告" value={report.metrics.marketReports} />
         </section>
 
         <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(320px, 0.75fr)', gap: 16, alignItems: 'start' }}>
@@ -115,9 +115,9 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                     </div>
                     <p style={{ margin: '7px 0 0', fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-2)' }}>{item.plainText}</p>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, fontSize: 11, color: 'var(--text-3)' }}>
-                      <span>缺料新聞 {item.newsCount}</span>
-                      <span>PCN/EOL {item.lifecycleCount}</span>
-                      <span>市場情報 {item.marketReportCount}</span>
+                      <span>新聞 {item.newsCount}</span>
+                      <span>PCN 或 EOL {item.lifecycleCount}</span>
+                      <span>公開報告 {item.marketReportCount}</span>
                     </div>
                   </div>
                 ))}
@@ -149,9 +149,9 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             )}
           </Panel>
 
-          <Panel title="市場情報摘要">
+          <Panel title="公開報告重點">
             {report.marketHighlights.length === 0 ? (
-              <EmptyText>本週尚未取得可解析市場情報。</EmptyText>
+              <EmptyText>本週尚未取得可解析公開報告。</EmptyText>
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
                 {report.marketHighlights.map((item) => (
@@ -192,7 +192,7 @@ function EmptyText({ children }: { children: ReactNode }) {
 function SignalBadge({ tone }: { tone: 'high' | 'medium' | 'normal' }) {
   const color = tone === 'high' ? '#B42318' : tone === 'medium' ? '#B54708' : '#027A48';
   const bg = tone === 'high' ? '#FEF3F2' : tone === 'medium' ? '#FFFAEB' : '#ECFDF3';
-  const text = tone === 'high' ? '多來源提到' : tone === 'medium' ? '單一訊號' : '平穩';
+  const text = tone === 'high' ? '多種來源都提到' : tone === 'medium' ? '只有一種來源提到' : '目前平穩';
   return <span style={{ display: 'inline-flex', borderRadius: 999, padding: '3px 8px', background: bg, color, fontSize: 11, fontWeight: 800 }}>{text}</span>;
 }
 

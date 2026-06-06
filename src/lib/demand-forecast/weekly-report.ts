@@ -179,8 +179,8 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   const category = signal.category;
   const parts = [];
   if (signal.newsCount > 0) parts.push('新聞');
-  if (signal.lifecycleCount > 0) parts.push('PCN/EOL');
-  if (signal.marketReportCount > 0) parts.push('市場情報');
+  if (signal.lifecycleCount > 0) parts.push('PCN 或 EOL');
+  if (signal.marketReportCount > 0) parts.push('公開報告');
   const sourceText = parts.join(' + ');
 
   if (signal.categoryId === 'C01') {
@@ -207,7 +207,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: '功率分離式元件先列為觀察，不急著升級成缺料',
-      whyItMatters: `目前主要是市場情報提到 MOSFET / discrete 供應風險，新聞熱度還不高，所以比較適合做供應商確認，而不是直接下缺料結論。`,
+      whyItMatters: `目前主要是公開報告提到 MOSFET / discrete 供應風險，新聞熱度還不高，所以比較適合做供應商確認，而不是直接下缺料結論。`,
       suggestedMove: '採購先確認 Nexperia、Infineon、onsemi 等常用功率料的授權通路供應；工程保留替代料清單即可。',
       evidence,
     };
@@ -235,10 +235,10 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
 function describeCategorySignal(newsCount: number, lifecycleCount: number, marketReportCount: number) {
   const pieces = [];
   if (newsCount > 0) pieces.push(`${newsCount} 則缺料/交期新聞`);
-  if (lifecycleCount > 0) pieces.push(`${lifecycleCount} 則 PCN/EOL 訊號`);
-  if (marketReportCount > 0) pieces.push(`${marketReportCount} 筆市場情報`);
+  if (lifecycleCount > 0) pieces.push(`${lifecycleCount} 則 PCN 或 EOL 公告`);
+  if (marketReportCount > 0) pieces.push(`${marketReportCount} 份公開報告`);
   if (pieces.length === 0) return '本週暫時沒有特別訊號。';
-  if (pieces.length >= 2) return `這類本週不是單一訊號而已，${pieces.join('、')}都有出現，建議先放進觀察清單。`;
+  if (pieces.length >= 2) return `這類本週有不只一種來源提到：${pieces.join('、')}。建議先放進觀察清單。`;
   return `這類本週有 ${pieces[0]}，先不用緊張，但值得保持追蹤。`;
 }
 
@@ -332,14 +332,14 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const title = buildWeeklyTitle(dateText, focusSignalList);
 
   const summary = riskLevel === 'high'
-    ? `本週有幾個類別同時被新聞、PCN/EOL 或市場情報提到，不是立刻代表缺料，但已經值得先拉高注意。重點先看：${focusText}。`
+    ? `本週有幾個類別同時被新聞、PCN 或 EOL、公開報告提到，不是立刻代表缺料，但已經值得先拉高注意。重點先看：${focusText}。`
     : riskLevel === 'medium'
       ? `本週訊號不算全面升溫，但有些類別開始被外部消息點名。先不用急著下結論，建議把 ${focusText} 放進追蹤清單。`
       : '本週外部訊號相對安靜，暫時沒有看到需要立刻升級處理的類別。';
 
   const openingNotes = [
     riskLevel === 'high'
-      ? `本週最值得先看的是 ${focusText}。這些類別不是單一來源提到，而是同時出現在新聞、PCN/EOL 或市場情報裡，適合先進入採購與工程的觀察清單。`
+      ? `本週最值得先看的是 ${focusText}。這些類別不是只有一種來源提到，而是同時出現在新聞、PCN 或 EOL、公開報告裡，適合先進入採購與工程的觀察清單。`
       : `本週外部訊號還沒有全面升溫，先把 ${focusText} 放進追蹤清單即可，不需要立刻升級成缺料警報。`,
     '如果手上的專案正在用到這些類別，請先確認未來 4-8 週需求是否有上修；沒有用到的團隊只需要知道方向，不必逐顆料號追查。',
   ];
@@ -351,7 +351,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       ...marketReports
         .filter((item: any) => item.categoryIds?.includes(signal.categoryId))
         .slice(0, 1)
-        .map((item: any) => `${item.source || '市場情報'}：${item.summaryZh || item.evidenceTextZh || item.titleZh || item.title || '市場情報提到此類別'}`),
+        .map((item: any) => `${item.source || '公開報告'}：${item.summaryZh || item.evidenceTextZh || item.titleZh || item.title || '公開報告提到此類別'}`),
     ].slice(0, 3);
     return buildExecutiveItem(signal, evidence);
   });
@@ -373,8 +373,8 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   }));
 
   const marketHighlights = marketReports.slice(0, 6).map((report: any) => ({
-    title: report.titleZh || report.title || '未命名市場情報',
-    source: report.source || '市場情報',
+    title: report.titleZh || report.title || '未命名公開報告',
+    source: report.source || '公開報告',
     url: report.url || '#',
     publishedAt: report.publishedAt || null,
     summary: report.summaryZh || report.evidenceTextZh || report.evidenceText || '',
@@ -394,7 +394,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
         ]
       : [
           '本週可以維持例行監控，不需要額外升級。',
-          '下週繼續看外部新聞、PCN/EOL 和市場情報是否有連續出現。',
+          '下週繼續看外部新聞、PCN 或 EOL、公開報告是否有連續出現。',
         ];
 
   return {
