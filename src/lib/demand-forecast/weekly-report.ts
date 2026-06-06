@@ -249,25 +249,25 @@ function shortCategoryName(label: string) {
 function buildWeeklyTitle(dateText: string, signals: Array<{ categoryId: string; category: string; tone: WeeklyRiskLevel; newsCount: number; lifecycleCount: number; marketReportCount: number }>) {
   const primary = signals[0];
   const secondary = signals[1];
-  if (!primary) return `物料預測週報｜${dateText}｜本週外部訊號平穩`;
+  if (!primary) return `物料預測週報｜${dateText}｜本週無明顯供應異常`;
 
   if (primary.categoryId === 'C04' && secondary?.categoryId === 'C01') {
-    return `物料預測週報｜${dateText}｜記憶體與 MLCC 供應訊號升溫`;
+    return `物料預測週報｜${dateText}｜記憶體與高容值 MLCC 供應壓力升溫，請先確認 4-8 週需求與交期`;
   }
   if (primary.categoryId === 'C01') {
-    return `物料預測週報｜${dateText}｜高容值 MLCC 交期需先確認`;
+    return `物料預測週報｜${dateText}｜高容值 MLCC 交期需先確認，採購請回查可供量`;
   }
   if (primary.categoryId === 'C04') {
-    return `物料預測週報｜${dateText}｜記憶體成本與交期壓力升高`;
+    return `物料預測週報｜${dateText}｜記憶體成本與交期壓力升高，PM 請確認需求是否上修`;
   }
   if (primary.categoryId === 'C03') {
-    return `物料預測週報｜${dateText}｜功率元件列入供應觀察`;
+    return `物料預測週報｜${dateText}｜功率元件供應風險浮現，請先確認 Nexperia / onsemi 通路`;
   }
 
   const categoryText = secondary && primary.tone === 'high'
     ? `${shortCategoryName(primary.category)}與${shortCategoryName(secondary.category)}`
     : shortCategoryName(primary.category);
-  return `物料預測週報｜${dateText}｜${categoryText}需列入觀察`;
+  return `物料預測週報｜${dateText}｜${categoryText}出現外部供應訊號，請確認是否影響現有案子`;
 }
 
 export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {

@@ -2019,7 +2019,7 @@ function WeeklyReportsPanel({ reports }: { reports: WeeklyReportLink[] }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
         <div>
           <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: toneStyle.title }}>物料預測週報</h2>
-          <div style={{ fontSize: 14, color: '#475467', fontWeight: 600 }}>先用新聞、PCN/EOL 與市場情報整理重點；確認內容後再接自動寄信。</div>
+          <div style={{ fontSize: 14, color: '#475467', fontWeight: 600 }}>給採購、PM、工程快速看：本週哪些料件類別可能影響交期、成本或替代料準備。</div>
         </div>
       </div>
 
