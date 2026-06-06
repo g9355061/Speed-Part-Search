@@ -177,17 +177,12 @@ function categoryEvidence(categoryId: string, items: any[], limit = 2) {
 
 function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number], evidence: string[]) {
   const category = signal.category;
-  const parts = [];
-  if (signal.newsCount > 0) parts.push('新聞');
-  if (signal.lifecycleCount > 0) parts.push('PCN 或 EOL');
-  if (signal.marketReportCount > 0) parts.push('公開報告');
-  const sourceText = parts.join(' + ');
 
   if (signal.categoryId === 'C01') {
     return {
       category,
       headline: 'MLCC 不是全面警報，但高容值料要先問交期',
-      whyItMatters: `本週 MLCC 同時被 ${sourceText} 提到，重點比較像是 AI/高功率需求帶動高容值 MLCC 供應吃緊，不是所有電容都要同等緊張。`,
+      whyItMatters: 'AI 伺服器與高功率產品用到更多高容值 MLCC，市場開始提醒交期可能拉長。這不是所有電容都缺，而是高容值、小尺寸或車規料要先確認。',
       suggestedMove: '採購先針對高容值、小尺寸、車規或高用量 MLCC 問供應商交期與可供量；工程同步確認是否有可替代封裝或容量組合。',
       evidence,
     };
@@ -197,7 +192,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: '記憶體類要先看 DDR / Flash 成本與交期壓力',
-      whyItMatters: `記憶體本週被 ${sourceText} 多次提到，訊號集中在 AI 需求、DDR4 供應變化與終端產品成本壓力。`,
+      whyItMatters: 'AI 伺服器需求正在推高記憶體用量，DDR4 供應變化也可能影響電腦、車用與工控產品成本。若專案用到 DRAM、DDR 或 Flash，未來幾週的價格與交期需要先確認。',
       suggestedMove: 'PM 和採購先盤點近期需求上修的案子是否使用 DDR、DRAM、Flash；若有客戶拉貨，先把價格與交期風險寫進 forecast 討論。',
       evidence,
     };
@@ -207,7 +202,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: '功率分離式元件先列為觀察，不急著升級成缺料',
-      whyItMatters: `目前主要是公開報告提到 MOSFET / discrete 供應風險，新聞熱度還不高，所以比較適合做供應商確認，而不是直接下缺料結論。`,
+      whyItMatters: '目前看到的是公開報告提醒 MOSFET 等功率元件可能有供應風險，但還沒有形成明顯新聞熱度。比較合理的做法是先問供應商，不必直接判定為缺料。',
       suggestedMove: '採購先確認 Nexperia、Infineon、onsemi 等常用功率料的授權通路供應；工程保留替代料清單即可。',
       evidence,
     };
@@ -217,7 +212,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: `${category} 主要是生命週期訊號，請先查是否影響現有設計`,
-      whyItMatters: `這類不是市場缺料新聞，而是 PCN/EOL 類訊號。對讀者來說，重點不是搶料，而是避免後續才發現料不能買或不建議新設計使用。`,
+      whyItMatters: '這類比較不是市場缺料，而是可能有產品變更、停產或不建議新設計使用的通知。重點不是搶料，而是先確認現有設計會不會受影響。',
       suggestedMove: '工程先比對目前專案 BOM 是否有使用；若有，再請採購確認 LTB、替代料與最後下單時間。',
       evidence,
     };
@@ -226,7 +221,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   return {
     category,
     headline: `${category} 有外部訊號，先列入下週追蹤`,
-    whyItMatters: `這類本週被 ${sourceText || '外部來源'} 提到，但訊號還不足以直接變成缺料結論。`,
+    whyItMatters: '這類本週有外部消息提到，但訊號還不夠強，不適合直接下缺料結論。先觀察是否有更多來源或供應商交期變化。',
     suggestedMove: '先追蹤一週，看是否出現第二個來源或供應商交期變化，再決定是否升級處理。',
     evidence,
   };
@@ -332,14 +327,14 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const title = buildWeeklyTitle(dateText, focusSignalList);
 
   const summary = riskLevel === 'high'
-    ? `本週有幾個類別同時被新聞、PCN 或 EOL、公開報告提到，不是立刻代表缺料，但已經值得先拉高注意。重點先看：${focusText}。`
+    ? `本週供應鏈訊號主要集中在 ${focusText}。這不代表已經全面缺料，但如果近期專案有用到這些類別，採購與 PM 應先確認交期、價格與 4-8 週需求。`
     : riskLevel === 'medium'
-      ? `本週訊號不算全面升溫，但有些類別開始被外部消息點名。先不用急著下結論，建議把 ${focusText} 放進追蹤清單。`
+      ? `本週供應鏈壓力還沒有全面升溫，但 ${focusText} 已開始出現零星提醒。先不用升級成缺料警報，但可以放進追蹤清單。`
       : '本週外部訊號相對安靜，暫時沒有看到需要立刻升級處理的類別。';
 
   const openingNotes = [
     riskLevel === 'high'
-      ? `本週最值得先看的是 ${focusText}。這些類別不是只有一種來源提到，而是同時出現在新聞、PCN 或 EOL、公開報告裡，適合先進入採購與工程的觀察清單。`
+      ? `本週最值得先看的是 ${focusText}。重點不是「現在一定缺料」，而是這些類別已經開始出現交期、價格或產品生命週期的提醒，適合先進入採購與工程的觀察清單。`
       : `本週外部訊號還沒有全面升溫，先把 ${focusText} 放進追蹤清單即可，不需要立刻升級成缺料警報。`,
     '如果手上的專案正在用到這些類別，請先確認未來 4-8 週需求是否有上修；沒有用到的團隊只需要知道方向，不必逐顆料號追查。',
   ];
