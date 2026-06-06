@@ -54,6 +54,8 @@
 
 - [x] **價格曲線 UI 修正（commit `9a6c538`）**：金額顏色由過淡的 `--text-3` 改為 `--text-2`+半粗體（淺綠底也清楚）；價格全平的線改畫在格子垂直中線（原本壓在最底像痕跡）；改用自製 hover 浮窗列出每點「日期：價格」，取代延遲的原生 title。正式站資料庫現況：139/154 顆料件已各有 3 個價格點（6/01、6/03、6/06），可正常繪製曲線。
 
+- [x] **價格曲線「金額看不到」排查 + 保險修法（commit `d3b48fb`）**：使用者回報欄位只剩小痕跡、看不到金額。逐項驗證確認**伺服器端全部正常**——Railway 最新部署 SUCCESS（跑最新 commit）、API 回 150 顆 parts、price-history 回 140 個 key 且與 parts.mpn 完全對得上（各 3 點）、前端抓取與渲染程式碼正確且未被並行 session 覆蓋。研判為使用者瀏覽器端 history fetch 未成功或吃到舊 JS 快取。保險修法：`PriceSparkline` 新增 `fallbackPrice` 參數，歷史未載入時改用 `part.lowestPriceUsd` 顯示單點+金額，確保金額一定可見，歷史載入後再升級為曲線。建議使用者強制重整（Cmd+Shift+R）。
+
 - **修改檔案**
   - `src/middleware.ts` — 新增 CRON_SECRET header 後門。
   - `.github/workflows/weekly-forecast.yml` — 新增（每週排程）。

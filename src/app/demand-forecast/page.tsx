@@ -463,7 +463,7 @@ export default function DemandForecastPage() {
   useEffect(() => {
     const mpns = (data?.parts ?? []).map((p) => p.mpn).filter(Boolean);
     if (mpns.length === 0) return;
-    fetch(`/api/demand-forecast/price-history?mpns=${encodeURIComponent(mpns.join(','))}`, { cache: 'no-store' })
+    fetch(`/api/demand-forecast/price-history?mpns=${encodeURIComponent(mpns.join(','))}&t=${Date.now()}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((json) => setPriceHistory(json.history ?? {}))
       .catch((err) => console.error('Failed to load price history:', err));

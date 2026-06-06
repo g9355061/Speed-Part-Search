@@ -15,10 +15,12 @@ export async function GET(req: NextRequest) {
     .map((m) => m.trim())
     .filter(Boolean);
 
+  const noStore = { 'Cache-Control': 'no-store, no-cache, must-revalidate' };
+
   if (mpns.length === 0) {
-    return NextResponse.json({ history: {} });
+    return NextResponse.json({ history: {} }, { headers: noStore });
   }
 
   const history = await getDemandForecastPriceHistory(mpns);
-  return NextResponse.json({ history });
+  return NextResponse.json({ history }, { headers: noStore });
 }
