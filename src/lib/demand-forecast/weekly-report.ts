@@ -100,6 +100,12 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     publishedAt: string | null;
     summary: string;
   }>;
+  sourceLinks: Array<{
+    title: string;
+    source: string;
+    url: string;
+    kind: '新聞' | 'PCN/EOL' | '公開報告';
+  }>;
   recommendedActions: string[];
 }
 
@@ -340,6 +346,20 @@ function reportHeadline(report: any) {
   return report.titleZh || report.title || '公開報告提醒供應狀況需留意';
 }
 
+function sourceLinkKey(item: { title: string; source: string; url: string }) {
+  return item.url && item.url !== '#' ? item.url : `${item.source}-${item.title}`;
+}
+
+function uniqueSourceLinks(items: Array<{ title: string; source: string; url: string; kind: '新聞' | 'PCN/EOL' | '公開報告' }>) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = sourceLinkKey(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function shortCategoryName(label: string) {
   return label.split('/')[0].trim();
 }
@@ -480,6 +500,36 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     summary: reportNarrative(report),
   }));
 
+  const sourceLinks = uniqueSourceLinks([
+    ...shortageNews
+      .filter((item: any) => item.categoryIds?.some((categoryId: string) => focusCategories.includes(categoryId)))
+      .slice(0, 6)
+      .map((item: any) => ({
+        title: pickTitle(item),
+        source: item.source || 'RSS 新聞',
+        url: item.link || '#',
+        kind: '新聞' as const,
+      })),
+    ...lifecycleNews
+      .filter((item: any) => item.categoryIds?.some((categoryId: string) => focusCategories.includes(categoryId)))
+      .slice(0, 4)
+      .map((item: any) => ({
+        title: pickTitle(item),
+        source: item.source || 'PCN/EOL 新聞',
+        url: item.link || '#',
+        kind: 'PCN/EOL' as const,
+      })),
+    ...marketReports
+      .filter((report: any) => report.categoryIds?.some((categoryId: string) => focusCategories.includes(categoryId)))
+      .slice(0, 6)
+      .map((report: any) => ({
+        title: reportHeadline(report),
+        source: report.source || '公開報告',
+        url: report.url || '#',
+        kind: '公開報告' as const,
+      })),
+  ]).slice(0, 12);
+
   const recommendedActions = executiveItems.length > 0
     ? []
     : ['本週沒有明顯封面故事，維持例行監控即可；下週再看新聞、PCN/EOL 和公開報告是否連續出現。'];
@@ -504,6 +554,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     newsHighlights,
     lifecycleHighlights,
     marketHighlights,
+    sourceLinks,
     recommendedActions,
   };
 }

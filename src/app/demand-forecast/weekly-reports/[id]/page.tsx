@@ -79,11 +79,6 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                     <div style={{ fontSize: 12, color: '#0F766E', fontWeight: 900, letterSpacing: '0.04em', marginBottom: 6 }}>{item.category}</div>
                     <h3 style={{ margin: '0 0 10px', fontSize: 22, lineHeight: 1.35, color: 'var(--text)' }}>{item.headline}</h3>
                     <p style={{ margin: '0 0 10px', fontSize: 15.5, lineHeight: 1.8, color: 'var(--text-2)' }}>{item.whyItMatters}</p>
-                    {item.evidence.length > 0 && (
-                      <div style={{ display: 'grid', gap: 5, marginTop: 10, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-3)' }}>
-                        {item.evidence.map((evidence) => <span key={evidence}>來源：{evidence}</span>)}
-                      </div>
-                    )}
                   </article>
                 ))}
               </div>
@@ -105,6 +100,22 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
               ))}
             </div>
           </ArticleSection>
+
+          {report.sourceLinks.length > 0 && (
+            <ArticleSection eyebrow="本文參考來源" title="想看原文可以從這裡">
+              <div style={{ display: 'grid', gap: 8 }}>
+                {report.sourceLinks.map((item) => (
+                  <a key={`${item.kind}-${item.source}-${item.url}`} href={item.url} target="_blank" rel="noreferrer" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', border: '1px solid var(--hairline)', borderRadius: 8, padding: '10px 12px', background: '#fff', color: 'inherit', textDecoration: 'none' }}>
+                    <span style={{ minWidth: 0 }}>
+                      <strong style={{ display: 'block', fontSize: 13, lineHeight: 1.45, color: 'var(--text)' }}>{item.title}</strong>
+                      <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--text-3)' }}>{item.source}</span>
+                    </span>
+                    <span style={{ whiteSpace: 'nowrap', borderRadius: 999, padding: '3px 8px', background: '#F0FDF4', color: '#0F766E', fontSize: 11, fontWeight: 800 }}>{item.kind}</span>
+                  </a>
+                ))}
+              </div>
+            </ArticleSection>
+          )}
 
         </div>
       </main>
