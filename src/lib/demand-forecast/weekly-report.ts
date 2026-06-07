@@ -105,6 +105,7 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     source: string;
     url: string;
     publishedAt: string | null;
+    dateLabel: string | null;
     kind: '新聞' | 'PCN/EOL' | '公開報告';
   }>;
   recommendedActions: string[];
@@ -361,6 +362,19 @@ function uniqueSourceLinks(items: Array<{ title: string; source: string; url: st
   });
 }
 
+function translatedSourceUrl(url: string) {
+  if (!url || url === '#') return '#';
+  return `https://translate.google.com/translate?sl=auto&tl=zh-TW&u=${encodeURIComponent(url)}`;
+}
+
+function sourceDateLabel(value: string | null | undefined, kind: '新聞' | 'PCN/EOL' | '公開報告') {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const label = kind === '公開報告' ? '報告時間' : '新聞時間';
+  return `${label} ${formatDate(date)}`;
+}
+
 function shortCategoryName(label: string) {
   return label.split('/')[0].trim();
 }
@@ -508,8 +522,9 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       .map((item: any) => ({
         title: pickTitle(item),
         source: item.source || 'RSS 新聞',
-        url: item.link || '#',
+        url: translatedSourceUrl(item.link || '#'),
         publishedAt: item.publishedAt || null,
+        dateLabel: sourceDateLabel(item.publishedAt, '新聞'),
         kind: '新聞' as const,
       })),
     ...lifecycleNews
@@ -518,8 +533,9 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       .map((item: any) => ({
         title: pickTitle(item),
         source: item.source || 'PCN/EOL 新聞',
-        url: item.link || '#',
+        url: translatedSourceUrl(item.link || '#'),
         publishedAt: item.publishedAt || null,
+        dateLabel: sourceDateLabel(item.publishedAt, 'PCN/EOL'),
         kind: 'PCN/EOL' as const,
       })),
     ...marketReports
@@ -530,6 +546,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
         source: report.source || '公開報告',
         url: report.url || '#',
         publishedAt: report.publishedAt || null,
+        dateLabel: sourceDateLabel(report.publishedAt, '公開報告'),
         kind: '公開報告' as const,
       })),
   ]).slice(0, 12);
