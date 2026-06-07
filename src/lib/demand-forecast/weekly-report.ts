@@ -65,7 +65,7 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
   executiveItems: Array<{
     category: string;
     headline: string;
-    whyItMatters: string;
+    story: string[];
     suggestedMove: string;
     evidence: string[];
   }>;
@@ -191,7 +191,11 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: 'MLCC 不是全面警報，但高容值料要先問交期',
-      whyItMatters: 'AI 伺服器與高功率產品用到更多高容值 MLCC，市場開始提醒交期可能拉長。這不是所有電容都缺，而是高容值、小尺寸或車規料要先確認。',
+      story: [
+        '被動元件這週的焦點落在 MLCC，但真正需要留意的不是「所有電容都缺」。幾則新聞和通路報告指向的是另一個比較細的變化：AI 伺服器、高功率產品和部分車用案子，正在吃掉更多高容值、小尺寸或高可靠度 MLCC。',
+        '這類料平常看起來不像記憶體那麼有新聞感，但一旦需求往上、庫存消耗加快，供應商通常會先從熱門規格開始變保守。也就是說，市場訊號不是叫大家全面搶電容，而是提醒高容值與高用量料可能先出現交期拉長或配貨。',
+        '對公司來說，這比較像早期水位提醒。如果近期案子大量使用小尺寸高容值、車規或高用量 MLCC，現在先確認可供量，會比等到客戶追加需求後再追料更有餘裕。',
+      ],
       suggestedMove: '這週先別把所有電容都拉警報，先挑高容值、小尺寸、車規或用量大的 MLCC 問交期。若供應商開始保守，工程再同步看替代封裝或容量組合。',
       evidence,
     };
@@ -201,7 +205,11 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: '記憶體類要先看 DDR / Flash 成本與交期壓力',
-      whyItMatters: 'AI 伺服器需求正在推高記憶體用量，DDR4 供應變化也可能影響電腦、車用與工控產品成本。若專案用到 DRAM、DDR 或 Flash，未來幾週的價格與交期需要先確認。',
+      story: [
+        '記憶體是本週比較像主線的供應鏈故事。AI 伺服器需求持續往上，讓 DRAM、DDR、Flash 這些原本就容易受產能配置影響的料，再次被市場放大檢視。新聞提到價格壓力，通路報告也開始談分配，代表供應端的語氣已經比前幾週更謹慎。',
+        '這不一定表示明天就買不到料，但它通常會先反映在兩個地方：一是供應商報價不再那麼鬆，二是交期或可供量開始需要提前確認。尤其是有客戶拉貨、需求上修，或產品本身用到較大容量記憶體的案子，會比一般案子更早感受到壓力。',
+        '因此這週的重點不是追單一料號，而是先把用到 DDR、DRAM、Flash 的專案拉出來看。若 forecast 還在變動，價格和交期風險應該先放進討論，避免後面 BOM 成本變化來得太突然。',
+      ],
       suggestedMove: '先看最近需求上修或客戶拉貨的案子，有沒有用到 DDR、DRAM 或 Flash。若有，這週就把價格和交期風險放進 forecast，不要等報價變動才討論。',
       evidence,
     };
@@ -211,7 +219,11 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: '功率分離式元件先列為觀察，不急著升級成缺料',
-      whyItMatters: '目前看到的是公開報告提醒 MOSFET 等功率元件可能有供應風險，但還沒有形成明顯新聞熱度。比較合理的做法是先問供應商，不必直接判定為缺料。',
+      story: [
+        '功率元件這週比較像是「水溫升高」，還不到大範圍缺料。公開報告開始提到 MOSFET 交期、Nexperia 供應風險與關稅挑戰，Future 也提到低壓 MOSFET 因市場變緊、庫存消耗，開始有供應分配的味道。',
+        '這類訊號要小心解讀。它不像記憶體新聞那樣有明顯的價格故事，也還沒有看到足夠多來源同時指向全面短缺；但功率料常常是產品設計裡不好臨時替換的零件，一旦授權通路開始收緊，後面處理時間會比想像中長。',
+        '所以這週比較適合把 MOSFET 放進觀察清單，而不是直接升級成缺料警報。常用 Nexperia、Infineon、onsemi 料號可以先問通路，工程端則先確認替代料清單是否還可用。',
+      ],
       suggestedMove: 'MOSFET 先不要當成全面缺料，但常用的 Nexperia、Infineon、onsemi 料號可以先問授權通路。工程端先把替代料清單留在手邊即可。',
       evidence,
     };
@@ -221,7 +233,10 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: `${category} 主要是生命週期訊號，請先查是否影響現有設計`,
-      whyItMatters: '這類比較不是市場缺料，而是可能有產品變更、停產或不建議新設計使用的通知。重點不是搶料，而是先確認現有設計會不會受影響。',
+      story: [
+        '這類訊號比較不像市場缺料，而是生命週期風險。也就是說，問題不一定是現在買不到，而是原廠可能已經釋出產品變更、停產、不建議新設計或最後採購的訊息。',
+        '這種風險對正在量產或準備導入的案子影響最大。若 BOM 裡剛好有相關料號，後續可能需要確認 LTB、替代料、驗證時程，以及是否需要提前通知客戶。',
+      ],
       suggestedMove: '先比對現有 BOM 是否真的用到這類料。若有，再確認最後下單時間、替代料和是否需要提前通知客戶。',
       evidence,
     };
@@ -230,7 +245,10 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   return {
     category,
     headline: `${category} 有外部訊號，先列入下週追蹤`,
-    whyItMatters: '這類本週有外部消息提到，但訊號還不夠強，不適合直接下缺料結論。先觀察是否有更多來源或供應商交期變化。',
+    story: [
+      '這類本週有外部消息提到，但訊號還不夠強，暫時不適合直接下缺料結論。',
+      '比較合理的做法是先觀察一週，看後續是否出現第二個來源、供應商交期變化，或客戶需求突然上修。',
+    ],
     suggestedMove: '先把它放進下週觀察清單。若又出現第二個來源，或供應商開始改交期，再升級處理。',
     evidence,
   };

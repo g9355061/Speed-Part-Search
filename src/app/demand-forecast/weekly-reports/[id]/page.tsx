@@ -78,7 +78,11 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                   <article key={item.category} style={{ borderTop: index === 0 ? 'none' : '1px solid var(--hairline)', paddingTop: index === 0 ? 0 : 18 }}>
                     <div style={{ fontSize: 12, color: '#0F766E', fontWeight: 900, letterSpacing: '0.04em', marginBottom: 6 }}>{item.category}</div>
                     <h3 style={{ margin: '0 0 10px', fontSize: 22, lineHeight: 1.35, color: 'var(--text)' }}>{item.headline}</h3>
-                    <p style={{ margin: '0 0 10px', fontSize: 15.5, lineHeight: 1.8, color: 'var(--text-2)' }}>{item.whyItMatters}</p>
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {item.story.map((paragraph) => (
+                        <p key={paragraph} style={{ margin: 0, fontSize: 15.5, lineHeight: 1.85, color: 'var(--text-2)' }}>{paragraph}</p>
+                      ))}
+                    </div>
                   </article>
                 ))}
               </div>
