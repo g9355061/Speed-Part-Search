@@ -711,16 +711,16 @@ export default function DemandForecastPage() {
                       </div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
+                      <div>市場報告 / 產業情報佐證</div>
+                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
+                        自動擷取公開情報，僅供佐證參考，不作為主判定
+                      </div>
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
                       <div>實時通路庫存 (API)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         🔴 庫存=0、(庫存 &lt; 補貨水位 且 最短交期 &gt;= 20週) 或 7天庫存暴跌 &gt; 80%<br />
                         🟡 庫存 &lt; 安全水位、交期 &gt;= 12週 或觸發 7天趨勢警示 (量/價/交期/供應商)
-                      </div>
-                    </th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
-                      <div>市場報告 / 產業情報佐證</div>
-                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        自動擷取公開情報，僅供佐證參考，不作為主判定
                       </div>
                     </th>
                   </tr>
@@ -769,6 +769,14 @@ export default function DemandForecastPage() {
                         </td>
                         <td
                           className="matrix-cell-interactive"
+                          title="點擊跳轉查看該類別的市場情報佐證"
+                          onClick={() => handleMatrixClick(cat.categoryId, 'market-reports-panel')}
+                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
+                        >
+                          <MarketSignalBadge level={marketSignal} />
+                        </td>
+                        <td
+                          className="matrix-cell-interactive"
                           title="點擊跳轉查看該類別的實時通路庫存"
                           onClick={() => handleMatrixClick(cat.categoryId, 'api-parts-panel')}
                           style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
@@ -780,14 +788,6 @@ export default function DemandForecastPage() {
                               尚未查詢
                             </span>
                           )}
-                        </td>
-                        <td
-                          className="matrix-cell-interactive"
-                          title="點擊跳轉查看該類別的市場情報佐證"
-                          onClick={() => handleMatrixClick(cat.categoryId, 'market-reports-panel')}
-                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
-                        >
-                          <MarketSignalBadge level={marketSignal} />
                         </td>
                       </tr>
                     );

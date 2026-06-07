@@ -1,8 +1,20 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-06-06（修正 Mouser HK/VN 供應商與庫存重複計算；替換 10 顆 EOL 基準料件為 API 驗證過的現役料件；保留價格/庫存趨勢圖與週報）
+> 最後更新：2026-06-07（從類別風險矩陣移除「生命週期」欄——代表料的 EOL 對類別缺料風險無意義；料件明細仍保留每顆 lifecycleStatus 當參考）
 
 ---
+
+### 2026-06-07 — 移除類別矩陣的「生命週期」維度（commit `3a675f2`）
+
+- [x] **設計決策（使用者提出、確認）**：用「代表性基準料」的 EOL/NRND 去推「類別缺料風險」沒有意義——(1) 任何時刻電子料海總有料是 EOL，是背景常態/雜訊；(2) 一旦把 EOL 代表料換掉就永遠綠燈，形成自我循環。EOL 真正可行動的價值在於追蹤「使用者真實 BOM 用到的料」，不在這個宏觀代表料頁。
+- [x] **改動**：
+  - 移除類別風險矩陣的「生命週期」欄（表頭 + 儲存格）。矩陣回歸 RSS 新聞 + 實時通路庫存(API) + 市場報告佐證。
+  - 移除下方「生命週期風險總覽」與「受影響料件清單」兩個面板、頂部「生命週期訊號」Metric；說明文字由「三種管道」改為「兩種管道」。
+  - **保留**：料件明細表每顆的 `lifecycleStatus`（`LifecycleBadge`）當參考資訊。
+  - 清理 dead code：`LifecyclePartsPanel` 元件、`lifecycleCategorySummary`/`lifecycleByCategory`/`lifecycleFlaggedParts`/`displayLifecycleParts` 等 memo、`getLifecycleFlag` helper。
+  - 後端 `buildLifecycleCategorySummaryFromParts` 仍保留（回傳值前端不再使用，無害）；RSS 生命週期新聞抓取維持停用。
+  - `npx tsc --noEmit` 通過。
+- 備註：先前（同日稍早）曾將生命週期改為 API lifecycleStatus 驅動並移除 RSS 噪音新聞（commit `58d6fd6`），本次進一步將整個維度從類別矩陣移除。
 
 ### 2026-06-06 — Mouser 重複計算修正 + 10 顆 EOL 料件替換（commit `4c41776`）
 
