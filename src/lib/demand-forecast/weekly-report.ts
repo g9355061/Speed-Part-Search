@@ -5,6 +5,15 @@ import { DEMAND_CATEGORIES } from '@/lib/demand-forecast/benchmark';
 
 const NEWS_CACHE_PATH = path.join(process.cwd(), 'data', 'news-cache.json');
 const RECENT_SIGNAL_DAYS = 45;
+const ARTICLE_FETCH_TIMEOUT_MS = 4500;
+const ARTICLE_TEXT_LIMIT = 9000;
+const ARTICLE_POINT_LIMIT = 2;
+
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+};
 
 type WeeklyRiskLevel = 'high' | 'medium' | 'normal';
 
@@ -166,6 +175,136 @@ function cleanEvidenceText(value: string, source = '') {
     .trim();
 }
 
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function stripArticleHtml(html: string) {
+  return decodeHtmlEntities(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<aside[\s\S]*?<\/aside>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, ARTICLE_TEXT_LIMIT);
+}
+
+function splitSentences(text: string) {
+  const boilerplatePatterns = [
+    /sign in/i,
+    /keep me signed in/i,
+    /password/i,
+    /cookie/i,
+    /subscribe/i,
+    /newsletter/i,
+    /free account/i,
+    /premium stories/i,
+    /editor picks/i,
+    /enable this feature/i,
+    /select the box/i,
+    /login/i,
+    /logout/i,
+    /saved information/i,
+    /next time you visit/i,
+    /登入/,
+    /登出/,
+    /保持登入/,
+    /密碼/,
+    /儲存的資訊/,
+    /下次造訪/,
+    /訂閱/,
+    /cookie/i,
+  ];
+  return text
+    .split(/(?<=[。！？.!?])\s+|(?<=。)|(?<=！)|(?<=？)/)
+    .map((sentence) => sentence.replace(/\s+/g, ' ').trim())
+    .filter((sentence) => sentence.length >= 35 && sentence.length <= 360)
+    .filter((sentence) => !boilerplatePatterns.some((pattern) => pattern.test(sentence)));
+}
+
+function sentenceScore(sentence: string, categoryId: string) {
+  const lower = sentence.toLowerCase();
+  const categoryKeywords = WEEKLY_CATEGORY_KEYWORDS[categoryId] ?? [];
+  const riskKeywords = [
+    'shortage', 'shortages', 'tight', 'constraint', 'constrained', 'allocation',
+    'lead time', 'delivery', 'price', 'cost', 'supply', 'demand', 'inventory',
+    '短缺', '吃緊', '供應', '需求', '交期', '成本', '價格', '庫存', '配給',
+  ];
+  let score = 0;
+  for (const keyword of categoryKeywords) {
+    if (lower.includes(keyword.toLowerCase())) score += 3;
+  }
+  for (const keyword of riskKeywords) {
+    if (lower.includes(keyword.toLowerCase())) score += 2;
+  }
+  if (sentence.length >= 60 && sentence.length <= 220) score += 1;
+  return score;
+}
+
+async function translateTextToZh(text: string) {
+  if (!text || /[\u4e00-\u9fff]/.test(text)) return text;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const resp = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text)}`, {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    if (!resp.ok) return text;
+    const data = await resp.json();
+    const translated = Array.isArray(data?.[0])
+      ? data[0].map((part: any) => part?.[0] || '').join('').trim()
+      : '';
+    return translated || text;
+  } catch {
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchArticlePoints(url: string | undefined, categoryId: string) {
+  if (!url || url === '#') return [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ARTICLE_FETCH_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, {
+      headers: BROWSER_HEADERS,
+      signal: controller.signal,
+      cache: 'no-store',
+      redirect: 'follow',
+    });
+    if (!resp.ok) return [];
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) return [];
+    const text = stripArticleHtml(await resp.text());
+    const candidates = splitSentences(text)
+      .map((sentence) => ({ sentence, score: sentenceScore(sentence, categoryId) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, ARTICLE_POINT_LIMIT)
+      .map((item) => item.sentence);
+    const translated = await Promise.all(candidates.map((sentence) => translateTextToZh(sentence)));
+    return translated
+      .map((sentence) => cleanEvidenceText(sentence))
+      .filter(Boolean)
+      .filter((sentence) => !/登入|登出|密碼|訂閱|儲存的資訊|下次造訪|cookie|free account|premium stories|editor picks/i.test(sentence));
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function dateValue(item: any) {
   const value = item.publishedAt || item.fetchedAt;
   const time = value ? Date.parse(value) : 0;
@@ -178,9 +317,9 @@ function isRecentSignal(item: any, now: Date) {
   return now.getTime() - time <= RECENT_SIGNAL_DAYS * 24 * 60 * 60 * 1000;
 }
 
-function categoryEvidence(categoryId: string, items: any[], limit = 2) {
+async function categoryEvidence(categoryId: string, items: any[], limit = 2) {
   const keywords = WEEKLY_CATEGORY_KEYWORDS[categoryId] ?? [];
-  return items
+  const matched = items
     .filter((item) => {
       if (!item.categoryIds?.includes(categoryId)) return false;
       if (keywords.length === 0) return true;
@@ -188,14 +327,20 @@ function categoryEvidence(categoryId: string, items: any[], limit = 2) {
       return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
     })
     .sort((a, b) => dateValue(b) - dateValue(a))
-    .slice(0, limit)
-    .map((item) => {
+    .slice(0, limit);
+
+  return Promise.all(matched.map(async (item) => {
       const source = item.source || '來源';
       const title = cleanEvidenceText(pickTitle(item), source);
       const summary = cleanEvidenceText(pickSummary(item), source);
-      const text = summary && !title.includes(summary) ? summary : title;
+      const articlePoints = await fetchArticlePoints(item.link, categoryId);
+      const text = articlePoints.length > 0
+        ? articlePoints.join(' ')
+        : summary && !title.includes(summary)
+          ? `摘要：${summary}`
+          : `標題：${title}`;
       return `${source}：${text}`;
-    });
+    }));
 }
 
 function evidenceSentence(evidence: string[], fallback: string) {
@@ -206,49 +351,63 @@ function evidenceSentence(evidence: string[], fallback: string) {
     .join('。');
 }
 
+function categoryEvidenceSummary(categoryId: string, evidence: string[]) {
+  const sourceText = evidenceSentence(evidence, '目前可讀到的來源內容有限，先不延伸解讀。');
+  if (categoryId === 'C01') {
+    return [
+      `本段只整理來源能直接支持的內容：${sourceText}。`,
+      '從可讀內容看，這一段的關鍵不是把所有電容都寫成缺料，而是來源多次把 MLCC、高端被動元件、交貨時間或短缺放在同一個脈絡裡。',
+      '所以週報只能把 MLCC 放進封面故事；若要往公司料號層級推進，還需要再用內部 BOM 與供應商回覆確認。',
+    ];
+  }
+  if (categoryId === 'C04') {
+    return [
+      `本段只整理來源能直接支持的內容：${sourceText}。`,
+      '從可讀內容看，記憶體訊號主要圍繞 DRAM、DDR、Flash、記憶體短缺、價格或供應分配；這些字眼在來源裡是明確出現的。',
+      '所以週報可以把記憶體列為封面故事，但不直接推論到單一料號缺料；下一步仍要靠內部 forecast 和供應商報價確認。',
+    ];
+  }
+  if (categoryId === 'C03') {
+    return [
+      `本段只整理來源能直接支持的內容：${sourceText}。`,
+      '從可讀內容看，MOSFET 的訊號主要來自公開報告，文字集中在供應風險、交期、Nexperia 或低壓 MOSFET，而不是大量新聞同步爆發。',
+      '所以週報把功率元件列為觀察項目即可，不把它寫成全面缺料；真正要追的是公司常用 MOSFET 是否落在這些來源提到的範圍。',
+    ];
+  }
+  return [
+    `本段只整理來源能直接支持的內容：${sourceText}。`,
+    '這類目前可以當成供應鏈背景訊號，但還不適合直接寫成缺料結論。',
+  ];
+}
+
 function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number], evidence: string[]) {
   const category = signal.category;
 
   if (signal.categoryId === 'C01') {
-    const sourceText = evidenceSentence(evidence, '本週來源主要提到 MLCC 與高端被動元件供應緊張。');
     return {
       category,
       headline: 'MLCC 不是全面警報，但高容值料要先問交期',
-      story: [
-        `這段判斷主要來自本週幾則直接點名 MLCC 的來源：${sourceText}。這些標題和摘要共同提到的關鍵字，是 AI 需求、高端被動元件供應緊張、交貨時間拉長，以及 MLCC 短缺加劇。`,
-        '因此，這裡不能直接寫成「所有電容都缺」。從來源文字能確認的是，市場正在把焦點放到 MLCC，尤其是高端或需求較強的被動元件；至於是否擴大到所有電容，來源目前沒有提供足夠證據。',
-        '對公司來說，比較務實的讀法是先把 MLCC 從一般電容裡拉出來看。若現有案子用量大，或客戶近期有拉貨，先確認 MLCC 可供量與交期，比把整個電容類別都升成缺料警報更準確。',
-      ],
+      story: categoryEvidenceSummary(signal.categoryId, evidence),
       suggestedMove: '這週先不要把所有電容都拉警報，先針對 MLCC，尤其是用量大的案子，確認交期與可供量。',
       evidence,
     };
   }
 
   if (signal.categoryId === 'C04') {
-    const sourceText = evidenceSentence(evidence, '本週來源主要提到記憶體晶片短缺、價格影響與供應分配。');
     return {
       category,
       headline: '記憶體類要先看 DDR / Flash 成本與交期壓力',
-      story: [
-        `記憶體的判斷來自幾則比較明確的新聞與報告：${sourceText}。來源文字直接提到記憶體晶片短缺、價格影響、AI 需求，以及記憶體供應分配對 BOM 成本與交期的影響。`,
-        '這些訊息放在一起看，比較能支持的結論是：記憶體的成本與可供量正在變得敏感。它還不是逐顆料號的缺料判定，但已經足以提醒用到 DRAM、DDR 或 Flash 的案子，不能只看現在報價，還要看後續價格與交期是否變動。',
-        '對公司來說，這一段的重點是 forecast 討論要提前。若客戶近期有拉貨、需求上修，或產品本身用到記憶體，採購與 PM 應先把價格和交期風險寫進討論，而不是等成本變動後才回頭解釋。',
-      ],
+      story: categoryEvidenceSummary(signal.categoryId, evidence),
       suggestedMove: '先看最近需求上修或客戶拉貨的案子，有沒有用到 DDR、DRAM 或 Flash。若有，這週就把價格和交期風險放進 forecast，不要等報價變動才討論。',
       evidence,
     };
   }
 
   if (signal.categoryId === 'C03') {
-    const sourceText = evidenceSentence(evidence, '本週公開報告主要提到 MOSFET 交期、Nexperia 風險與低壓 MOSFET 供應分配。');
     return {
       category,
       headline: '功率分離式元件先列為觀察，不急著升級成缺料',
-      story: [
-        `功率元件這段主要根據公開報告，而不是大量新聞：${sourceText}。來源文字提到 MOSFET 供應風險、離散元件交期、Nexperia 風險，以及低壓 MOSFET 可能面臨供應分配。`,
-        '這些訊息能支持「先列入觀察」，但還不足以支持「全面缺料」。和記憶體、MLCC 相比，這類來源數量較少，訊號也比較集中在公開報告，因此週報應該把語氣放輕，避免把觀察訊號寫成缺料結論。',
-        '對公司來說，比較合理的下一步是先查常用 MOSFET 的授權通路和可供量。若常用料號剛好和 Nexperia、Infineon、onsemi 等供應商相關，再往料號層級確認會比較有意義。',
-      ],
+      story: categoryEvidenceSummary(signal.categoryId, evidence),
       suggestedMove: 'MOSFET 先不要當成全面缺料，但常用的 Nexperia、Infineon、onsemi 料號可以先問授權通路。工程端先把替代料清單留在手邊即可。',
       evidence,
     };
@@ -309,6 +468,13 @@ function reportSummary(report: any) {
     return '報告提到 MOSFET 相關供應有產能受限或配給風險，建議先確認常用功率料的通路供應。';
   }
   return cleaned;
+}
+
+async function reportEvidence(report: any) {
+  const source = report.source || '公開報告';
+  const rawText = cleanEvidenceText(report.evidenceTextZh || report.evidenceText || report.summaryZh || report.titleZh || report.title || '公開報告提到此類別');
+  const text = await translateTextToZh(rawText);
+  return `${source}：${text}`;
 }
 
 function categoryReportNotes(categoryId: string, reports: any[]) {
@@ -414,8 +580,20 @@ function sourceDateLabel(value: string | null | undefined, kind: '新聞' | 'PCN
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  const label = kind === '公開報告' ? '報告時間' : '新聞時間';
+  const label = kind === '公開報告' ? '報告時間' : kind === 'PCN/EOL' ? 'PCN/EOL 時間' : '新聞時間';
   return `${label} ${formatDate(date)}`;
+}
+
+function reportSourceDateLabel(report: any) {
+  if (report.publishedAt) {
+    const date = new Date(report.publishedAt);
+    if (!Number.isNaN(date.getTime())) return `報告日期 ${formatDate(date)}`;
+  }
+  if (report.fetchedAt) {
+    const date = new Date(report.fetchedAt);
+    if (!Number.isNaN(date.getTime())) return `報告日期未標示｜擷取日期 ${formatDate(date)}`;
+  }
+  return '報告日期未標示';
 }
 
 function shortCategoryName(label: string) {
@@ -522,17 +700,18 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     '如果手上的專案正在用到這些類別，請先確認未來 4-8 週需求是否有上修；沒有用到的團隊只需要知道方向，不必逐顆料號追查。',
   ];
 
-  const executiveItems = executiveSignals.map((signal) => {
+  const executiveItems = await Promise.all(executiveSignals.map(async (signal) => {
+    const reportEvidenceList = await Promise.all(marketReports
+      .filter((item: any) => item.categoryIds?.includes(signal.categoryId))
+      .slice(0, 2)
+      .map((item: any) => reportEvidence(item)));
     const evidence = [
-      ...categoryEvidence(signal.categoryId, shortageNews, 2),
-      ...categoryEvidence(signal.categoryId, lifecycleNews, 1),
-      ...marketReports
-        .filter((item: any) => item.categoryIds?.includes(signal.categoryId))
-        .slice(0, 2)
-        .map((item: any) => `${item.source || '公開報告'}：${reportSummary(item) || '公開報告提到此類別'}`),
+      ...(await categoryEvidence(signal.categoryId, shortageNews, 2)),
+      ...(await categoryEvidence(signal.categoryId, lifecycleNews, 1)),
+      ...reportEvidenceList,
     ].slice(0, 4);
     return buildExecutiveItem(signal, evidence);
-  });
+  }));
 
   const newsHighlights = shortageNews.slice(0, 5).map((item: any) => ({
     title: pickTitle(item),
@@ -588,8 +767,8 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
         title: reportHeadline(report),
         source: report.source || '公開報告',
         url: report.url || '#',
-        publishedAt: report.publishedAt || null,
-        dateLabel: sourceDateLabel(report.publishedAt, '公開報告'),
+        publishedAt: report.publishedAt || report.fetchedAt || null,
+        dateLabel: reportSourceDateLabel(report),
         kind: '公開報告' as const,
       })),
   ]).slice(0, 12);
