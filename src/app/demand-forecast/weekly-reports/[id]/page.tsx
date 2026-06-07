@@ -113,7 +113,14 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                         {item.dateLabel && <span style={{ fontWeight: 750, color: '#475467' }}>{item.dateLabel}</span>}
                       </span>
                     </span>
-                    <span style={{ whiteSpace: 'nowrap', borderRadius: 999, padding: '3px 8px', background: '#F0FDF4', color: '#0F766E', fontSize: 11, fontWeight: 800 }}>{item.kind}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      {item.dateLabel && (
+                        <span style={{ whiteSpace: 'nowrap', borderRadius: 999, padding: '3px 8px', background: '#F2F4F7', color: '#344054', fontSize: 11, fontWeight: 800 }}>
+                          {item.dateLabel.replace(/^新聞時間\s*/, '').replace(/^報告時間\s*/, '')}
+                        </span>
+                      )}
+                      <span style={{ whiteSpace: 'nowrap', borderRadius: 999, padding: '3px 8px', background: '#F0FDF4', color: '#0F766E', fontSize: 11, fontWeight: 800 }}>{item.kind}</span>
+                    </span>
                   </a>
                 ))}
               </div>
