@@ -352,7 +352,7 @@ function sourceLinkKey(item: { title: string; source: string; url: string }) {
   return item.url && item.url !== '#' ? item.url : `${item.source}-${item.title}`;
 }
 
-function uniqueSourceLinks(items: Array<{ title: string; source: string; url: string; kind: '新聞' | 'PCN/EOL' | '公開報告' }>) {
+function uniqueSourceLinks<T extends { title: string; source: string; url: string; kind: '新聞' | 'PCN/EOL' | '公開報告' }>(items: T[]): T[] {
   const seen = new Set<string>();
   return items.filter((item) => {
     const key = sourceLinkKey(item);
