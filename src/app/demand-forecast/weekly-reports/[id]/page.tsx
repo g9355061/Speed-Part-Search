@@ -90,7 +90,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             )}
           </ArticleSection>
 
-          <ArticleSection eyebrow="企業該怎麼做" title="給採購、工程與 PM 的提醒">
+          <ArticleSection eyebrow="封面故事後續" title="這週先做這幾件事">
             <div style={{ display: 'grid', gap: 10 }}>
               {report.executiveItems.map((item) => (
                 <div key={`${item.category}-${item.suggestedMove}`} style={{ border: '1px solid #D1FAE5', borderLeft: '4px solid #0F766E', borderRadius: 8, padding: '12px 14px', background: '#F0FDF4', fontSize: 15, lineHeight: 1.7, color: 'var(--text)', fontWeight: 700 }}>

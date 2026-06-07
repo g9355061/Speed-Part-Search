@@ -184,7 +184,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
       category,
       headline: 'MLCC 不是全面警報，但高容值料要先問交期',
       whyItMatters: 'AI 伺服器與高功率產品用到更多高容值 MLCC，市場開始提醒交期可能拉長。這不是所有電容都缺，而是高容值、小尺寸或車規料要先確認。',
-      suggestedMove: '採購先針對高容值、小尺寸、車規或高用量 MLCC 問供應商交期與可供量；工程同步確認是否有可替代封裝或容量組合。',
+      suggestedMove: '這週先別把所有電容都拉警報，先挑高容值、小尺寸、車規或用量大的 MLCC 問交期。若供應商開始保守，工程再同步看替代封裝或容量組合。',
       evidence,
     };
   }
@@ -194,7 +194,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
       category,
       headline: '記憶體類要先看 DDR / Flash 成本與交期壓力',
       whyItMatters: 'AI 伺服器需求正在推高記憶體用量，DDR4 供應變化也可能影響電腦、車用與工控產品成本。若專案用到 DRAM、DDR 或 Flash，未來幾週的價格與交期需要先確認。',
-      suggestedMove: 'PM 和採購先盤點近期需求上修的案子是否使用 DDR、DRAM、Flash；若有客戶拉貨，先把價格與交期風險寫進 forecast 討論。',
+      suggestedMove: '先看最近需求上修或客戶拉貨的案子，有沒有用到 DDR、DRAM 或 Flash。若有，這週就把價格和交期風險放進 forecast，不要等報價變動才討論。',
       evidence,
     };
   }
@@ -204,7 +204,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
       category,
       headline: '功率分離式元件先列為觀察，不急著升級成缺料',
       whyItMatters: '目前看到的是公開報告提醒 MOSFET 等功率元件可能有供應風險，但還沒有形成明顯新聞熱度。比較合理的做法是先問供應商，不必直接判定為缺料。',
-      suggestedMove: '採購先確認 Nexperia、Infineon、onsemi 等常用功率料的授權通路供應；工程保留替代料清單即可。',
+      suggestedMove: 'MOSFET 先不要當成全面缺料，但常用的 Nexperia、Infineon、onsemi 料號可以先問授權通路。工程端先把替代料清單留在手邊即可。',
       evidence,
     };
   }
@@ -214,7 +214,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
       category,
       headline: `${category} 主要是生命週期訊號，請先查是否影響現有設計`,
       whyItMatters: '這類比較不是市場缺料，而是可能有產品變更、停產或不建議新設計使用的通知。重點不是搶料，而是先確認現有設計會不會受影響。',
-      suggestedMove: '工程先比對目前專案 BOM 是否有使用；若有，再請採購確認 LTB、替代料與最後下單時間。',
+      suggestedMove: '先比對現有 BOM 是否真的用到這類料。若有，再確認最後下單時間、替代料和是否需要提前通知客戶。',
       evidence,
     };
   }
@@ -223,7 +223,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     category,
     headline: `${category} 有外部訊號，先列入下週追蹤`,
     whyItMatters: '這類本週有外部消息提到，但訊號還不夠強，不適合直接下缺料結論。先觀察是否有更多來源或供應商交期變化。',
-    suggestedMove: '先追蹤一週，看是否出現第二個來源或供應商交期變化，再決定是否升級處理。',
+    suggestedMove: '先把它放進下週觀察清單。若又出現第二個來源，或供應商開始改交期，再升級處理。',
     evidence,
   };
 }
@@ -480,22 +480,9 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     summary: reportNarrative(report),
   }));
 
-  const recommendedActions = riskLevel === 'high'
-    ? [
-        '採購：先不用全線緊張，但請把被多個來源提到的類別拉出來問交期和可供量。',
-        '工程：如果這些類別剛好在新案或熱賣案裡，先看一下替代料和 AVL 有沒有準備好。',
-        'PM / 業務：如果客戶近期有拉貨或需求上修，請先提醒供應鏈，不要等到料號層級才處理。',
-      ]
-    : riskLevel === 'medium'
-      ? [
-          '採購：先追蹤被點名的類別，不需要大動作，但下週要看訊號有沒有增加。',
-          '工程：先確認是否有專案用到這些類別，若有，再往料號層級追。',
-          'PM / 業務：若有急單或 forecast 上修，請特別標註相關類別。',
-        ]
-      : [
-          '本週可以維持例行監控，不需要額外升級。',
-          '下週繼續看外部新聞、PCN 或 EOL、公開報告是否有連續出現。',
-        ];
+  const recommendedActions = executiveItems.length > 0
+    ? []
+    : ['本週沒有明顯封面故事，維持例行監控即可；下週再看新聞、PCN/EOL 和公開報告是否連續出現。'];
 
   return {
     id,
