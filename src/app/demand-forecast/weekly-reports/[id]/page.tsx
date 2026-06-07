@@ -23,6 +23,17 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function formatSourceDate(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 export default async function WeeklyReportPage({ params }: { params: { id: string } }) {
   const report = await buildWeeklyReport();
   if (params.id !== report.id) notFound();
@@ -108,7 +119,10 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                   <a key={`${item.kind}-${item.source}-${item.url}`} href={item.url} target="_blank" rel="noreferrer" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', border: '1px solid var(--hairline)', borderRadius: 8, padding: '10px 12px', background: '#fff', color: 'inherit', textDecoration: 'none' }}>
                     <span style={{ minWidth: 0 }}>
                       <strong style={{ display: 'block', fontSize: 13, lineHeight: 1.45, color: 'var(--text)' }}>{item.title}</strong>
-                      <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--text-3)' }}>{item.source}</span>
+                      <span style={{ display: 'block', marginTop: 3, fontSize: 11.5, color: 'var(--text-3)' }}>
+                        {item.source}
+                        {formatSourceDate(item.publishedAt) ? ` · ${item.kind === '公開報告' ? '報告時間' : '新聞時間'} ${formatSourceDate(item.publishedAt)}` : ''}
+                      </span>
                     </span>
                     <span style={{ whiteSpace: 'nowrap', borderRadius: 999, padding: '3px 8px', background: '#F0FDF4', color: '#0F766E', fontSize: 11, fontWeight: 800 }}>{item.kind}</span>
                   </a>

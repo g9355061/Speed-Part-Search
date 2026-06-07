@@ -104,6 +104,7 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     title: string;
     source: string;
     url: string;
+    publishedAt: string | null;
     kind: '新聞' | 'PCN/EOL' | '公開報告';
   }>;
   recommendedActions: string[];
@@ -508,6 +509,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
         title: pickTitle(item),
         source: item.source || 'RSS 新聞',
         url: item.link || '#',
+        publishedAt: item.publishedAt || null,
         kind: '新聞' as const,
       })),
     ...lifecycleNews
@@ -517,6 +519,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
         title: pickTitle(item),
         source: item.source || 'PCN/EOL 新聞',
         url: item.link || '#',
+        publishedAt: item.publishedAt || null,
         kind: 'PCN/EOL' as const,
       })),
     ...marketReports
@@ -526,6 +529,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
         title: reportHeadline(report),
         source: report.source || '公開報告',
         url: report.url || '#',
+        publishedAt: report.publishedAt || null,
         kind: '公開報告' as const,
       })),
   ]).slice(0, 12);
