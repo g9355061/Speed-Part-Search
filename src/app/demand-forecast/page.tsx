@@ -301,15 +301,6 @@ const CATEGORY_LABELS: Record<string, { zh: string; en: string }> = {
   C15: { zh: '散熱 / 風扇 / 電源模組', en: 'Thermal / Fan / Power Module' },
 };
 
-// 依 API lifecycleStatus 判定生命週期風險等級：high=停產/最後採購，medium=NRND
-const getLifecycleFlag = (status?: string | null): 'high' | 'medium' | null => {
-  if (!status) return null;
-  const s = status.toLowerCase();
-  if (/obsolete|discontinued|end.of.life|eol|last.time.buy|\bltb\b|not for new/.test(s)) return 'high';
-  if (/nrnd|not recommended/.test(s)) return 'medium';
-  return null;
-};
-
 function categoryName(categoryId: string, fallback: string) {
   const label = CATEGORY_LABELS[categoryId];
   return label ? `${label.zh}（${label.en}）` : fallback;
@@ -571,12 +562,6 @@ export default function DemandForecastPage() {
     summary: '正常' as const,
   }));
   const riskCategories = shortageCategorySummary.filter((item) => item.summary === '有缺料風險').length;
-  const lifecycleCategorySummary: CategorySummary[] = data?.lifecycleCategorySummary ?? DEMAND_CATEGORIES.map((cat) => ({
-    ...cat,
-    newsCount: 0,
-    riskNewsCount: 0,
-    summary: '正常' as const,
-  }));
   const marketCategorySummary = useMemo(() => {
     return DEMAND_CATEGORIES.map((cat) => {
       const catReports = marketReports.filter((r: any) => r.categoryIds.includes(cat.categoryId));
@@ -592,12 +577,6 @@ export default function DemandForecastPage() {
     });
   }, [marketReports, categoryMarketSignal]);
   const shortageNewsCount = (data?.news ?? []).filter((item) => item.riskHit).length;
-  // 生命週期：改用料件 API 的 lifecycleStatus（權威），不再用 RSS 新聞
-  const lifecycleFlaggedParts = useMemo(
-    () => parts.filter((p) => getLifecycleFlag(p.lifecycleStatus) !== null),
-    [parts]
-  );
-  const lifecycleNewsCount = lifecycleFlaggedParts.length;
   const updatedAt = data?.updatedAt ? new Date(data.updatedAt).toLocaleString() : '尚未更新';
   const newsByCategory = useMemo(() => {
     const map = new Map<string, ForecastNews[]>();
@@ -608,24 +587,11 @@ export default function DemandForecastPage() {
     }
     return map;
   }, [data?.news]);
-  const lifecycleByCategory = useMemo(() => {
-    const map = new Map<string, ForecastNews[]>();
-    for (const item of data?.lifecycleNews ?? []) {
-      for (const categoryId of item.categoryIds) {
-        map.set(categoryId, [...(map.get(categoryId) ?? []), item]);
-      }
-    }
-    return map;
-  }, [data?.lifecycleNews]);
   const displayNews = useMemo(() => {
     const riskNews = (data?.news ?? []).filter((item) => item.riskHit);
     if (category === 'all') return riskNews;
     return riskNews.filter((item) => item.categoryIds.includes(category));
   }, [data?.news, category]);
-  const displayLifecycleParts = useMemo(() => {
-    if (category === 'all') return lifecycleFlaggedParts;
-    return lifecycleFlaggedParts.filter((p) => p.categoryId === category);
-  }, [lifecycleFlaggedParts, category]);
 
   // Client-side translation: translate any remaining English titles/snippets
   const translatedDisplayNews = useClientTranslatedNews(displayNews);
@@ -670,7 +636,6 @@ export default function DemandForecastPage() {
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 18 }}>
           <Metric label="資料模式" value={mode === 'full' ? '新聞 + 供應商資料' : mode === 'cached' ? '快取資料' : '新聞'} />
           <Metric label="缺料新聞" value={`${shortageNewsCount}`} />
-          <Metric label="生命週期訊號" value={`${lifecycleNewsCount}`} tone={lifecycleNewsCount > 0 ? 'risk' : 'normal'} />
           <Metric label="新聞風險類別" value={`${riskCategories} / ${DEMAND_CATEGORIES.length}`} tone={riskCategories > 0 ? 'risk' : 'normal'} />
           <Metric label="風險料件" value={`${riskParts} / ${parts.length}`} tone={riskParts > 0 ? 'risk' : 'normal'} />
         </section>
@@ -683,7 +648,7 @@ export default function DemandForecastPage() {
         <section style={{ marginBottom: 20 }}>
           <Panel title="缺料預測風險對照矩陣" tone="api">
             <p style={{ margin: '0 0 14px 0', fontSize: 13, color: 'var(--text-3)' }}>
-              整合三種預警偵測管道（RSS 新聞、原廠生命週期公告、實時通路代理商庫存）及市場情報佐證，橫向比對 15 個關鍵料件類別的缺料風險狀況：
+              整合兩種預警偵測管道（RSS 新聞、實時通路代理商庫存）及市場情報佐證，橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 12, background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, border: '1px solid var(--border)' }}>
               <div>
@@ -746,12 +711,6 @@ export default function DemandForecastPage() {
                       </div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
-                      <div>生命週期 (原廠 EOL/NRND)</div>
-                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        14 天內 ≥2 則含 EOL/PCN/停產關鍵字 → 風險
-                      </div>
-                    </th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
                       <div>實時通路庫存 (API)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         🔴 庫存=0、(庫存 &lt; 補貨水位 且 最短交期 &gt;= 20週) 或 7天庫存暴跌 &gt; 80%<br />
@@ -769,10 +728,8 @@ export default function DemandForecastPage() {
                 <tbody>
                   {DEMAND_CATEGORIES.map((cat) => {
                     const newsSum = shortageCategorySummary.find((s) => s.categoryId === cat.categoryId);
-                    const lifecycleSum = lifecycleCategorySummary.find((s) => s.categoryId === cat.categoryId);
                     const apiSum = data?.categorySummary?.find((s) => s.categoryId === cat.categoryId);
                     const newsRisk = newsSum?.summary === '有缺料風險';
-                    const lifecycleLevel: 'high' | 'medium' | 'none' = lifecycleSum?.summary === '有缺料風險' ? 'high' : lifecycleSum?.summary === '中風險' ? 'medium' : 'none';
                     const apiSummary: string = apiSum?.summary ?? '正常';
                     const hasApiCheck = apiSum && (apiSum.checkedPartCount ?? 0) > 0;
                     const catThresholds = thresholds[cat.categoryId] || { minStock: 1000, lowStock: 5000 };
@@ -809,14 +766,6 @@ export default function DemandForecastPage() {
                           style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
                         >
                           <RiskCellBadge level={newsRisk ? 'high' : 'none'} />
-                        </td>
-                        <td
-                          className="matrix-cell-interactive"
-                          title="點擊跳轉查看該類別的生命週期公告"
-                          onClick={() => handleMatrixClick(cat.categoryId, 'lifecycle-news-panel')}
-                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
-                        >
-                          <RiskCellBadge level={lifecycleLevel} highLabel="EOL 停產" medLabel="NRND" />
                         </td>
                         <td
                           className="matrix-cell-interactive"
@@ -869,24 +818,6 @@ export default function DemandForecastPage() {
             items={translatedDisplayNews}
             emptyText={category === 'all' ? '目前沒有缺料相關新聞。' : '此類別無缺料相關新聞。'}
             badge="缺料訊號"
-          />
-          <CategoryRiskPanel
-            id="lifecycle-category-panel"
-            title="生命週期風險總覽"
-            tone="lifecycle"
-            items={lifecycleCategorySummary}
-            category={category}
-            onSelect={setCategory}
-            relatedByCategory={lifecycleByCategory}
-            countLabel="EOL/NRND 料件"
-            riskLabel="原廠 EOL / NRND"
-            timeLabel="生命週期訊號時間"
-          />
-          <LifecyclePartsPanel
-            id="lifecycle-news-panel"
-            title={`生命週期風險：${selectedCategoryLabel}`}
-            parts={displayLifecycleParts}
-            emptyText={category === 'all' ? '目前沒有任何料件被原廠標示 EOL / NRND。' : '這個類別目前沒有 EOL / NRND 料件。'}
           />
           <MarketReportsCategoryPanel
             id="market-reports-category-panel"
@@ -1521,47 +1452,6 @@ function getLifecycleTags(title: string, titleZh?: string): LifecycleTag[] {
   }
 
   return tags;
-}
-
-// 生命週期受影響料件清單（資料來自供應商 API 的 lifecycleStatus，權威、零雜訊）
-function LifecyclePartsPanel({ title, parts, emptyText, id }: { title: string; parts: ForecastPart[]; emptyText: string; id?: string }) {
-  return (
-    <Panel title={title} tone="lifecycle" id={id}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, background: '#F4F3FF', color: '#5925DC', padding: '3px 10px', borderRadius: 999, border: '1px solid #E8E5FF' }}>
-          原廠標示 EOL / NRND
-        </span>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>共 {parts.length} 顆</span>
-      </div>
-      {parts.length === 0 ? (
-        <EmptyLine text={emptyText} />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {parts.map((p) => {
-            const isHigh = getLifecycleFlag(p.lifecycleStatus) === 'high';
-            const chip = isHigh
-              ? { bg: '#FFF1F0', color: '#B42318', border: '#FECDCA', text: 'EOL 停產' }
-              : { bg: '#FFFAEB', color: '#B54708', border: '#FEDF89', text: 'NRND 不推薦' };
-            return (
-              <div key={`${p.categoryId}-${p.mpn}`} style={{ border: '1px solid var(--hairline)', borderRadius: 8, padding: '10px 12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, background: chip.bg, color: chip.color, padding: '2px 8px', borderRadius: 999, border: `1px solid ${chip.border}` }}>
-                    {chip.text}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text)' }}>{p.mpn}</span>
-                  <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{p.apiManufacturer || p.manufacturer}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
-                  {categoryName(p.categoryId, p.category)} · {p.description || p.family}
-                  {p.lifecycleStatus ? ` · 原廠狀態：${p.lifecycleStatus}` : ''}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </Panel>
-  );
 }
 
 function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string; tone: PanelTone; items: ForecastNews[]; emptyText: string; badge: string; id?: string }) {
