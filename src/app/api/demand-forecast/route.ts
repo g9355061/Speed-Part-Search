@@ -653,21 +653,51 @@ async function writeNewsCache(data: NewsCache) {
 }
 
 async function fetchAndCacheNews(): Promise<NewsCache> {
-  const [news, lifecycleNews] = await Promise.all([fetchIndustryNews(), fetchLifecycleNews()]);
+  // 只抓 RSS 缺料新聞；生命週期改用料件 API 的 lifecycleStatus 判定（見 buildLifecycleCategorySummaryFromParts），
+  // 不再抓噪音極高的 RSS PCN/EOL 新聞。
+  const news = await fetchIndustryNews();
   const newsCategorySummary = buildNewsCategorySummary(news);
-  const lifecycleCategorySummary = buildNewsCategorySummary(lifecycleNews);
   const cache: NewsCache = {
     updatedAt: new Date().toISOString(),
     news,
-    lifecycleNews,
+    lifecycleNews: [],
     newsCategorySummary,
-    lifecycleCategorySummary,
+    lifecycleCategorySummary: [],
   };
   await writeNewsCache(cache);
   return cache;
 }
 
 
+
+// 依供應商 API 的 lifecycleStatus 判定單顆料件的生命週期風險等級
+function lifecycleFlag(status?: string | null): 'high' | 'medium' | null {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  if (/obsolete|discontinued|end.of.life|eol|last.time.buy|\bltb\b|not for new/.test(s)) return 'high';
+  if (/nrnd|not recommended/.test(s)) return 'medium';
+  return null;
+}
+
+// 以料件 API 的 lifecycleStatus 建立「生命週期」類別摘要（取代 RSS 新聞，權威且零雜訊）
+function buildLifecycleCategorySummaryFromParts(parts: any[]) {
+  return DEMAND_CATEGORIES.map((cat) => {
+    const inCat = parts.filter((p) => p.categoryId === cat.categoryId);
+    let high = 0;
+    let med = 0;
+    for (const p of inCat) {
+      const f = lifecycleFlag(p.lifecycleStatus);
+      if (f === 'high') high++;
+      else if (f === 'medium') med++;
+    }
+    return {
+      ...cat,
+      newsCount: high + med,
+      riskNewsCount: high,
+      summary: (high > 0 ? '有缺料風險' : med > 0 ? '中風險' : '正常') as '正常' | '有缺料風險' | '中風險',
+    };
+  });
+}
 
 export async function GET(req: NextRequest) {
   const mode = req.nextUrl.searchParams.get('mode') ?? 'cached';
@@ -685,15 +715,16 @@ export async function GET(req: NextRequest) {
     const emptyParts = BENCHMARK_PARTS.map((part) => ({
       ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null, summary: '尚未查詢', riskReasons: [],
     }));
+    const cachedParts = partsCache?.parts ?? emptyParts;
     return NextResponse.json({
       updatedAt: newsCache?.updatedAt ?? partsCache?.updatedAt ?? new Date().toISOString(),
       mode,
       news: newsCache?.news ?? [],
-      lifecycleNews: newsCache?.lifecycleNews ?? [],
+      lifecycleNews: [],
       categorySummary: partsCache?.categorySummary ?? emptyCategories,
       newsCategorySummary: newsCache?.newsCategorySummary ?? emptyCategories,
-      lifecycleCategorySummary: newsCache?.lifecycleCategorySummary ?? emptyCategories,
-      parts: partsCache?.parts ?? emptyParts,
+      lifecycleCategorySummary: buildLifecycleCategorySummaryFromParts(cachedParts),
+      parts: cachedParts,
     });
   }
 
@@ -707,17 +738,18 @@ export async function GET(req: NextRequest) {
     const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
       ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
     }));
+    const summaryParts = partsCache?.parts ?? BENCHMARK_PARTS.map((part) => ({
+      ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null, summary: '尚未查詢', riskReasons: [],
+    }));
     return NextResponse.json({
       updatedAt: newsData.updatedAt,
       mode,
       news: newsData.news,
-      lifecycleNews: newsData.lifecycleNews,
+      lifecycleNews: [],
       categorySummary: partsCache?.categorySummary ?? emptyCategories,
       newsCategorySummary: newsData.newsCategorySummary,
-      lifecycleCategorySummary: newsData.lifecycleCategorySummary,
-      parts: partsCache?.parts ?? BENCHMARK_PARTS.map((part) => ({
-        ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null, summary: '尚未查詢', riskReasons: [],
-      })),
+      lifecycleCategorySummary: buildLifecycleCategorySummaryFromParts(summaryParts),
+      parts: summaryParts,
     });
   }
 
@@ -810,10 +842,10 @@ export async function GET(req: NextRequest) {
     updatedAt,
     mode,
     news: newsData.news,
-    lifecycleNews: newsData.lifecycleNews,
+    lifecycleNews: [],
     categorySummary,
     newsCategorySummary: newsData.newsCategorySummary,
-    lifecycleCategorySummary: newsData.lifecycleCategorySummary,
+    lifecycleCategorySummary: buildLifecycleCategorySummaryFromParts(parts),
     parts,
   });
 }

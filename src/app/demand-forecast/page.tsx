@@ -301,6 +301,15 @@ const CATEGORY_LABELS: Record<string, { zh: string; en: string }> = {
   C15: { zh: '散熱 / 風扇 / 電源模組', en: 'Thermal / Fan / Power Module' },
 };
 
+// 依 API lifecycleStatus 判定生命週期風險等級：high=停產/最後採購，medium=NRND
+const getLifecycleFlag = (status?: string | null): 'high' | 'medium' | null => {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  if (/obsolete|discontinued|end.of.life|eol|last.time.buy|\bltb\b|not for new/.test(s)) return 'high';
+  if (/nrnd|not recommended/.test(s)) return 'medium';
+  return null;
+};
+
 function categoryName(categoryId: string, fallback: string) {
   const label = CATEGORY_LABELS[categoryId];
   return label ? `${label.zh}（${label.en}）` : fallback;
@@ -583,7 +592,12 @@ export default function DemandForecastPage() {
     });
   }, [marketReports, categoryMarketSignal]);
   const shortageNewsCount = (data?.news ?? []).filter((item) => item.riskHit).length;
-  const lifecycleNewsCount = (data?.lifecycleNews ?? []).filter((item) => item.riskHit).length;
+  // 生命週期：改用料件 API 的 lifecycleStatus（權威），不再用 RSS 新聞
+  const lifecycleFlaggedParts = useMemo(
+    () => parts.filter((p) => getLifecycleFlag(p.lifecycleStatus) !== null),
+    [parts]
+  );
+  const lifecycleNewsCount = lifecycleFlaggedParts.length;
   const updatedAt = data?.updatedAt ? new Date(data.updatedAt).toLocaleString() : '尚未更新';
   const newsByCategory = useMemo(() => {
     const map = new Map<string, ForecastNews[]>();
@@ -608,15 +622,13 @@ export default function DemandForecastPage() {
     if (category === 'all') return riskNews;
     return riskNews.filter((item) => item.categoryIds.includes(category));
   }, [data?.news, category]);
-  const displayLifecycleNews = useMemo(() => {
-    const riskNews = (data?.lifecycleNews ?? []).filter((item) => item.riskHit);
-    if (category === 'all') return riskNews;
-    return riskNews.filter((item) => item.categoryIds.includes(category));
-  }, [data?.lifecycleNews, category]);
+  const displayLifecycleParts = useMemo(() => {
+    if (category === 'all') return lifecycleFlaggedParts;
+    return lifecycleFlaggedParts.filter((p) => p.categoryId === category);
+  }, [lifecycleFlaggedParts, category]);
 
   // Client-side translation: translate any remaining English titles/snippets
   const translatedDisplayNews = useClientTranslatedNews(displayNews);
-  const translatedDisplayLifecycleNews = useClientTranslatedNews(displayLifecycleNews);
 
   const selectedCategoryLabel = category === 'all'
     ? '全部類別'
@@ -734,7 +746,7 @@ export default function DemandForecastPage() {
                       </div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
-                      <div>生命週期公告 (PCN/EOL)</div>
+                      <div>生命週期 (原廠 EOL/NRND)</div>
                       <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
                         14 天內 ≥2 則含 EOL/PCN/停產關鍵字 → 風險
                       </div>
@@ -760,7 +772,7 @@ export default function DemandForecastPage() {
                     const lifecycleSum = lifecycleCategorySummary.find((s) => s.categoryId === cat.categoryId);
                     const apiSum = data?.categorySummary?.find((s) => s.categoryId === cat.categoryId);
                     const newsRisk = newsSum?.summary === '有缺料風險';
-                    const lifecycleRisk = lifecycleSum?.summary === '有缺料風險';
+                    const lifecycleLevel: 'high' | 'medium' | 'none' = lifecycleSum?.summary === '有缺料風險' ? 'high' : lifecycleSum?.summary === '中風險' ? 'medium' : 'none';
                     const apiSummary: string = apiSum?.summary ?? '正常';
                     const hasApiCheck = apiSum && (apiSum.checkedPartCount ?? 0) > 0;
                     const catThresholds = thresholds[cat.categoryId] || { minStock: 1000, lowStock: 5000 };
@@ -804,7 +816,7 @@ export default function DemandForecastPage() {
                           onClick={() => handleMatrixClick(cat.categoryId, 'lifecycle-news-panel')}
                           style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
                         >
-                          <RiskCellBadge level={lifecycleRisk ? 'high' : 'none'} highLabel="有異動風險" />
+                          <RiskCellBadge level={lifecycleLevel} highLabel="EOL 停產" medLabel="NRND" />
                         </td>
                         <td
                           className="matrix-cell-interactive"
@@ -866,17 +878,15 @@ export default function DemandForecastPage() {
             category={category}
             onSelect={setCategory}
             relatedByCategory={lifecycleByCategory}
-            countLabel="公告新聞"
-            riskLabel="PCN / EOL / NRND"
+            countLabel="EOL/NRND 料件"
+            riskLabel="原廠 EOL / NRND"
             timeLabel="生命週期訊號時間"
           />
-          <NewsPanel
+          <LifecyclePartsPanel
             id="lifecycle-news-panel"
             title={`生命週期風險：${selectedCategoryLabel}`}
-            tone="lifecycle"
-            items={translatedDisplayLifecycleNews}
-            emptyText={category === 'all' ? '目前沒有抓到 PCN / EOL / NRND 訊號。' : '這個類別目前沒有對應的 PCN / EOL / NRND 訊號。'}
-            badge="PCN / EOL"
+            parts={displayLifecycleParts}
+            emptyText={category === 'all' ? '目前沒有任何料件被原廠標示 EOL / NRND。' : '這個類別目前沒有 EOL / NRND 料件。'}
           />
           <MarketReportsCategoryPanel
             id="market-reports-category-panel"
@@ -1511,6 +1521,47 @@ function getLifecycleTags(title: string, titleZh?: string): LifecycleTag[] {
   }
 
   return tags;
+}
+
+// 生命週期受影響料件清單（資料來自供應商 API 的 lifecycleStatus，權威、零雜訊）
+function LifecyclePartsPanel({ title, parts, emptyText, id }: { title: string; parts: ForecastPart[]; emptyText: string; id?: string }) {
+  return (
+    <Panel title={title} tone="lifecycle" id={id}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, background: '#F4F3FF', color: '#5925DC', padding: '3px 10px', borderRadius: 999, border: '1px solid #E8E5FF' }}>
+          原廠標示 EOL / NRND
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>共 {parts.length} 顆</span>
+      </div>
+      {parts.length === 0 ? (
+        <EmptyLine text={emptyText} />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {parts.map((p) => {
+            const isHigh = getLifecycleFlag(p.lifecycleStatus) === 'high';
+            const chip = isHigh
+              ? { bg: '#FFF1F0', color: '#B42318', border: '#FECDCA', text: 'EOL 停產' }
+              : { bg: '#FFFAEB', color: '#B54708', border: '#FEDF89', text: 'NRND 不推薦' };
+            return (
+              <div key={`${p.categoryId}-${p.mpn}`} style={{ border: '1px solid var(--hairline)', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, background: chip.bg, color: chip.color, padding: '2px 8px', borderRadius: 999, border: `1px solid ${chip.border}` }}>
+                    {chip.text}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text)' }}>{p.mpn}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{p.apiManufacturer || p.manufacturer}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                  {categoryName(p.categoryId, p.category)} · {p.description || p.family}
+                  {p.lifecycleStatus ? ` · 原廠狀態：${p.lifecycleStatus}` : ''}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Panel>
+  );
 }
 
 function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string; tone: PanelTone; items: ForecastNews[]; emptyText: string; badge: string; id?: string }) {
