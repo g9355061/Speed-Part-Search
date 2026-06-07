@@ -99,7 +99,6 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     url: string;
     publishedAt: string | null;
     summary: string;
-    comment: string;
   }>;
   recommendedActions: string[];
 }
@@ -229,14 +228,23 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   };
 }
 
-function describeCategorySignal(newsCount: number, lifecycleCount: number, marketReportCount: number) {
+function describeCategorySignal(categoryId: string, newsCount: number, lifecycleCount: number, marketReportCount: number) {
+  if (categoryId === 'C03') {
+    return '功率元件這週沒有爆出大新聞，但幾份通路報告開始把 MOSFET 拉出來講。這通常不是立刻缺料，而是供應鏈水溫先升高。';
+  }
+  if (categoryId === 'C04') {
+    return '記憶體的訊號比較像需求端先動起來，AI 伺服器把 DRAM、DDR、Flash 的用量往上推，供應商也開始提醒分配與成本壓力。';
+  }
+  if (categoryId === 'C01') {
+    return 'MLCC 目前不是全面吃緊，比較像高容值、用量大的料先被市場盯上。若案子用到小尺寸高容值電容，就值得先看一下庫存。';
+  }
   const pieces = [];
   if (newsCount > 0) pieces.push(`${newsCount} 則缺料/交期新聞`);
   if (lifecycleCount > 0) pieces.push(`${lifecycleCount} 則 PCN 或 EOL 公告`);
   if (marketReportCount > 0) pieces.push(`${marketReportCount} 份公開報告`);
   if (pieces.length === 0) return '本週暫時沒有特別訊號。';
-  if (pieces.length >= 2) return `這類本週有不只一種來源提到：${pieces.join('、')}。建議先放進觀察清單。`;
-  return `這類本週有 ${pieces[0]}，先不用緊張，但值得保持追蹤。`;
+  if (pieces.length >= 2) return `這類本週被不同來源同時提到，包含 ${pieces.join('、')}。訊號還不到警報，但已經值得放進下週觀察。`;
+  return `這類本週只有 ${pieces[0]} 提到，訊號還很早，先當成背景提醒即可。`;
 }
 
 function reportSummary(report: any) {
@@ -253,14 +261,36 @@ function reportSummary(report: any) {
 }
 
 function categoryReportNotes(categoryId: string, reports: any[]) {
-  return reports
-    .filter((report) => report.categoryIds?.includes(categoryId))
-    .slice(0, 3)
-    .map((report) => {
-      const source = report.source || '公開報告';
-      const summary = reportSummary(report);
-      return summary ? `${source}：${summary}` : `${source}：提到此類別供應狀況需留意`;
-    });
+  const matchedReports = reports.filter((report) => report.categoryIds?.includes(categoryId)).slice(0, 3);
+  const sourceNames = matchedReports.map((report) => report.source || '公開報告');
+  if (matchedReports.length === 0) return [];
+
+  if (categoryId === 'C03') {
+    return [
+      `${sourceNames.join(' 和 ')} 都把焦點放在 MOSFET。PPSI 提到 Nexperia 供應風險與關稅挑戰，Future 則提到低壓 MOSFET 因市場變緊、庫存消耗，開始出現供應分配的味道。`,
+      '換句話說，這不像已經全面缺料，比較像市場先提醒大家：常用功率料不要等到急單才問，現在先確認通路會比較安心。',
+    ];
+  }
+
+  if (categoryId === 'C04') {
+    return [
+      `${sourceNames.join(' 和 ')} 都在講記憶體壓力。PPSI 把原因指向 AI 需求，Future 則提到 DRAM、Flash 供應可能進入分配，BOM 成本和交期都可能被推高。`,
+      '這類訊號對讀者的意思是：如果產品裡有 DDR、DRAM 或 Flash，接下來要注意的不是單一料號，而是整個記憶體成本曲線可能開始變硬。',
+    ];
+  }
+
+  if (categoryId === 'C01') {
+    return [
+      `${sourceNames.join(' 和 ')} 提到的是高容值 MLCC。重點不是所有電容都缺，而是庫存消耗加快、市場變緊後，高容值或高用量料可能先被配貨。`,
+      '如果現有案子大量使用小尺寸、高容值或車規 MLCC，這週可以先把可供量問起來；一般低用量電容則不需要過度反應。',
+    ];
+  }
+
+  return matchedReports.map((report) => {
+    const source = report.source || '公開報告';
+    const summary = reportSummary(report);
+    return summary ? `${source} 提到：${summary}` : `${source} 提到此類別供應狀況需要留意。`;
+  });
 }
 
 function reportCategoryIds(report: any): string[] {
@@ -271,21 +301,29 @@ function reportCategoryNames(report: any) {
   return reportCategoryIds(report).map((categoryId) => categoryLabel(categoryId)).join('、');
 }
 
-function reportComment(report: any) {
+function reportNarrative(report: any) {
   const categoryIds = reportCategoryIds(report);
+  const source = report.source || '公開報告';
+  const sourceText = source.includes('PPSI') ? 'PPSI' : source.includes('Future') ? 'Future' : source;
   if (categoryIds.includes('C04')) {
-    return '對公司來說，這代表用到 DRAM、DDR、Flash 的案子要先看需求是否有上修，採購也要提早問價格與交期。';
+    if (source.includes('PPSI')) {
+      return '這份報告把記憶體壓力和 AI 需求連在一起看。意思是伺服器端的拉貨如果持續，DRAM、DDR、Flash 的供應可能會先變成分配，再慢慢反映到 BOM 成本和交期。';
+    }
+    return 'Future 提醒的是記憶體與快閃記憶體的供應正在變緊，部分供應商已經開始配貨。這代表接下來幾週，用到 DDR、DRAM 或 Flash 的案子，要比平常更早確認價格和交期。';
   }
   if (categoryIds.includes('C01')) {
-    return '對公司來說，這不是所有電容都要搶料，而是高容值、小尺寸、車規或高用量 MLCC 要先確認可供量。';
+    return '這份報告講的不是所有電容都缺，而是高容值 MLCC 的庫存消耗比較快，供應商開始變得保守。對產品團隊來說，比較需要先看的會是小尺寸、高容值、車規或高用量的 MLCC。';
   }
   if (categoryIds.includes('C03')) {
-    return '對公司來說，這類功率料先不用直接判定缺料，但常用 MOSFET、Nexperia 或 onsemi 料號要先確認通路狀況。';
+    if (source.includes('PPSI')) {
+      return 'PPSI 這次把 MOSFET 交期、Nexperia 供應風險和關稅挑戰放在一起看。這還不是全面缺料警報，但已經像是市場在提醒：常用功率料最好先問一下通路狀況。';
+    }
+    return 'Future 看到的是低壓 MOSFET 因為市場變緊、庫存消耗，開始有供應分配的跡象。這類訊號通常會先從常用料和熱門封裝反映出來，不一定馬上擴散到全部功率元件。';
   }
   if (categoryIds.length > 0) {
-    return `對公司來說，這份報告主要影響 ${reportCategoryNames(report)}，若現有案子用到相關類別，建議先確認交期與替代料。`;
+    return `${sourceText} 這份報告主要提到 ${reportCategoryNames(report)}。如果現有案子剛好用到這些類別，先把交期、可供量和替代料問清楚，會比等到急單再追更穩。`;
   }
-  return '對公司來說，這份報告可作為供應風險的背景參考；若與現有 BOM 類別重疊，再進一步追料號。';
+  return `${sourceText} 這份報告可當成供應風險的背景參考；若內容剛好和現有 BOM 類別重疊，再進一步往料號層級確認。`;
 }
 
 function reportHeadline(report: any) {
@@ -360,7 +398,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       lifecycleCount,
       marketReportCount,
       tone,
-      plainText: describeCategorySignal(newsCount, lifecycleCount, marketReportCount),
+      plainText: describeCategorySignal(cat.categoryId, newsCount, lifecycleCount, marketReportCount),
       reportNotes,
     };
   }).filter((item) => item.newsCount > 0 || item.lifecycleCount > 0 || item.marketReportCount > 0)
@@ -439,8 +477,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     source: report.source || '公開報告',
     url: report.url || '#',
     publishedAt: report.publishedAt || null,
-    summary: reportSummary(report),
-    comment: reportComment(report),
+    summary: reportNarrative(report),
   }));
 
   const recommendedActions = riskLevel === 'high'

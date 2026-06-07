@@ -79,9 +79,6 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                     <div style={{ fontSize: 12, color: '#0F766E', fontWeight: 900, letterSpacing: '0.04em', marginBottom: 6 }}>{item.category}</div>
                     <h3 style={{ margin: '0 0 10px', fontSize: 22, lineHeight: 1.35, color: 'var(--text)' }}>{item.headline}</h3>
                     <p style={{ margin: '0 0 10px', fontSize: 15.5, lineHeight: 1.8, color: 'var(--text-2)' }}>{item.whyItMatters}</p>
-                    <div style={{ borderLeft: '4px solid #0F766E', background: '#F0FDF4', padding: '10px 12px', borderRadius: 6, fontSize: 15, lineHeight: 1.75, color: 'var(--text)', fontWeight: 700 }}>
-                      下一步：{item.suggestedMove}
-                    </div>
                     {item.evidence.length > 0 && (
                       <div style={{ display: 'grid', gap: 5, marginTop: 10, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-3)' }}>
                         {item.evidence.map((evidence) => <span key={evidence}>來源：{evidence}</span>)}
@@ -95,6 +92,12 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
 
           <ArticleSection eyebrow="企業該怎麼做" title="給採購、工程與 PM 的提醒">
             <div style={{ display: 'grid', gap: 10 }}>
+              {report.executiveItems.map((item) => (
+                <div key={`${item.category}-${item.suggestedMove}`} style={{ border: '1px solid #D1FAE5', borderLeft: '4px solid #0F766E', borderRadius: 8, padding: '12px 14px', background: '#F0FDF4', fontSize: 15, lineHeight: 1.7, color: 'var(--text)', fontWeight: 700 }}>
+                  <span style={{ display: 'block', fontSize: 12, color: '#0F766E', fontWeight: 900, marginBottom: 4 }}>{item.category}</span>
+                  {item.suggestedMove}
+                </div>
+              ))}
               {report.recommendedActions.map((action) => (
                 <div key={action} style={{ border: '1px solid #D1FAE5', borderRadius: 8, padding: '12px 14px', background: '#F0FDF4', fontSize: 15, lineHeight: 1.7, color: 'var(--text-2)', fontWeight: 650 }}>
                   {action}
@@ -208,17 +211,12 @@ function SignalBadge({ tone }: { tone: 'high' | 'medium' | 'normal' }) {
   return <span style={{ display: 'inline-flex', borderRadius: 999, padding: '3px 8px', background: bg, color, fontSize: 11, fontWeight: 800 }}>{text}</span>;
 }
 
-function HighlightLink({ item }: { item: { title: string; source: string; url: string; summary: string; comment?: string } }) {
+function HighlightLink({ item }: { item: { title: string; source: string; url: string; summary: string } }) {
   return (
     <a href={item.url} target="_blank" rel="noreferrer" style={{ display: 'block', border: '1px solid var(--hairline)', borderRadius: 8, padding: '14px 16px', background: '#fff', color: 'inherit', textDecoration: 'none' }}>
       <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 5, fontWeight: 800 }}>{item.source}</div>
       <strong style={{ display: 'block', fontSize: 15, lineHeight: 1.45, color: 'var(--text)' }}>{item.title}</strong>
       {item.summary && <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.65, color: 'var(--text-2)' }}>{item.summary}</p>}
-      {item.comment && (
-        <p style={{ margin: '9px 0 0', borderLeft: '3px solid #0F766E', paddingLeft: 10, fontSize: 13, lineHeight: 1.7, color: 'var(--text)', fontWeight: 650 }}>
-          我們怎麼看：{item.comment}
-        </p>
-      )}
     </a>
   );
 }
