@@ -106,74 +106,6 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             </div>
           </ArticleSection>
 
-          <ArticleSection eyebrow="產業觀察" title="本週值得留意的料件類別">
-            {report.categorySignals.length === 0 ? (
-              <EmptyText>本週外部訊號相對安靜，暫時沒有需要特別拉出來看的類別。</EmptyText>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {report.categorySignals.map((item) => (
-                  <div key={item.categoryId} style={{ border: '1px solid var(--hairline)', borderRadius: 8, padding: '11px 12px', background: '#fff' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                      <strong style={{ fontSize: 13, color: 'var(--text)' }}>{item.category}</strong>
-                      <SignalBadge tone={item.tone} />
-                    </div>
-                    <p style={{ margin: '7px 0 0', fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-2)' }}>{item.plainText}</p>
-                    {item.reportNotes.length > 0 && (
-                      <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: '#F8FAFC', border: '1px solid var(--hairline)' }}>
-                        <div style={{ fontSize: 11, fontWeight: 900, color: '#475467', marginBottom: 6 }}>公開報告寫了什麼</div>
-                        <div style={{ display: 'grid', gap: 5 }}>
-                          {item.reportNotes.map((note) => (
-                            <p key={note} style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: 'var(--text-2)' }}>{note}</p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, fontSize: 11, color: 'var(--text-3)' }}>
-                      <span>新聞 {item.newsCount}</span>
-                      <span>PCN 或 EOL {item.lifecycleCount}</span>
-                      <span>公開報告 {item.marketReportCount}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ArticleSection>
-
-          <ArticleSection eyebrow="資料來源" title="新聞重點">
-            {report.newsHighlights.length === 0 ? (
-              <EmptyText>本週沒有明顯缺料/交期新聞。</EmptyText>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {report.newsHighlights.map((item) => (
-                  <HighlightLink key={`${item.source}-${item.url}`} item={item} />
-                ))}
-              </div>
-            )}
-          </ArticleSection>
-
-          <ArticleSection eyebrow="資料來源" title="PCN 或 EOL 重點">
-            {report.lifecycleHighlights.length === 0 ? (
-              <EmptyText>本週沒有明顯 PCN 或 EOL 公告。</EmptyText>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {report.lifecycleHighlights.map((item) => (
-                  <HighlightLink key={`${item.source}-${item.url}`} item={item} />
-                ))}
-              </div>
-            )}
-          </ArticleSection>
-
-          <ArticleSection eyebrow="資料來源" title="公開報告重點">
-            {report.marketHighlights.length === 0 ? (
-              <EmptyText>本週尚未取得可解析公開報告。</EmptyText>
-            ) : (
-              <div style={{ display: 'grid', gap: 10 }}>
-                {report.marketHighlights.map((item) => (
-                  <HighlightLink key={`${item.source}-${item.url}`} item={item} />
-                ))}
-              </div>
-            )}
-          </ArticleSection>
         </div>
       </main>
     </div>
@@ -202,21 +134,4 @@ function ArticleSection({ eyebrow, title, children }: { eyebrow: string; title: 
 
 function EmptyText({ children }: { children: ReactNode }) {
   return <div style={{ border: '1px dashed var(--border)', borderRadius: 8, padding: 14, color: 'var(--text-3)', fontSize: 13 }}>{children}</div>;
-}
-
-function SignalBadge({ tone }: { tone: 'high' | 'medium' | 'normal' }) {
-  const color = tone === 'high' ? '#B42318' : tone === 'medium' ? '#B54708' : '#027A48';
-  const bg = tone === 'high' ? '#FEF3F2' : tone === 'medium' ? '#FFFAEB' : '#ECFDF3';
-  const text = tone === 'high' ? '多種來源都提到' : tone === 'medium' ? '只有一種來源提到' : '目前平穩';
-  return <span style={{ display: 'inline-flex', borderRadius: 999, padding: '3px 8px', background: bg, color, fontSize: 11, fontWeight: 800 }}>{text}</span>;
-}
-
-function HighlightLink({ item }: { item: { title: string; source: string; url: string; summary: string } }) {
-  return (
-    <a href={item.url} target="_blank" rel="noreferrer" style={{ display: 'block', border: '1px solid var(--hairline)', borderRadius: 8, padding: '14px 16px', background: '#fff', color: 'inherit', textDecoration: 'none' }}>
-      <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 5, fontWeight: 800 }}>{item.source}</div>
-      <strong style={{ display: 'block', fontSize: 15, lineHeight: 1.45, color: 'var(--text)' }}>{item.title}</strong>
-      {item.summary && <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.65, color: 'var(--text-2)' }}>{item.summary}</p>}
-    </a>
-  );
 }
