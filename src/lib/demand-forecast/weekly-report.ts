@@ -158,6 +158,14 @@ function pickSummary(item: any) {
   return item.snippetZh || item.snippet || item.summaryZh || item.evidenceTextZh || item.evidenceText || '';
 }
 
+function cleanEvidenceText(value: string, source = '') {
+  return String(value)
+    .replace(/\s+/g, ' ')
+    .replace(new RegExp(`\\s*-\\s*${source}\\s*$`, 'i'), '')
+    .replace(new RegExp(`\\s+${source}\\s*$`, 'i'), '')
+    .trim();
+}
+
 function dateValue(item: any) {
   const value = item.publishedAt || item.fetchedAt;
   const time = value ? Date.parse(value) : 0;
@@ -181,34 +189,50 @@ function categoryEvidence(categoryId: string, items: any[], limit = 2) {
     })
     .sort((a, b) => dateValue(b) - dateValue(a))
     .slice(0, limit)
-    .map((item) => `${item.source || '來源'}：${pickTitle(item)}`);
+    .map((item) => {
+      const source = item.source || '來源';
+      const title = cleanEvidenceText(pickTitle(item), source);
+      const summary = cleanEvidenceText(pickSummary(item), source);
+      const text = summary && !title.includes(summary) ? summary : title;
+      return `${source}：${text}`;
+    });
+}
+
+function evidenceSentence(evidence: string[], fallback: string) {
+  if (evidence.length === 0) return fallback;
+  return evidence
+    .slice(0, 4)
+    .map((item) => item.replace(/[。；;.\s]+$/g, ''))
+    .join('。');
 }
 
 function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number], evidence: string[]) {
   const category = signal.category;
 
   if (signal.categoryId === 'C01') {
+    const sourceText = evidenceSentence(evidence, '本週來源主要提到 MLCC 與高端被動元件供應緊張。');
     return {
       category,
       headline: 'MLCC 不是全面警報，但高容值料要先問交期',
       story: [
-        '被動元件這週的焦點落在 MLCC，但真正需要留意的不是「所有電容都缺」。幾則新聞和通路報告指向的是另一個比較細的變化：AI 伺服器、高功率產品和部分車用案子，正在吃掉更多高容值、小尺寸或高可靠度 MLCC。',
-        '這類料平常看起來不像記憶體那麼有新聞感，但一旦需求往上、庫存消耗加快，供應商通常會先從熱門規格開始變保守。也就是說，市場訊號不是叫大家全面搶電容，而是提醒高容值與高用量料可能先出現交期拉長或配貨。',
-        '對公司來說，這比較像早期水位提醒。如果近期案子大量使用小尺寸高容值、車規或高用量 MLCC，現在先確認可供量，會比等到客戶追加需求後再追料更有餘裕。',
+        `這段判斷主要來自本週幾則直接點名 MLCC 的來源：${sourceText}。這些標題和摘要共同提到的關鍵字，是 AI 需求、高端被動元件供應緊張、交貨時間拉長，以及 MLCC 短缺加劇。`,
+        '因此，這裡不能直接寫成「所有電容都缺」。從來源文字能確認的是，市場正在把焦點放到 MLCC，尤其是高端或需求較強的被動元件；至於是否擴大到所有電容，來源目前沒有提供足夠證據。',
+        '對公司來說，比較務實的讀法是先把 MLCC 從一般電容裡拉出來看。若現有案子用量大，或客戶近期有拉貨，先確認 MLCC 可供量與交期，比把整個電容類別都升成缺料警報更準確。',
       ],
-      suggestedMove: '這週先別把所有電容都拉警報，先挑高容值、小尺寸、車規或用量大的 MLCC 問交期。若供應商開始保守，工程再同步看替代封裝或容量組合。',
+      suggestedMove: '這週先不要把所有電容都拉警報，先針對 MLCC，尤其是用量大的案子，確認交期與可供量。',
       evidence,
     };
   }
 
   if (signal.categoryId === 'C04') {
+    const sourceText = evidenceSentence(evidence, '本週來源主要提到記憶體晶片短缺、價格影響與供應分配。');
     return {
       category,
       headline: '記憶體類要先看 DDR / Flash 成本與交期壓力',
       story: [
-        '記憶體是本週比較像主線的供應鏈故事。AI 伺服器需求持續往上，讓 DRAM、DDR、Flash 這些原本就容易受產能配置影響的料，再次被市場放大檢視。新聞提到價格壓力，通路報告也開始談分配，代表供應端的語氣已經比前幾週更謹慎。',
-        '這不一定表示明天就買不到料，但它通常會先反映在兩個地方：一是供應商報價不再那麼鬆，二是交期或可供量開始需要提前確認。尤其是有客戶拉貨、需求上修，或產品本身用到較大容量記憶體的案子，會比一般案子更早感受到壓力。',
-        '因此這週的重點不是追單一料號，而是先把用到 DDR、DRAM、Flash 的專案拉出來看。若 forecast 還在變動，價格和交期風險應該先放進討論，避免後面 BOM 成本變化來得太突然。',
+        `記憶體的判斷來自幾則比較明確的新聞與報告：${sourceText}。來源文字直接提到記憶體晶片短缺、價格影響、AI 需求，以及記憶體供應分配對 BOM 成本與交期的影響。`,
+        '這些訊息放在一起看，比較能支持的結論是：記憶體的成本與可供量正在變得敏感。它還不是逐顆料號的缺料判定，但已經足以提醒用到 DRAM、DDR 或 Flash 的案子，不能只看現在報價，還要看後續價格與交期是否變動。',
+        '對公司來說，這一段的重點是 forecast 討論要提前。若客戶近期有拉貨、需求上修，或產品本身用到記憶體，採購與 PM 應先把價格和交期風險寫進討論，而不是等成本變動後才回頭解釋。',
       ],
       suggestedMove: '先看最近需求上修或客戶拉貨的案子，有沒有用到 DDR、DRAM 或 Flash。若有，這週就把價格和交期風險放進 forecast，不要等報價變動才討論。',
       evidence,
@@ -216,13 +240,14 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   }
 
   if (signal.categoryId === 'C03') {
+    const sourceText = evidenceSentence(evidence, '本週公開報告主要提到 MOSFET 交期、Nexperia 風險與低壓 MOSFET 供應分配。');
     return {
       category,
       headline: '功率分離式元件先列為觀察，不急著升級成缺料',
       story: [
-        '功率元件這週比較像是「水溫升高」，還不到大範圍缺料。公開報告開始提到 MOSFET 交期、Nexperia 供應風險與關稅挑戰，Future 也提到低壓 MOSFET 因市場變緊、庫存消耗，開始有供應分配的味道。',
-        '這類訊號要小心解讀。它不像記憶體新聞那樣有明顯的價格故事，也還沒有看到足夠多來源同時指向全面短缺；但功率料常常是產品設計裡不好臨時替換的零件，一旦授權通路開始收緊，後面處理時間會比想像中長。',
-        '所以這週比較適合把 MOSFET 放進觀察清單，而不是直接升級成缺料警報。常用 Nexperia、Infineon、onsemi 料號可以先問通路，工程端則先確認替代料清單是否還可用。',
+        `功率元件這段主要根據公開報告，而不是大量新聞：${sourceText}。來源文字提到 MOSFET 供應風險、離散元件交期、Nexperia 風險，以及低壓 MOSFET 可能面臨供應分配。`,
+        '這些訊息能支持「先列入觀察」，但還不足以支持「全面缺料」。和記憶體、MLCC 相比，這類來源數量較少，訊號也比較集中在公開報告，因此週報應該把語氣放輕，避免把觀察訊號寫成缺料結論。',
+        '對公司來說，比較合理的下一步是先查常用 MOSFET 的授權通路和可供量。若常用料號剛好和 Nexperia、Infineon、onsemi 等供應商相關，再往料號層級確認會比較有意義。',
       ],
       suggestedMove: 'MOSFET 先不要當成全面缺料，但常用的 Nexperia、Infineon、onsemi 料號可以先問授權通路。工程端先把替代料清單留在手邊即可。',
       evidence,
@@ -503,9 +528,9 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       ...categoryEvidence(signal.categoryId, lifecycleNews, 1),
       ...marketReports
         .filter((item: any) => item.categoryIds?.includes(signal.categoryId))
-        .slice(0, 1)
+        .slice(0, 2)
         .map((item: any) => `${item.source || '公開報告'}：${reportSummary(item) || '公開報告提到此類別'}`),
-    ].slice(0, 3);
+    ].slice(0, 4);
     return buildExecutiveItem(signal, evidence);
   });
 
