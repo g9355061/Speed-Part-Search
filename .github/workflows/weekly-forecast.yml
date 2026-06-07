@@ -1,10 +1,10 @@
 name: Weekly Demand Forecast Refresh
 
-# 每週日凌晨 03:00 ET 跨期查詢 150 顆料件（mode=full），累積每週一筆價格曲線資料點。
-# GitHub Actions cron 使用 UTC：07:00 UTC = 03:00 EDT（夏令）/ 02:00 EST（冬令，會差 1 小時，屬正常 DST 偏移）。
+# 每週日凌晨 03:00（深圳時間 UTC+8）查詢 150 顆料件（mode=full），累積每週一筆價格曲線資料點。
+# GitHub Actions cron 使用 UTC：深圳週日 03:00 = UTC 週六 19:00（中國無 DST，全年固定）。
 on:
   schedule:
-    - cron: '0 7 * * 0'
+    - cron: '0 19 * * 6'
   workflow_dispatch: {} # 允許手動觸發測試
 
 jobs:
