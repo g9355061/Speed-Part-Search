@@ -5,13 +5,7 @@ import { useSession, signOut } from 'next-auth/react';
 import { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icon';
 
-interface Props {
-  apiOnline: boolean;
-  liveSourceCount: number;
-  totalSourceCount: number;
-}
-
-export function Header({ apiOnline, liveSourceCount, totalSourceCount }: Props) {
+export function Header() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'admin';
@@ -79,10 +73,6 @@ export function Header({ apiOnline, liveSourceCount, totalSourceCount }: Props) 
           <Icon name="search" size={14} />
           <input className="hdr-search mono" placeholder="快速查詢…" />
         </div>
-        <span className={'api-pill' + (apiOnline ? '' : ' offline')}>
-          <span className="dot"></span>
-          API · {liveSourceCount}/{totalSourceCount} 來源 {apiOnline ? '在線' : '離線'}
-        </span>
         {/* Avatar with dropdown menu */}
         <div ref={menuRef} style={{ position: 'relative' }}>
           <div

@@ -31,7 +31,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
 
   return (
     <div>
-      <Header apiOnline={true} liveSourceCount={1} totalSourceCount={1} />
+      <Header />
       <main style={{ maxWidth: 1120, margin: '0 auto', padding: '34px 24px 56px', width: '100%' }}>
         <div style={{ marginBottom: 18 }}>
           <Link href="/demand-forecast" style={{ color: 'var(--primary)', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>

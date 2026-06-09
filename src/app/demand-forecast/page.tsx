@@ -355,7 +355,6 @@ export default function DemandForecastPage() {
   const [category, setCategory] = useState('all');
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
-  const [health, setHealth] = useState({ live: 0, total: 1 });
   const [history, setHistory] = useState<Record<string, { date: string; price: number | null; stock: number }[]>>({});
 
   const [showThresholdsModal, setShowThresholdsModal] = useState(false);
@@ -451,11 +450,6 @@ export default function DemandForecastPage() {
       .then((resp) => resp.json())
       .then((json) => setWeeklyReports(Array.isArray(json.reports) ? json.reports : []))
       .catch((err) => console.error('Failed to load weekly reports:', err));
-
-    fetch('/api/health')
-      .then((resp) => resp.json())
-      .then((json) => setHealth({ live: json.liveSourceCount ?? 0, total: json.totalSourceCount ?? 1 }))
-      .catch(() => setHealth({ live: 0, total: 1 }));
   }, []);
 
   // 載入歷史最低價曲線（依目前料件清單批次抓取）
@@ -602,7 +596,7 @@ export default function DemandForecastPage() {
 
   return (
     <div>
-      <Header apiOnline={health.live > 0} liveSourceCount={health.live} totalSourceCount={health.total} />
+      <Header />
 
       <main style={{ maxWidth: 1440, margin: '0 auto', padding: '34px 24px 56px', width: '100%' }}>
         <section style={{ display: 'flex', justifyContent: 'space-between', gap: 24, alignItems: 'flex-start', marginBottom: 22 }}>

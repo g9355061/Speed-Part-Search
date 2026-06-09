@@ -322,7 +322,7 @@ export default function HomePage() {
 
   return (
     <div className="app">
-      <Header apiOnline={liveCount > 0} liveSourceCount={liveCount} totalSourceCount={totalCount} />
+      <Header />
       <Hero query={query} setQuery={setQuery} qtyInput={qtyInput} setQtyInput={setQtyInput} onSearch={handleSearch} loading={loading} />
       <SubBar
         query={query}
@@ -393,7 +393,7 @@ export default function HomePage() {
         )}
       </div>
 
-      <Footer liveCount={liveCount} totalCount={totalCount} refreshedAt={refreshedAt} />
+      <Footer refreshedAt={refreshedAt} />
 
       {toast && (
         <div className={'toast' + (toast.kind === 'err' ? ' error' : '')}>

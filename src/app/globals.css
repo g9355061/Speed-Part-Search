@@ -91,18 +91,6 @@ button { font-family: inherit; }
 .hdr-search-wrap { position: relative; }
 .hdr-search-wrap > svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--text-3); }
 
-.api-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 8px; border: 1px solid var(--border);
-  border-radius: 999px; font-size: 11.5px; color: var(--text-2);
-  background: var(--surface);
-}
-.api-pill .dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.api-pill.offline .dot { background: var(--danger); box-shadow: 0 0 0 3px #fae5e5; }
-
 .icon-btn {
   width: 32px; height: 32px; border-radius: var(--r-sm);
   border: 1px solid transparent; background: transparent;
@@ -1096,7 +1084,6 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   .hdr { padding: 0 12px; gap: 8px; }
   .hdr-nav { display: none; }
   .hdr-search { width: 140px; }
-  .api-pill { display: none; }
   .subbar { padding: 0 12px; font-size: 11px; gap: 8px; overflow-x: auto; }
   .hero { padding: 28px 16px; }
   .hero h1 { font-size: 22px; }

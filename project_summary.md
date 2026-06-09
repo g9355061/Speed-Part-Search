@@ -1,8 +1,24 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-06-07（從類別風險矩陣移除「生命週期」欄——代表料的 EOL 對類別缺料風險無意義；料件明細仍保留每顆 lifecycleStatus 當參考）
+> 最後更新：2026-06-08（移除頁首「API · X/Y 來源 在線/離線」狀態燈——該指示燈從未做真實健康探測，在缺料預測頁更因 /api/health 缺欄位而永遠顯示 0/1 離線，屬誤導性死燈，直接拿掉）
 
 ---
+
+### 2026-06-08 — 移除頁首 API 來源狀態燈（誤導性死燈）
+
+- [x] **背景**：使用者截圖回報頁首右上角紅燈「API · 0/1 來源 離線」。追查後確認：
+  - 此燈邏輯為 `API · {liveSourceCount}/{totalSourceCount} 來源 {在線/離線}`，`apiOnline = live > 0`。
+  - 在缺料預測頁，前端去打 `/api/health` 讀 `liveSourceCount`/`totalSourceCount`，但該端點**根本沒回傳這兩個欄位**（只回 `ok`/`suppliers`/`digikeyEnv`/`hasCredentials`），故 `?? 0` 與 `?? 1` 使其**永遠顯示 0/1 離線**，與真實 API 狀態無關。
+  - 首頁的「3/3 在線」也是寫死 `isLive: true`，非真實探測。即此燈從頭到尾沒有任何一頁在做真實健康監控。
+- [x] **決策（與使用者確認）**：不修成真探測（每次載入頁面 ping 三家 API 會拖慢開頁並消耗 Mouser 限流額度），**直接拿掉**整顆燈——它的預警能力本來就是零，留著只會造成警報疲勞。
+- [x] **改動**：
+  - `src/components/Header.tsx`：移除 `api-pill` span 與 `Props`（`apiOnline`/`liveSourceCount`/`totalSourceCount`），`Header` 改為無 props 元件。
+  - `src/app/demand-forecast/page.tsx`：移除 `health` state、`/api/health` fetch，`<Header />` 不再傳 props。
+  - `src/app/page.tsx`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`：`<Header />` 移除 props。首頁 `liveCount`/`totalCount` **保留**（仍供 `SearchPanel` 與 `Footer` 使用）。
+  - `src/app/globals.css`：清除 dead CSS `.api-pill`、`.api-pill .dot`、`.api-pill.offline .dot` 與 RWD 的 `.api-pill { display:none }`。
+  - 保留 `/api/health` 端點本身（無害，可作獨立健康檢查用）。
+  - `src/components/Footer.tsx`：一併移除頁尾同性質的「{liveCount}/{totalCount} 來源在線」與其分隔符，`Props` 移除 `liveCount`/`totalCount`，僅留 `refreshedAt`；頁尾現只顯示「最後同步 …」。`src/app/page.tsx` 的 `<Footer />` 改為只傳 `refreshedAt`（`liveCount`/`totalCount` 變數保留，仍供 `SearchPanel` 使用）。
+- [x] **驗證**：`npx tsc --noEmit` 通過（exit 0）。
 
 ### 2026-06-07 — 移除類別矩陣的「生命週期」維度（commit `3a675f2`）
 

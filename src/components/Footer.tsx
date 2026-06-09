@@ -1,12 +1,10 @@
 'use client';
 
 interface Props {
-  liveCount: number;
-  totalCount: number;
   refreshedAt: string;
 }
 
-export function Footer({ liveCount, totalCount, refreshedAt }: Props) {
+export function Footer({ refreshedAt }: Props) {
   return (
     <footer className="foot">
       <div className="foot-inner">
@@ -40,8 +38,6 @@ export function Footer({ liveCount, totalCount, refreshedAt }: Props) {
       <div className="foot-bottom">
         <div>© 2026 SpeedPart Labs · 為採購團隊打造</div>
         <div className="api-info">
-          <span>{liveCount}/{totalCount} 來源在線</span>
-          <span>·</span>
           <span>最後同步 {refreshedAt}</span>
         </div>
       </div>
