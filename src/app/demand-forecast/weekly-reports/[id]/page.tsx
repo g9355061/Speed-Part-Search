@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { Header } from '@/components/Header';
-import { buildWeeklyReport } from '@/lib/demand-forecast/weekly-report';
+import { getCachedWeeklyReport } from '@/lib/demand-forecast/weekly-report';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +24,7 @@ function formatDateTime(value: string) {
 }
 
 export default async function WeeklyReportPage({ params }: { params: { id: string } }) {
-  const report = await buildWeeklyReport();
+  const report = await getCachedWeeklyReport();
   if (params.id !== report.id) notFound();
 
   const tone = riskColor(report.riskLevel);

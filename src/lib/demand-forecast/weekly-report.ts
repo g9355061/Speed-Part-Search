@@ -516,13 +516,13 @@ ${data.text || '（本週無顯著數據異動）'}
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   
   let attempts = 0;
-  const maxAttempts = 3;
-  let delayMs = 4000; // 延長初始重試時間至 4 秒
+  const maxAttempts = 2; // 降到 2 次：週報已快取，毋須為單次建構卡太久；失敗就走 data-grounded fallback
+  let delayMs = 2000;
 
   while (attempts < maxAttempts) {
     attempts++;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000); // 12s timeout
+    const timer = setTimeout(() => controller.abort(), 9000); // 9s timeout
 
     try {
       console.log(`[WeeklyReport Gemini] Cache MISS. Invoking Gemini API for category ${categoryName} (Attempt ${attempts}/${maxAttempts})...`);
@@ -855,28 +855,66 @@ function shortCategoryName(label: string) {
   return label.split('/')[0].trim();
 }
 
-function buildWeeklyTitle(dateText: string, signals: Array<{ categoryId: string; category: string; tone: WeeklyRiskLevel; newsCount: number; lifecycleCount: number; marketReportCount: number }>) {
+// 標題依「實際訊號類型」生成，不再用硬編碼類別劇本（與內文一致，避免標題喊緊縮、內文說無異動）
+function buildWeeklyTitle(
+  dateText: string,
+  signals: Array<{ categoryId: string; category: string; tone: WeeklyRiskLevel; newsCount: number; lifecycleCount: number; marketReportCount: number; data: CategoryDataSignal; crossHit: boolean }>
+) {
   const primary = signals[0];
   const secondary = signals[1];
   if (!primary) return `物料預測週報｜${dateText}｜本週無明顯供應異常`;
 
-  if (primary.categoryId === 'C04' && secondary?.categoryId === 'C01') {
-    return `物料預測週報｜${dateText}｜記憶體與高容值 MLCC 供應鏈緊縮，請提早規劃 4-8 週交期與配額`;
+  const catText = secondary
+    ? `${shortCategoryName(primary.category)}、${shortCategoryName(secondary.category)}`
+    : shortCategoryName(primary.category);
+
+  // 交叉命中：自家數據 + 外部新聞雙重驗證 → 語氣最強
+  if (primary.crossHit) {
+    return `物料預測週報｜${dateText}｜${catText} 庫存／價格實測異動且外部新聞同步示警，建議優先盤點 4-8 週需求`;
   }
-  if (primary.categoryId === 'C01') {
-    return `物料預測週報｜${dateText}｜高容值 MLCC 庫存去化加速，建議採購窗口確認在途訂單與供貨排程`;
+  // 純自家數據異動（外部新聞尚未發酵）
+  if (primary.data.tone !== 'normal') {
+    if (primary.data.priceRise10 > 0 && primary.data.stockDrop30 === 0) {
+      return `物料預測週報｜${dateText}｜${catText} 最低價週環比走揚，建議留意採購成本`;
+    }
+    if (primary.data.supplierDrop > 0 && primary.data.stockDrop30 === 0 && primary.data.priceRise10 === 0) {
+      return `物料預測週報｜${dateText}｜${catText} 授權供應商家數收斂，建議評估替代來源`;
+    }
+    return `物料預測週報｜${dateText}｜${catText} 庫存週環比下降，內部數據先行示警`;
   }
-  if (primary.categoryId === 'C04') {
-    return `物料預測週報｜${dateText}｜記憶體產能受限且價格看漲，建議 PM 評估 Forecast 及鎖定 BOM 成本`;
-  }
-  if (primary.categoryId === 'C03') {
-    return `物料預測週報｜${dateText}｜功率分離式元件交期波動，建議優先確認主要品牌通路供應狀況`;
+  // 只有外部新聞、自家數據無異動 → 用語放軟，不誇大
+  return `物料預測週報｜${dateText}｜外部新聞提及 ${catText} 等類別，內部數據暫無異動，維持觀察`;
+}
+
+const REPORT_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 小時
+
+function currentWeeklyReportId(now = new Date()) {
+  return `weekly-${formatDateId(weekStart(now))}`;
+}
+
+/**
+ * 取得本週週報——優先回快取（6 小時內），未命中才實際建構（含 Gemini/抓文章，慢）。
+ * 詳情頁與列表都改用這個，避免每次點擊都重跑 buildWeeklyReport 造成頁面卡住「點不進去」。
+ */
+export async function getCachedWeeklyReport(): Promise<WeeklyReportDetail> {
+  const id = currentWeeklyReportId();
+  const cacheKey = `weekly-report-built-${id}`;
+  try {
+    const cached: any = await getGenericCache(cacheKey);
+    if (cached?.builtAt && cached.report?.id === id && Date.now() - cached.builtAt < REPORT_CACHE_TTL_MS) {
+      return cached.report as WeeklyReportDetail;
+    }
+  } catch (err) {
+    console.warn('[WeeklyReport] cache read failed:', err);
   }
 
-  const categoryText = secondary && primary.tone === 'high'
-    ? `${shortCategoryName(primary.category)}與${shortCategoryName(secondary.category)}`
-    : shortCategoryName(primary.category);
-  return `物料預測週報｜${dateText}｜${categoryText}出現外部供應警訊，請評估是否影響現有設計`;
+  const report = await buildWeeklyReport();
+  try {
+    await setGenericCache(cacheKey, { builtAt: Date.now(), report });
+  } catch (err) {
+    console.warn('[WeeklyReport] cache write failed:', err);
+  }
+  return report;
 }
 
 export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
@@ -1099,7 +1137,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
 }
 
 export async function listWeeklyReports(): Promise<WeeklyReportListItem[]> {
-  const report = await buildWeeklyReport();
+  const report = await getCachedWeeklyReport();
   return [{
     id: report.id,
     title: report.title,
