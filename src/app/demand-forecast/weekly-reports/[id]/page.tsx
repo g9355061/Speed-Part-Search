@@ -56,10 +56,10 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
         </section>
 
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 18 }}>
-          <Metric label="觀察類別" value={report.metrics.watchedCategories} tone={report.metrics.watchedCategories > 0 ? 'warning' : undefined} />
+          <Metric label="數據異動類別" value={report.metrics.dataAlertCategories} tone={report.metrics.dataAlertCategories > 0 ? 'danger' : undefined} />
+          <Metric label="監控料件(可比)" value={report.metrics.partsWithSnapshot} />
           <Metric label="缺料新聞" value={report.metrics.shortageNews} />
           <Metric label="PCN 或 EOL" value={report.metrics.lifecycleNews} />
-          <Metric label="公開報告" value={report.metrics.marketReports} />
         </section>
 
         <div style={{ display: 'grid', gap: 18 }}>
@@ -67,6 +67,32 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             {report.openingNotes.map((note) => (
               <p key={note} style={{ margin: '0 0 10px', fontSize: 16, lineHeight: 1.85, color: 'var(--text-2)' }}>{note}</p>
             ))}
+          </ArticleSection>
+
+          <ArticleSection eyebrow="自家快照" title="本週哪些類別的數字在動">
+            {report.categorySignals.filter((s) => s.data.tone !== 'normal').length === 0 ? (
+              <EmptyText>本週 {report.metrics.partsWithSnapshot} 顆可比對料件的庫存、價格與供應商家數均無顯著週變動。</EmptyText>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {report.categorySignals
+                  .filter((s) => s.data.tone !== 'normal')
+                  .map((s) => {
+                    const c = riskColor(s.data.tone);
+                    return (
+                      <div key={s.categoryId} style={{ border: `1px solid ${c.border}`, borderLeft: `4px solid ${c.text}`, borderRadius: 8, background: c.bg, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, fontWeight: 900, color: c.text }}>{s.category}</span>
+                          <span style={{ borderRadius: 999, padding: '2px 8px', background: '#fff', border: `1px solid ${c.border}`, color: c.text, fontSize: 11, fontWeight: 800 }}>{c.label}</span>
+                          {s.crossHit && (
+                            <span style={{ borderRadius: 999, padding: '2px 8px', background: '#FEF3F2', border: '1px solid #FECDCA', color: '#B42318', fontSize: 11, fontWeight: 800 }}>⚡ 數據×新聞交叉命中</span>
+                          )}
+                        </div>
+                        <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.75, color: 'var(--text)' }}>{s.data.text}</p>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </ArticleSection>
 
           <ArticleSection eyebrow="封面故事" title="供應鏈正在出現哪些變化">

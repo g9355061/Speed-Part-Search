@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { getMarketReportsCache, getGenericCache, setGenericCache } from '@/lib/db';
-import { DEMAND_CATEGORIES } from '@/lib/demand-forecast/benchmark';
+import { getMarketReportsCache, getGenericCache, setGenericCache, getDemandForecastSnapshotHistory, type SnapshotPoint } from '@/lib/db';
+import { DEMAND_CATEGORIES, BENCHMARK_PARTS } from '@/lib/demand-forecast/benchmark';
 import crypto from 'crypto';
 
 const NEWS_CACHE_PATH = path.join(process.cwd(), 'data', 'news-cache.json');
@@ -17,6 +17,103 @@ const BROWSER_HEADERS = {
 };
 
 type WeeklyRiskLevel = 'high' | 'medium' | 'normal';
+
+// 類別層級的「自家快照」週環比訊號（不點名個別料號，只彙總到類別）
+export interface CategoryDataSignal {
+  partsWithSnapshot: number;   // 該類別中有足夠快照可比的料件數
+  stockDrop50: number;         // 庫存週減 ≥50% 的料件數
+  stockDrop30: number;         // 庫存週減 ≥30% 的料件數
+  priceRise20: number;         // 最低價週漲 ≥20% 的料件數
+  priceRise10: number;         // 最低價週漲 ≥10% 的料件數
+  supplierDrop: number;        // 供應商家數較上週減少的料件數
+  worstStockPct: number | null;// 最深庫存跌幅（負數）
+  worstPricePct: number | null;// 最大漲價幅（正數）
+  tone: WeeklyRiskLevel;       // 純數據嚴重度
+  text: string;                // 類別層級的數據敘述（資料驅動，每週不同）
+}
+
+const EMPTY_DATA_SIGNAL: CategoryDataSignal = {
+  partsWithSnapshot: 0, stockDrop50: 0, stockDrop30: 0, priceRise20: 0,
+  priceRise10: 0, supplierDrop: 0, worstStockPct: null, worstPricePct: null,
+  tone: 'normal', text: '',
+};
+
+// 找出「上週」對照點：最新點之前、距今 ≥5 天的最近一點；找不到就退而求其次取倒數第二點
+function previousWeekPoint(points: SnapshotPoint[]): SnapshotPoint | null {
+  if (points.length < 2) return null;
+  const latest = points[points.length - 1];
+  const latestTime = new Date(latest.date).getTime();
+  for (let i = points.length - 2; i >= 0; i--) {
+    const gapDays = (latestTime - new Date(points[i].date).getTime()) / 86400000;
+    if (gapDays >= 5) return points[i];
+  }
+  return points[points.length - 2];
+}
+
+// 計算單一類別的快照週環比彙總
+function computeCategoryDataSignal(
+  categoryId: string,
+  history: Record<string, SnapshotPoint[]>
+): CategoryDataSignal {
+  const mpns = BENCHMARK_PARTS.filter((p) => p.categoryId === categoryId).map((p) => p.mpn);
+  const signal: CategoryDataSignal = { ...EMPTY_DATA_SIGNAL };
+
+  for (const mpn of mpns) {
+    const points = history[mpn];
+    if (!points || points.length < 2) continue;
+    const latest = points[points.length - 1];
+    const prev = previousWeekPoint(points);
+    if (!prev) continue;
+    signal.partsWithSnapshot += 1;
+
+    // 庫存週環比
+    if (prev.totalStock > 0) {
+      const stockPct = ((latest.totalStock - prev.totalStock) / prev.totalStock) * 100;
+      if (stockPct <= -50) signal.stockDrop50 += 1;
+      if (stockPct <= -30) signal.stockDrop30 += 1;
+      if (signal.worstStockPct === null || stockPct < signal.worstStockPct) signal.worstStockPct = stockPct;
+    }
+    // 價格週環比
+    if (prev.price != null && latest.price != null && prev.price > 0) {
+      const pricePct = ((latest.price - prev.price) / prev.price) * 100;
+      if (pricePct >= 20) signal.priceRise20 += 1;
+      if (pricePct >= 10) signal.priceRise10 += 1;
+      if (signal.worstPricePct === null || pricePct > signal.worstPricePct) signal.worstPricePct = pricePct;
+    }
+    // 供應商家數減少
+    if (prev.supplierCount > latest.supplierCount) signal.supplierDrop += 1;
+  }
+
+  signal.tone =
+    signal.stockDrop50 > 0 || signal.priceRise20 > 0 || signal.supplierDrop > 0
+      ? 'high'
+      : signal.stockDrop30 > 0 || signal.priceRise10 > 0
+        ? 'medium'
+        : 'normal';
+
+  signal.text = buildDataSignalText(categoryId, signal);
+  return signal;
+}
+
+// 類別層級數據敘述（只講類別與顆數/幅度，不點名個別料號）
+function buildDataSignalText(categoryId: string, s: CategoryDataSignal): string {
+  if (s.partsWithSnapshot === 0) return '';
+  const label = categoryLabel(categoryId);
+  const parts: string[] = [];
+  if (s.stockDrop30 > 0) {
+    const deepest = s.worstStockPct != null ? `（最深 ${Math.round(s.worstStockPct)}%）` : '';
+    parts.push(`${s.stockDrop30} 顆庫存週減逾 30%${deepest}`);
+  }
+  if (s.priceRise10 > 0) {
+    const peak = s.worstPricePct != null ? `（最高 +${Math.round(s.worstPricePct)}%）` : '';
+    parts.push(`${s.priceRise10} 顆最低價週漲逾 10%${peak}`);
+  }
+  if (s.supplierDrop > 0) parts.push(`${s.supplierDrop} 顆授權供應商家數減少`);
+  if (parts.length === 0) {
+    return `${label}：本週監控的 ${s.partsWithSnapshot} 顆料件庫存、價格與供應商家數均無顯著週變動。`;
+  }
+  return `${label}：本週監控的 ${s.partsWithSnapshot} 顆料件中，${parts.join('、')}。`;
+}
 
 const WEEKLY_CATEGORY_LABELS: Record<string, string> = {
   C01: 'MLCC / 積層陶瓷電容',
@@ -70,6 +167,8 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     lifecycleNews: number;
     marketReports: number;
     watchedCategories: number;
+    dataAlertCategories: number;
+    partsWithSnapshot: number;
   };
   openingNotes: string[];
   executiveItems: Array<{
@@ -88,6 +187,8 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     tone: WeeklyRiskLevel;
     plainText: string;
     reportNotes: string[];
+    data: CategoryDataSignal;
+    crossHit: boolean;
   }>;
   newsHighlights: Array<{
     title: string;
@@ -344,43 +445,12 @@ async function categoryEvidence(categoryId: string, items: any[], limit = 2) {
     }));
 }
 
-function evidenceSentence(evidence: string[], fallback: string) {
-  if (evidence.length === 0) return fallback;
-  return evidence
-    .slice(0, 4)
-    .map((item) => item.replace(/[。；;.\s]+$/g, ''))
-    .join('。');
-}
-
-function categoryEvidenceSummary(categoryId: string, evidence: string[]) {
-  if (categoryId === 'C01') {
-    return [
-      '【市場趨勢】當前 MLCC（積層陶瓷電容）市場雖未呈現全面性缺料，但部分大廠高容值品項之通路庫存已在低檔，前置交期有拉長趨勢。',
-      '【風險提示】高容值與車規級被動元件之供應鏈水溫正在上升。本週將其列入重點關注，後續需核對內部 BOM 表與大廠供應鏈之重合度。',
-    ];
-  }
-  if (categoryId === 'C04') {
-    return [
-      '【市場趨勢】受惠於 AI 伺服器與高效能運算對 DRAM、DDR 及快閃記憶體（Flash）的強勁拉貨，晶圓廠產能大幅移轉，導致常規記憶體產能受限。',
-      '【風險提示】主要大廠（如三星、美光等）已啟動產能分配，部分型號開始反映價格調漲，專案團隊需提防價格上行與交期變動壓力。',
-    ];
-  }
-  if (categoryId === 'C03') {
-    return [
-      '【市場趨勢】低壓與中壓 MOSFET 通路庫存已逐步去化，Nexperia、onsemi 等指標品牌常用封裝之功率元件交期出現波動。',
-      '【風險提示】本類別屬於供應鏈前置警訊，目前無即時性短缺風險，但建議提早向授權通路確認常用料號之供貨排程。',
-    ];
-  }
-  return [
-    '【市場趨勢】此類別目前外部情報僅提及零星事件，全球供應鏈態勢整體平穩，暫無結構性供需失衡。',
-    '【風險提示】列入常規追蹤清單，持續關注後續交期與價格波動。',
-  ];
-}
 
 async function synthesizeWeeklyReportStoryWithGemini(
   reportId: string,
   categoryId: string,
   categoryName: string,
+  data: CategoryDataSignal,
   evidence: string[],
   fallbackStory: string[]
 ): Promise<string[]> {
@@ -388,7 +458,7 @@ async function synthesizeWeeklyReportStoryWithGemini(
     return fallbackStory;
   }
 
-  const evidenceHash = crypto.createHash('md5').update(evidence.join('\n')).digest('hex');
+  const evidenceHash = crypto.createHash('md5').update(`${data.text}\n${evidence.join('\n')}`).digest('hex');
   const cacheKey = `weekly-report-story-gemini-${reportId}-${categoryId}-${evidenceHash}`;
 
   try {
@@ -425,164 +495,221 @@ async function synthesizeWeeklyReportStoryWithGemini(
     return fallbackStory;
   }
 
-  try {
-    console.log(`[WeeklyReport Gemini] Cache MISS. Invoking Gemini API for category ${categoryName}...`);
-    const evidenceText = evidence.join('\n');
-    const prompt = `你是一位專業的電子零組件與供應鏈資深分析師。請閱讀以下關於「${categoryName}」（類別代號：${categoryId}）的外部情報片段（包括新聞、PCN/EOL 公告、通路報告等）：
+  const evidenceText = evidence.join('\n');
+  const prompt = `你是電子零組件採購的供應鏈分析師。針對類別「${categoryName}」（${categoryId}），我們有兩類資訊：
+
+【我方每週實測數據（最重要、必須引用）】
+${data.text || '（本週無顯著數據異動）'}
+
+【外部情報佐證】
 "${evidenceText}"
 
-任務：
-請像寫報紙專欄、社論或新聞簡報一樣，將以上不同的情報來源（如 EE Times、Future Electronics、thelec、PPSI 等）進行深度整合與提煉，融合成一段口語化、流暢、一體化且極具專業分析水準的報告段落。
+任務：寫一段精煉的供應鏈解讀，給採購與 PM 看。
 
-寫作要求：
-1. 用「說話的口吻」與「自然的產業分析筆調」將所有情報內容有機地串聯在一起。
-2. 不要使用列點（Bullet Points），不要簡單地把各個來源翻譯後拼湊，要像報導一樣融會貫通。
-3. 語氣要專業、成熟、客觀，不要包含 any meta 說明語句（例如「本段只整理來源...」或「所以週報只能把...放進封面故事」之類的話）。
-4. 請分為兩個段落：
-   - 第一段【市場趨勢與情報整合】：說明各家消息指出的最新供需狀態、產能配給（Allocation）或交期拉長等宏觀趨勢。
-   - 第二段【風險提示與專案影響】：基於上述趨勢，分析此類元件對公司量產專案、BOM 成本以及採購規劃的實質影響與風險預警。
-5. 輸出繁體中文，總字數控制在 250 至 350 字之間。
-6. 請僅輸出這兩個段落的內容，段落之間用換行隔開，不要有任何其他引言或 markdown 標題。`;
+嚴格要求：
+1. 必須以「我方實測數據」為主軸開場，並原樣引用上面數據中的具體數字（顆數、百分比）。數據是事實，外部情報只是佐證為什麼會這樣。
+2. 總長 80–120 個中文字，只寫一段，不分段、不列點、不下標題。
+3. 禁止空泛形容詞堆疊（如「壓力顯著升高」「水溫上升」）與任何沒有數字支撐的宏觀斷言；不要提到本段如何生成之類的 meta 說明。
+4. 結尾用一句話點出對「我們公司量產專案 / BOM 成本」的具體影響。
+5. 繁體中文輸出，只輸出這段內容本身。`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  
+  let attempts = 0;
+  const maxAttempts = 3;
+  let delayMs = 4000; // 延長初始重試時間至 4 秒
+
+  while (attempts < maxAttempts) {
+    attempts++;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000); // 8s timeout
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          maxOutputTokens: 1200,
-          temperature: 0.3
-        }
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      console.warn(`[WeeklyReport Gemini] API error: ${res.status} ${res.statusText}`);
-      return fallbackStory;
-    }
-
-    const json = await res.json();
-    const resultText = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (!resultText) {
-      return fallbackStory;
-    }
-
-    const paragraphs = resultText
-      .split(/\n+/)
-      .map((p: string) => p.trim())
-      .filter(Boolean);
-
-    if (paragraphs.length === 0) {
-      return fallbackStory;
-    }
-
-    // Update cost tracking
-    const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
-    const estimatedOutputTokens = Math.ceil(resultText.length * 2.5);
-    const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
-
-    tracking.cost = (tracking.cost || 0) + callCost;
-    tracking.calls = (tracking.calls || 0) + 1;
-    await setGenericCache('gemini_monthly_usage', tracking);
+    const timer = setTimeout(() => controller.abort(), 12000); // 12s timeout
 
     try {
-      await setGenericCache(cacheKey, paragraphs);
-      console.log(`[WeeklyReport Gemini] Cached successfully for key: ${cacheKey}`);
-    } catch (err) {
-      console.warn(`[WeeklyReport Gemini] Failed to cache generated story for key: ${cacheKey}`, err);
+      console.log(`[WeeklyReport Gemini] Cache MISS. Invoking Gemini API for category ${categoryName} (Attempt ${attempts}/${maxAttempts})...`);
+      
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: prompt }]
+          }],
+          generationConfig: {
+            maxOutputTokens: 4096,
+            temperature: 0.3,
+            thinkingConfig: {
+              thinkingBudget: 0
+            }
+          }
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timer);
+
+      if (res.ok) {
+        const json = await res.json();
+        const resultText = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+        if (!resultText) {
+          return fallbackStory;
+        }
+
+        const paragraphs = resultText
+          .split(/\n+/)
+          .map((p: string) => p.trim())
+          .filter(Boolean);
+
+        if (paragraphs.length === 0) {
+          return fallbackStory;
+        }
+
+        // Update cost tracking
+        const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
+        const estimatedOutputTokens = Math.ceil(resultText.length * 2.5);
+        const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
+
+        tracking.cost = (tracking.cost || 0) + callCost;
+        tracking.calls = (tracking.calls || 0) + 1;
+        await setGenericCache('gemini_monthly_usage', tracking);
+
+        try {
+          await setGenericCache(cacheKey, paragraphs);
+          console.log(`[WeeklyReport Gemini] Cached successfully for key: ${cacheKey}`);
+        } catch (err) {
+          console.warn(`[WeeklyReport Gemini] Failed to cache generated story for key: ${cacheKey}`, err);
+        }
+
+        return paragraphs;
+      }
+
+      console.warn(`[WeeklyReport Gemini] API error (Attempt ${attempts}): ${res.status} ${res.statusText}`);
+      if (res.status === 429 || res.status >= 500) {
+        if (attempts < maxAttempts) {
+          const jitter = Math.floor(Math.random() * 2000);
+          const sleepMs = delayMs + jitter;
+          console.log(`[WeeklyReport Gemini] Retrying in ${sleepMs}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, sleepMs));
+          delayMs *= 2; // 指數倒退 (8000ms)
+          continue;
+        }
+      }
+      return fallbackStory;
+    } catch (err: any) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        console.warn(`[WeeklyReport Gemini] Request timed out after 12 seconds (Attempt ${attempts}).`);
+      } else {
+        console.error(`[WeeklyReport Gemini] Error during AI synthesis (Attempt ${attempts}):`, err.message);
+      }
+      if (attempts < maxAttempts) {
+        const jitter = Math.floor(Math.random() * 2000);
+        const sleepMs = delayMs + jitter;
+        console.log(`[WeeklyReport Gemini] Retrying in ${sleepMs}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, sleepMs));
+        delayMs *= 2;
+        continue;
+      }
+      return fallbackStory;
     }
-
-    return paragraphs;
-  } catch (err: any) {
-    console.error(`[WeeklyReport Gemini] Error during AI synthesis:`, err.message);
-    return fallbackStory;
   }
+
+  return fallbackStory;
 }
 
-async function buildExecutiveItem(reportId: string, signal: WeeklyReportDetail['categorySignals'][number], evidence: string[]) {
+// 依「實際數據訊號」決定標題與建議動作，不再用硬編碼類別劇本（刀口1）
+function dataDrivenHeadline(category: string, d: CategoryDataSignal, lifecycleCount: number, crossHit: boolean): string {
+  if (d.stockDrop50 > 0) return `${category}：${d.stockDrop50} 顆料件庫存週減逾 50%${crossHit ? '，外部新聞同步示警' : ''}`;
+  if (d.priceRise20 > 0) return `${category}：${d.priceRise20} 顆料件最低價週漲逾 20%${crossHit ? '，外部新聞同步示警' : ''}`;
+  if (d.supplierDrop > 0) return `${category}：${d.supplierDrop} 顆料件授權供應商家數減少`;
+  if (d.stockDrop30 > 0) return `${category}：${d.stockDrop30} 顆料件庫存週減逾 30%`;
+  if (d.priceRise10 > 0) return `${category}：${d.priceRise10} 顆料件最低價週漲逾 10%`;
+  if (lifecycleCount > 0) return `${category}：出現 PCN/EOL 生命週期公告，需評估替代方案`;
+  return `${category}：出現外部供應警示，列入重點觀察名單`;
+}
+
+function dataDrivenSuggestedMove(d: CategoryDataSignal, newsCount: number, lifecycleCount: number, crossHit: boolean): string {
+  const moves: string[] = [];
+  if (d.stockDrop50 > 0 || d.stockDrop30 > 0) moves.push('請採購對照本類別 BOM 料號，向授權代理商確認未來 4-8 週在途量與可供量');
+  if (d.priceRise20 > 0 || d.priceRise10 > 0) moves.push('PM 重新檢視 Forecast 採購預算，並與原廠洽談鎖價或配額');
+  if (d.supplierDrop > 0) moves.push('供應商收斂，建議工程端先備妥替代料（Second Source）清單');
+  if (lifecycleCount > 0) moves.push('比對 BOM 是否含 PCN/EOL 公告料號，確認最後下單日（LTB）並啟動替代認證');
+  if (moves.length === 0) {
+    return crossHit
+      ? '本週外部新聞示警，建議與通路窗口確認交期走勢並納入追蹤。'
+      : '暫無需啟動緊急採購或工程變更，維持例行供應鏈監控即可。';
+  }
+  return moves.join('；') + '。';
+}
+
+async function buildExecutiveItem(
+  reportId: string,
+  signal: WeeklyReportDetail['categorySignals'][number],
+  evidence: string[]
+) {
   const category = signal.category;
-  const fallbackStory = categoryEvidenceSummary(signal.categoryId, evidence);
-  const story = await synthesizeWeeklyReportStoryWithGemini(reportId, signal.categoryId, category, evidence, fallbackStory);
+  const d = signal.data;
+  const headline = dataDrivenHeadline(category, d, signal.lifecycleCount, signal.crossHit);
+  const suggestedMove = dataDrivenSuggestedMove(d, signal.newsCount, signal.lifecycleCount, signal.crossHit);
 
-  if (signal.categoryId === 'C01') {
-    return {
-      category,
-      headline: 'MLCC 市場高容值品項庫存消耗加速，交期風險浮現',
-      story,
-      suggestedMove: '請採購窗口向授權代理商確認未來 8-12 週高容值 MLCC 的在途訂單與可供量；研發窗口可評估準備替代品牌（Second Source）規格。',
-      evidence,
-    };
+  // Gemini 只在「交叉命中」時呼叫（刀口3）：自家數據異動 + 外部新聞同類別佐證。
+  // 其餘情況用資料驅動的本地敘述，省 API、也避免空泛文章腔。
+  let story: string[];
+  if (signal.crossHit && evidence.length > 0) {
+    const fallbackStory = dataGroundedFallbackStory(signal);
+    story = await synthesizeWeeklyReportStoryWithGemini(reportId, signal.categoryId, category, signal.data, evidence, fallbackStory);
+  } else {
+    story = dataGroundedFallbackStory(signal);
   }
 
-  if (signal.categoryId === 'C04') {
-    return {
-      category,
-      headline: '記憶體市場產能受限，DRAM 與 Flash 價格與交期呈上行趨勢',
-      story,
-      suggestedMove: 'PM 應於本週重新檢視 Forecast，確保未來 4-8 週之記憶體採購預算無虞；採購窗口建議與原廠鎖定配額，以規避價格波動風險。',
-      evidence,
-    };
-  }
-
-  if (signal.categoryId === 'C03') {
-    return {
-      category,
-      headline: '功率元件常用封裝交期出現波動，建議提早對接授權通路',
-      story,
-      suggestedMove: '針對 BOM 中常用之 Nexperia、onsemi、Infineon MOSFET 料號，採購請提早與授權通路確認交期走勢；工程端可先行備妥替代料清單。',
-      evidence,
-    };
-  }
-
-  if (signal.lifecycleCount > 0 && signal.newsCount === 0) {
-    return {
-      category,
-      headline: `${category} 產品生命週期公告（PCN/EOL）警訊，需評估替代方案`,
-      story,
-      suggestedMove: '請即刻比對現有專案 BOM 表是否包含此公告品牌料號；若有，應向原廠確認最後下單日期（LTB），並評估啟動替代料認證。',
-      evidence,
-    };
-  }
-
-  return {
-    category,
-    headline: `${category} 出現外部供應警示，列入重點觀察名單`,
-    story,
-    suggestedMove: '暫無需啟動緊急採購或工程變更，維持例行供應鏈監控並與通路窗口保持對接即可。',
-    evidence,
-  };
+  return { category, headline, story, suggestedMove, evidence };
 }
 
-function describeCategorySignal(categoryId: string, newsCount: number, lifecycleCount: number, marketReportCount: number) {
-  if (categoryId === 'C03') {
-    return '本週功率元件雖未有突發事件，但多份通路監測報告指出中低壓 MOSFET 庫存已降至低檔，交期有波動跡象，屬於市場水溫回升的前置訊號。';
+// 不呼叫 AI 時的本地敘述：用真實數字 + 外部情報筆數，不掰劇本
+function dataGroundedFallbackStory(signal: WeeklyReportDetail['categorySignals'][number]): string[] {
+  const d = signal.data;
+  const out: string[] = [];
+  if (d.text) out.push(d.text);
+  const ext: string[] = [];
+  if (signal.newsCount > 0) ext.push(`${signal.newsCount} 則缺料/交期新聞`);
+  if (signal.lifecycleCount > 0) ext.push(`${signal.lifecycleCount} 則 PCN/EOL 公告`);
+  if (signal.marketReportCount > 0) ext.push(`${signal.marketReportCount} 份通路報告`);
+  if (ext.length > 0) out.push(`外部情報佐證：本週另有 ${ext.join('、')}（詳見下方來源連結）。`);
+  if (out.length === 0) out.push('本週此類別僅有零星外部訊號，無自家數據異動，維持例行監控即可。');
+  return out;
+}
+
+// 類別綜述：先講自家數據（事實），再講外部情報數量（佐證）。不再有硬編碼劇本。
+function describeCategorySignal(
+  categoryId: string,
+  data: CategoryDataSignal,
+  newsCount: number,
+  lifecycleCount: number,
+  marketReportCount: number
+) {
+  const external: string[] = [];
+  if (newsCount > 0) external.push(`${newsCount} 則缺料/交期新聞`);
+  if (lifecycleCount > 0) external.push(`${lifecycleCount} 則 PCN/EOL 公告`);
+  if (marketReportCount > 0) external.push(`${marketReportCount} 份公開通路報告`);
+  const externalText = external.length > 0 ? `外部情報：${external.join('、')}。` : '';
+
+  // 有自家數據異動 → 以數據敘述為主體
+  if (data.tone !== 'normal' && data.text) {
+    const verdict = (newsCount > 0 || lifecycleCount > 0)
+      ? '內部實測與外部新聞同步出現訊號（交叉驗證），建議列為本週優先。'
+      : '目前僅內部數據先行示警、外部尚未發酵，屬早期訊號，建議納入追蹤。';
+    return `${data.text}${externalText}${verdict}`;
   }
-  if (categoryId === 'C04') {
-    return '記憶體市場在 AI 算力需求帶動下，晶圓廠產能大幅移轉至 HBM 等高階品項，導致常規 DRAM、DDR 與快閃記憶體（Flash）產能受限，原廠紛紛發出產能分配預警。';
+
+  // 無自家數據異動，只有外部訊號
+  if (data.partsWithSnapshot > 0) {
+    return `本類別 ${data.partsWithSnapshot} 顆監控料件之庫存與價格本週無顯著變動。${externalText || '外部亦無明顯訊號。'}`;
   }
-  if (categoryId === 'C01') {
-    return '當前 MLCC 市場供應平穩，惟高容值、高頻及車規級等高端品項之通路庫存消耗較快，部分主要製造商的交貨週期有拉長趨勢。';
-  }
-  const pieces = [];
-  if (newsCount > 0) pieces.push(`${newsCount} 則缺料/交期新聞`);
-  if (lifecycleCount > 0) pieces.push(`${lifecycleCount} 則 PCN 或 EOL 異動公告`);
-  if (marketReportCount > 0) pieces.push(`${marketReportCount} 份公開通路報告`);
-  if (pieces.length === 0) return '本週該類別無明顯外部供應異常訊號。';
-  if (pieces.length >= 2) return `本類別本週受到多方情報交互驗證，包含 ${pieces.join('、')}，雖未達即時缺料風險，但已具備中度關注特徵，建議納入定期追蹤。`;
-  return `本類別本週僅有單一情報源（${pieces[0]}）提及，屬於早期背景訊號，維持例行監控即可。`;
+  // 連快照都還沒累積（資料不足）
+  if (external.length === 0) return '本週該類別無明顯外部供應異常訊號，且尚無足夠快照可比對週變動。';
+  return `本類別尚無足夠快照可比對週變動。${externalText}建議維持例行監控。`;
 }
 
 function reportSummary(report: any) {
@@ -768,13 +895,28 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     : [];
   const marketReports = Array.isArray(marketCache?.reports) ? marketCache.reports : [];
 
+  // 自家快照（150 顆基準料的週環比）——這是別人沒有的內部測量，當主訊號
+  const allMpns = BENCHMARK_PARTS.map((p) => p.mpn);
+  const snapshotHistory = await getDemandForecastSnapshotHistory(allMpns);
+
   const categorySignals = DEMAND_CATEGORIES.map((cat) => {
     const newsCount = shortageNews.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
     const lifecycleCount = lifecycleNews.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
     const reportNotes = categoryReportNotes(cat.categoryId, marketReports);
     const marketReportCount = reportNotes.length;
-    const signalKinds = [newsCount > 0, lifecycleCount > 0, marketReportCount > 0].filter(Boolean).length;
-    const tone: WeeklyRiskLevel = signalKinds >= 2 ? 'high' : signalKinds === 1 ? 'medium' : 'normal';
+    const data = computeCategoryDataSignal(cat.categoryId, snapshotHistory);
+
+    // 交叉命中：自家數據異常「且」同類別有外部新聞佐證 → 最高價值訊號
+    const crossHit = data.tone !== 'normal' && (newsCount > 0 || lifecycleCount > 0);
+
+    // 類別 tone：數據異常為主，新聞為輔
+    const tone: WeeklyRiskLevel =
+      crossHit || data.tone === 'high'
+        ? 'high'
+        : data.tone === 'medium' || newsCount > 0 || lifecycleCount > 0 || marketReportCount > 0
+          ? 'medium'
+          : 'normal';
+
     return {
       categoryId: cat.categoryId,
       category: categoryLabel(cat.categoryId, cat.category),
@@ -782,26 +924,41 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       lifecycleCount,
       marketReportCount,
       tone,
-      plainText: describeCategorySignal(cat.categoryId, newsCount, lifecycleCount, marketReportCount),
+      plainText: describeCategorySignal(cat.categoryId, data, newsCount, lifecycleCount, marketReportCount),
       reportNotes,
+      data,
+      crossHit,
     };
-  }).filter((item) => item.newsCount > 0 || item.lifecycleCount > 0 || item.marketReportCount > 0)
+  }).filter((item) => item.data.tone !== 'normal' || item.newsCount > 0 || item.lifecycleCount > 0 || item.marketReportCount > 0)
     .sort((a, b) => {
-      const aScore = a.newsCount + a.lifecycleCount + a.marketReportCount + (a.tone === 'high' ? 10 : 0);
-      const bScore = b.newsCount + b.lifecycleCount + b.marketReportCount + (b.tone === 'high' ? 10 : 0);
-      return bScore - aScore;
+      // 排序權重：交叉命中 > 數據 high > 數據 medium > 外部訊號數量
+      const score = (x: typeof a) =>
+        (x.crossHit ? 100 : 0) +
+        (x.data.tone === 'high' ? 40 : x.data.tone === 'medium' ? 20 : 0) +
+        x.data.stockDrop30 * 3 + x.data.priceRise10 * 3 + x.data.supplierDrop * 3 +
+        x.newsCount + x.lifecycleCount + x.marketReportCount;
+      return score(b) - score(a);
     })
     .slice(0, 10);
 
-  const riskLevel: WeeklyRiskLevel = categorySignals.some((item) => item.tone === 'high')
+  const dataAlertCategories = categorySignals.filter((s) => s.data.tone !== 'normal').length;
+  const partsWithSnapshot = categorySignals.reduce((sum, s) => sum + s.data.partsWithSnapshot, 0);
+
+  // 風險等級（刀口4）：交叉命中=高；只有數據異常或外部訊號=中；否則平穩
+  const riskLevel: WeeklyRiskLevel = categorySignals.some((item) => item.crossHit)
     ? 'high'
-    : categorySignals.length > 0 || shortageNews.length > 0 || lifecycleNews.length > 0 || marketReports.length > 0
+    : dataAlertCategories > 0 || categorySignals.length > 0
       ? 'medium'
       : 'normal';
 
-  const executiveSignals = categorySignals
-    .filter((signal) => signal.tone === 'high' || signal.newsCount >= 2 || signal.lifecycleCount >= 2 || signal.marketReportCount > 0)
-    .slice(0, 4);
+  // 進 executive 故事的：優先交叉命中，其次數據 high，再不然取前幾名
+  const executiveSignals = (() => {
+    const cross = categorySignals.filter((s) => s.crossHit);
+    if (cross.length > 0) return cross.slice(0, 4);
+    const dataHigh = categorySignals.filter((s) => s.data.tone === 'high');
+    if (dataHigh.length > 0) return dataHigh.slice(0, 4);
+    return categorySignals.slice(0, 3);
+  })();
 
   const focusSignalList = executiveSignals.length > 0 ? executiveSignals : categorySignals.slice(0, 4);
   const focusCategories = Array.from(new Set([
@@ -815,20 +972,27 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const dateText = formatDate(start);
   const title = buildWeeklyTitle(dateText, focusSignalList);
 
+  // 摘要以「自家數據」為主軸，新聞為輔——講具體顆數，不空泛
+  const crossCount = categorySignals.filter((s) => s.crossHit).length;
   const summary = riskLevel === 'high'
-    ? `本週供應鏈前置警訊顯示，${focusText} 等核心類別之交期與價格波動壓力顯著升高。雖未構成全面性短缺，但專案團隊需提早盤點未來 4-8 週之採購需求與通路配額。`
+    ? `本週監控的 ${partsWithSnapshot} 顆基準料中，${focusText} 等 ${crossCount} 個類別同時出現「庫存／價格實測異動」與「外部缺料新聞」交叉訊號，建議優先盤點未來 4-8 週採購需求與通路配額。`
     : riskLevel === 'medium'
-      ? `本週全球電子零件供應態勢整體平穩，惟 ${focusText} 類別出現零星前置提醒，建議專案與採購窗口維持中度關注，並將其納入定期追蹤清單。`
-      : '本週外部供應鏈情報整體平穩，主要元件均處於正常交期與充足供貨水位，維持例行監控即可。';
+      ? dataAlertCategories > 0
+        ? `本週外部新聞無重大事件，但自家快照顯示 ${focusText} 等 ${dataAlertCategories} 個類別出現庫存或價格的週環比異動，建議納入追蹤清單，留意是否擴大。`
+        : `本週自家快照無明顯異動，僅外部新聞提及 ${focusText} 等類別之零星前置訊號，維持中度關注即可。`
+      : '本週自家快照與外部情報均無顯著異常，主要元件處於正常交期與充足供貨水位，維持例行監控即可。';
 
   const openingNotes = [
     riskLevel === 'high'
-      ? `本週市場情報指出，以 ${focusText} 為首的核心電子元件面臨產能調配與交期挑戰，請專案經理（PM）與採購團隊優先評估並對接 4-8 週內的需求預測。`
-      : `本週外部市場供應鏈未見大規模異常波動，建議採購窗口在與通路對話時，順帶跟進 ${focusText} 類別的交期走勢，研發團隊暫無需介入。`,
-    '上述警訊旨在提供前置預警，以防範市場突發性短缺或價格上漲對專案成本的衝擊；未涉及相關元件的專案團隊，維持常規作業即可。',
+      ? `本週重點：${focusText}。這些類別不只外部有缺料新聞，我們每週實測的庫存／價格數據同步出現異動（雙重驗證），請 PM 與採購優先對接 4-8 週需求。`
+      : dataAlertCategories > 0
+        ? `本週重點：${focusText}。外部新聞尚平穩，但我們的快照數據已偵測到這些類別的庫存或價格週變動，屬早期訊號，建議納入追蹤。`
+        : `本週外部與內部數據均無大幅異常，建議採購窗口順帶跟進 ${focusText} 類別走勢，研發端暫無需介入。`,
+    '本週報以「150 顆基準料的每週實測快照」為主訊號，外部新聞與通路報告為佐證；未涉及相關類別的專案維持常規作業即可。',
   ];
 
-  const executiveItems = await Promise.all(executiveSignals.map(async (signal) => {
+  const executiveItems = [];
+  for (const signal of executiveSignals) {
     const reportEvidenceList = await Promise.all(marketReports
       .filter((item: any) => item.categoryIds?.includes(signal.categoryId))
       .slice(0, 2)
@@ -838,8 +1002,10 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       ...(await categoryEvidence(signal.categoryId, lifecycleNews, 1)),
       ...reportEvidenceList,
     ].slice(0, 4);
-    return buildExecutiveItem(id, signal, evidence);
-  }));
+
+    const item = await buildExecutiveItem(id, signal, evidence);
+    executiveItems.push(item);
+  }
 
   const newsHighlights = shortageNews.slice(0, 5).map((item: any) => ({
     title: pickTitle(item),
@@ -918,6 +1084,8 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       lifecycleNews: lifecycleNews.length,
       marketReports: marketReports.length,
       watchedCategories: categorySignals.length,
+      dataAlertCategories,
+      partsWithSnapshot,
     },
     openingNotes,
     executiveItems,

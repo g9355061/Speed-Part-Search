@@ -809,6 +809,85 @@ export async function getDemandForecastPriceHistory(
   return result;
 }
 
+export type SnapshotPoint = {
+  date: string;
+  totalStock: number;
+  supplierCount: number;
+  price: number | null;
+  minLeadTimeDays: number | null;
+  maxLeadTimeDays: number | null;
+  riskLevel: string;
+};
+
+/**
+ * 批次讀取多顆料件的完整歷史快照（庫存/供應商數/價格/交期/風險），依日期升冪。
+ * 供週報計算「週環比」用。每顆料最多取最近 limit 個點。
+ * 回傳結構：{ [mpn]: SnapshotPoint[] }
+ */
+export async function getDemandForecastSnapshotHistory(
+  mpns: string[],
+  limit = 26
+): Promise<Record<string, SnapshotPoint[]>> {
+  await ensureDb();
+  const result: Record<string, SnapshotPoint[]> = {};
+  if (mpns.length === 0) return result;
+
+  const mapRow = (row: any): SnapshotPoint => ({
+    date: row.date,
+    totalStock: Number(row.total_stock),
+    supplierCount: Number(row.supplier_count),
+    price: row.lowest_price_usd == null ? null : Number(row.lowest_price_usd),
+    minLeadTimeDays: row.min_lead_time_days == null ? null : Number(row.min_lead_time_days),
+    maxLeadTimeDays: row.max_lead_time_days == null ? null : Number(row.max_lead_time_days),
+    riskLevel: row.risk_level,
+  });
+
+  if (isPostgres) {
+    try {
+      const res = await getPool().query(
+        `
+          SELECT mpn, date, total_stock, supplier_count, lowest_price_usd, min_lead_time_days, max_lead_time_days, risk_level
+          FROM demand_forecast_snapshots
+          WHERE mpn = ANY($1)
+          ORDER BY mpn ASC, date ASC
+        `,
+        [mpns]
+      );
+      for (const row of res.rows) {
+        (result[row.mpn] ??= []).push(mapRow(row));
+      }
+    } catch (err) {
+      console.error("[DB-SNAPSHOT] Failed to get postgres snapshot history:", err);
+    }
+  } else {
+    try {
+      const placeholders = mpns.map(() => '?').join(',');
+      const rows = getSqlite()
+        .prepare(
+          `
+            SELECT mpn, date, total_stock, supplier_count, lowest_price_usd, min_lead_time_days, max_lead_time_days, risk_level
+            FROM demand_forecast_snapshots
+            WHERE mpn IN (${placeholders})
+            ORDER BY mpn ASC, date ASC
+          `
+        )
+        .all(...mpns) as any[];
+      for (const row of rows) {
+        (result[row.mpn] ??= []).push(mapRow(row));
+      }
+    } catch (err) {
+      console.error("[DB-SNAPSHOT] Failed to get sqlite snapshot history:", err);
+    }
+  }
+
+  for (const mpn of Object.keys(result)) {
+    if (result[mpn].length > limit) {
+      result[mpn] = result[mpn].slice(-limit);
+    }
+  }
+  return result;
+}
+
 export async function getCustomThresholds(): Promise<Record<string, { minStock: number; lowStock: number }> | null> {
   await ensureDb();
   if (isPostgres) {

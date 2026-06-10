@@ -664,19 +664,9 @@ export default function DemandForecastPage() {
   }, [parts, category, query]);
 
   const riskParts = parts.filter((part) => part.summary === '有缺料風險').length;
-  // 行動清單：高風險料件 + 已查詢數（全部「尚未查詢」時不顯示綠燈，避免誤導）
-  const highRiskParts = useMemo(() => parts.filter((p) => p.summary === '有缺料風險'), [parts]);
-  const queriedPartCount = parts.filter((p) => p.summary !== '尚未查詢').length;
   // 資料時效：updatedAt 距今天數；> 8 天代表週排程可能失敗
   const dataAgeDays = data?.updatedAt ? Math.floor((Date.now() - new Date(data.updatedAt).getTime()) / 86400000) : null;
   const dataStale = dataAgeDays !== null && dataAgeDays > 8;
-  const jumpToPart = (part: ForecastPart) => {
-    setCategory('all');
-    setQuery(part.mpn);
-    setTimeout(() => {
-      document.getElementById('api-parts-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 50);
-  };
   const shortageCategorySummary: CategorySummary[] = data?.newsCategorySummary ?? DEMAND_CATEGORIES.map((cat) => ({
     ...cat,
     newsCount: 0,
@@ -804,43 +794,6 @@ export default function DemandForecastPage() {
             ↑ 頂部
           </button>
         </nav>
-
-        {/* 本週需要行動：高風險料件一覽（採購 5 秒得到答案） */}
-        {queriedPartCount > 0 && (
-          highRiskParts.length > 0 ? (
-            <section style={{ border: '1px solid #FECDCA', background: '#FFFBFA', borderRadius: 12, padding: '16px 18px', marginBottom: 18 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: '#B42318' }}>🔴 本週需要行動 — {highRiskParts.length} 顆高風險料件</span>
-                <span style={{ fontSize: 12, color: 'var(--text-3)' }}>點擊料號可跳至明細</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {highRiskParts.slice(0, 8).map((part) => (
-                  <button
-                    key={part.mpn}
-                    onClick={() => jumpToPart(part)}
-                    style={{ display: 'flex', alignItems: 'baseline', gap: 10, background: 'none', border: 'none', padding: '4px 2px', cursor: 'pointer', textAlign: 'left', borderRadius: 6 }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = '#FEF3F2')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                  >
-                    <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: '#B42318', whiteSpace: 'nowrap' }}>{part.mpn}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{categoryName(part.categoryId, part.category)}</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {part.riskReasons?.[0] ?? '高風險'}
-                    </span>
-                  </button>
-                ))}
-                {highRiskParts.length > 8 && (
-                  <span style={{ fontSize: 12, color: 'var(--text-3)', paddingLeft: 2 }}>… 還有 {highRiskParts.length - 8} 顆，見下方料件明細</span>
-                )}
-              </div>
-            </section>
-          ) : (
-            <section style={{ border: '1px solid #A6F4C5', background: '#F6FEF9', borderRadius: 12, padding: '12px 18px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: '#067647' }}>✅ 本週無高風險料件</span>
-              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>已查詢 {queriedPartCount} 顆基準料，無 🔴 高風險判定</span>
-            </section>
-          )
-        )}
 
         <WeeklyReportsPanel reports={weeklyReports} />
 

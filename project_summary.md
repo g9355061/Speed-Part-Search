@@ -28,6 +28,31 @@
 
 ---
 
+### 2026-06-10 — 物料預測週報重構：自家快照數據當主軸（刀口 1-5）
+
+**問題**：原週報內容空泛、像 AI 產業專欄。根因：(a) C01/C03/C04 類別敘述與 executiveItem 標題/建議是硬編碼字串，每週重播且部分論述無數據支撐；(b) 週報 100% 用外部新聞，完全沒用到自家最值錢的資產——150 顆基準料每週實測快照；(c) 風險等級只要爬到任何報告就判「中」，警報疲勞；(d) Gemini prompt 要 250-350 字社論，必然空泛；(e) 每類別間 sleep 10 秒，生成極慢。
+
+- [x] **刀口1+2：硬編碼改成類別層級的快照數據警示**。新增 `getDemandForecastSnapshotHistory()`（db.ts，回傳每顆料完整快照欄位）；週報新增 `computeCategoryDataSignal()` 計算各類別週環比彙總（庫存週減 ≥30%/≥50% 顆數、最低價週漲 ≥10%/≥20% 顆數、供應商家數減少顆數、最深跌幅/最大漲幅），產出類別層級敘述如「記憶體：本週監控 2 顆料件中，2 顆庫存週減逾 30%（最深 −64%）…」。不點名個別料號（依使用者要求）。刪除硬編碼的 `categoryEvidenceSummary` 與 `describeCategorySignal` 的 C01/C03/C04 劇本。
+- [x] **刀口4：風險等級三條件**。交叉命中（自家數據異動 + 同類別新聞）=高；只有數據異動或外部訊號=中；皆無=平穩。`crossHit` 旗標 = `data.tone!=='normal' && (news||lifecycle)`。
+- [x] **刀口3：Gemini 只在交叉命中才呼叫**。prompt 改餵「我方實測數字 + 外部佐證」，要求 80-120 字、必須引用數字、禁止無數據支撐的形容詞與宏觀斷言、結尾點出對量產專案/BOM 成本的影響。非交叉命中改用 `dataGroundedFallbackStory`（本地、用真實數字，不掰）。
+- [x] **刀口5：刪除每類別 10 秒 sleep**（retry 退避已在 Gemini 內處理）。
+- [x] **前端詳情頁**（weekly-reports/[id]/page.tsx）：metric 改以「數據異動類別 / 監控料件(可比)」為首；新增「自家快照 — 本週哪些類別的數字在動」區塊，列出 data.tone≠normal 的類別卡片（含風險色、⚡數據×新聞交叉命中標籤）。
+- [x] **驗證**：`npx tsc --noEmit` 通過。本機種 6 筆合成快照（C04 庫存 −64%/漲 +22%/供應商 3→2、C01 −37%）+ 臨時 admin 登入，fetch 報告頁 HTML 確認：status 200、「數據異動類別=2」、記憶體與 MLCC 數據敘述帶真實數字、crossHit 標籤出現。驗後合成快照、測試帳號、測試期 Gemini 快取全數清除。
+- 註：本機 Gemini key 測試時回 429（額度），story 走 fallback——剛好驗證 fallback 路徑；正式站 key 正常即會走 AI 整合。
+- **修改檔案**：`src/lib/db.ts`（+getDemandForecastSnapshotHistory/SnapshotPoint）、`src/lib/demand-forecast/weekly-report.ts`（核心重構）、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`（前端）。
+
+---
+
+### 2026-06-10 — 缺料預測頁加 sticky 區塊導航列
+
+- [x] **sticky 錨點導航**：標題列下方新增黏性導航（`top:56` 黏在站頭下），五個錨點「週報｜風險矩陣｜缺料新聞｜市場情報｜料件明細」+ 右側「↑ 頂部」。點擊平滑捲動到對應區塊（扣 116px = 站頭56+導航48+12 呼吸空間），解決頁面過長「跳過去、回得來」問題。
+- [x] **目前區塊高亮**：用 `IntersectionObserver`（rootMargin `-120px 0px -60% 0px`）追蹤捲動位置，自動高亮對應導航鈕（深藍底白字）。依賴 `data` 重新 observe（區塊載入後才存在）。
+- [x] **補齊區塊 id**：`risk-matrix-panel`（風險矩陣 Panel）、`weekly-reports-panel`（週報 section）；其餘 `shortage-category-panel`／`market-reports-category-panel`／`api-parts-panel` 沿用既有 id。
+- [x] **驗證**：`npx tsc --noEmit` 通過。本機 dev（5280）登入實測：導航列 sticky 於 top:56、點「料件明細」「風險矩陣」正確捲動、active 高亮隨 IntersectionObserver 切換（截圖確認）。臨時測試帳號驗後已刪（含 login_logs）。
+- **修改檔案**：`src/app/demand-forecast/page.tsx`。
+
+---
+
 ### 2026-06-10 — 缺料預測首屏改造：行動清單卡片、資料時效警示、full 查詢進度輪詢
 
 - [x] **「本週需要行動」卡片（首屏第一眼）**：標題列下方新增高風險料件卡片——列出最多 8 顆 `summary === '有缺料風險'` 的料件（MPN + 類別 + 第一條風險原因），點擊即 `setQuery(mpn)` 過濾料件表並平滑捲動至 `#api-parts-panel`；超過 8 顆顯示「還有 N 顆」。無高風險時顯示綠色「✅ 本週無高風險料件（已查詢 N 顆）」；全部料件「尚未查詢」時不顯示卡片（避免誤導成沒風險）。
@@ -36,6 +61,8 @@
 - [x] **修 ghost rows bug**：料件表 React key 原為 `categoryId-mpn`，但 benchmark.ts 有 4 顆重複 MPN（AO3400A、W25Q128JVSIQ、USBLC6-2SC6、SN65HVD230DR，6/6 EOL 汰換誤植）造成 key 重複——過濾表格時 4 顆料殘影常駐（搜尋任何字都顯示）。key 加 idx 修掉殘影；**資料層重複待另案處理**（已開背景任務：挑 4 顆新替代料並以 /api/search 驗證後替換）。
 - [x] **驗證**：`npx tsc --noEmit` 通過。本機 dev（5280）以臨時測試帳號登入實測（驗後已刪）：行動卡列出 18 顆高風險、時效顯示「資料截至 6/6（4 天前）」、點擊 GRM188R61A106KE69D 跳轉後表格正確過濾為 1 列。
 - **修改檔案**：`src/app/demand-forecast/page.tsx`（行動卡片、時效 pill、輪詢邏輯、key 修正）。
+- [x] **（同日後續）移除「本週需要行動」高風險料件卡片**：使用者回饋不需要（與下方料件明細重複）。一併刪除專屬變數 `highRiskParts`/`queriedPartCount`/`jumpToPart`；保留 sticky 導航列與資料時效 pill。`tsc --noEmit` 通過。
+
 
 ---
 
@@ -1505,3 +1532,24 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - 公開報告重點不再只顯示來源與 C 類別代碼，改成依內容產生白話標題，例如「高容值 MLCC 開始配貨，先確認可供量」。
 - 每張公開報告卡片至少顯示兩段內容：第一段說明報告提到什麼，第二段用「我們怎麼看」說明對採購、工程或 PM 的實際影響。
 - 週報資料產生邏輯新增類別化解讀：MLCC、MOSFET、記憶體會各自對應到不同的追蹤建議，避免只寫「有幾份公開報告」但沒有行動意義。
+
+## 15. 週報 AI 故事生成截斷與 API 限制 (429/503) 修復
+
+針對週報卡片內文被截斷（結束在「目前...」與「風險報告中的...」）以及本地 API 被 rate limit (429/503) 的問題，我們進行了以下修復：
+
+### 1. 防止 Story 截斷與解決推理模型 Token 擠占
+在 [weekly-report.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/weekly-report.ts) 之中，調升 `maxOutputTokens` 至 `4096`；在 [market-report-fetcher.ts](file:///Users/dannychen/Documents/Claude%20Code/Speed%20Part%20Search/src/lib/demand-forecast/market-report-fetcher.ts) 之中，調升至 `2048`。
+同時在 `generationConfig` 加上了 `thinkingConfig: { thinkingBudget: 0 }`，停用推理（reasoning）思考預算，確保生成的內容全數用於文本輸出，避免被 finishReason: "MAX_TOKENS" 截斷。
+
+### 2. 引入 API 自動重試機制 (Exponential Backoff)
+為 `synthesizeWeeklyReportStoryWithGemini` 與 `summarizeWithGemini` 加上重試邏輯。若遇到 429 或是 500 以上的 API 錯誤，會自動在等待一段冷卻時間後進行重試（最長 3 次重試，初始等待 4 秒，並乘 2 指數倒退，另外加上 0 至 2000ms 的隨機抖動 Jitter）。
+
+### 3. 改為順序執行 (Sequential Execution) 與類別間冷卻
+重構 `buildWeeklyReport` 中 `Promise.all` 的併發呼叫，改為使用 `for-of` 順序處理各個 category 故事。
+為了徹底防範 Thundering Herd（雷擊效應）導致多個類別同時打 API 觸發 429，我們在每次處理完一個類別後，強制休眠 `10,000ms` (10秒) 再處理下一個類別。
+
+### 4. 週報被截斷語句之完整還原
+- **記憶體 / Flash / DDR** (原本截斷於「目前」)：
+  - 完整句子還原為：`DRAM、儲存解決方案，乃至於 NOR 快閃記憶體...都已在多個供應商中面臨配給（Allocation）狀況，預計隨著市場持續收緊，更多技術將受到類似限制，分銷管道和終端客戶的庫存消耗速度正在加快。`
+- **MOSFET / 功率分離式元件** (原本截斷於「風險報告中的」)：
+  - 完整句子還原為：`離散交貨時間（Lead Time）已成為2026年供應鏈風險報告中的 BOM 成本變動重要驅動因素之一，這與中東材料風險、AI 驅動的記憶體分配等因素並列。`
