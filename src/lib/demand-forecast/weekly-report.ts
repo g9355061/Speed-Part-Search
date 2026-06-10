@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { getMarketReportsCache } from '@/lib/db';
+import { getMarketReportsCache, getGenericCache, setGenericCache } from '@/lib/db';
 import { DEMAND_CATEGORIES } from '@/lib/demand-forecast/benchmark';
+import crypto from 'crypto';
 
 const NEWS_CACHE_PATH = path.join(process.cwd(), 'data', 'news-cache.json');
 const RECENT_SIGNAL_DAYS = 45;
@@ -376,14 +377,151 @@ function categoryEvidenceSummary(categoryId: string, evidence: string[]) {
   ];
 }
 
-function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number], evidence: string[]) {
+async function synthesizeWeeklyReportStoryWithGemini(
+  reportId: string,
+  categoryId: string,
+  categoryName: string,
+  evidence: string[],
+  fallbackStory: string[]
+): Promise<string[]> {
+  if (evidence.length === 0) {
+    return fallbackStory;
+  }
+
+  const evidenceHash = crypto.createHash('md5').update(evidence.join('\n')).digest('hex');
+  const cacheKey = `weekly-report-story-gemini-${reportId}-${categoryId}-${evidenceHash}`;
+
+  try {
+    const cached = await getGenericCache(cacheKey);
+    if (cached && Array.isArray(cached)) {
+      console.log(`[WeeklyReport Gemini] Cache HIT for key: ${cacheKey}`);
+      return cached;
+    }
+  } catch (err) {
+    console.warn(`[WeeklyReport Gemini] Failed to read cache for key: ${cacheKey}`, err);
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.log(`[WeeklyReport Gemini] GEMINI_API_KEY not configured. Using fallback story.`);
+    return fallbackStory;
+  }
+
+  const currentMonth = new Date().toISOString().slice(0, 7); // e.g. "2026-06"
+  const tracking = (await getGenericCache('gemini_monthly_usage')) || {
+    month: currentMonth,
+    cost: 0,
+    calls: 0,
+  };
+
+  if (tracking.month !== currentMonth) {
+    tracking.month = currentMonth;
+    tracking.cost = 0;
+    tracking.calls = 0;
+  }
+
+  if (tracking.cost >= 5.0 || tracking.calls >= 4000) {
+    console.warn(`[WeeklyReport Gemini] Monthly API budget cap reached ($${tracking.cost.toFixed(4)} USD). Skipping Gemini synthesis.`);
+    return fallbackStory;
+  }
+
+  try {
+    console.log(`[WeeklyReport Gemini] Cache MISS. Invoking Gemini API for category ${categoryName}...`);
+    const evidenceText = evidence.join('\n');
+    const prompt = `你是一位專業的電子零組件與供應鏈資深分析師。請閱讀以下關於「${categoryName}」（類別代號：${categoryId}）的外部情報片段（包括新聞、PCN/EOL 公告、通路報告等）：
+"${evidenceText}"
+
+任務：
+請像寫報紙專欄、社論或新聞簡報一樣，將以上不同的情報來源（如 EE Times、Future Electronics、thelec、PPSI 等）進行深度整合與提煉，融合成一段口語化、流暢、一體化且極具專業分析水準的報告段落。
+
+寫作要求：
+1. 用「說話的口吻」與「自然的產業分析筆調」將所有情報內容有機地串聯在一起。
+2. 不要使用列點（Bullet Points），不要簡單地把各個來源翻譯後拼湊，要像報導一樣融會貫通。
+3. 語氣要專業、成熟、客觀，不要包含 any meta 說明語句（例如「本段只整理來源...」或「所以週報只能把...放進封面故事」之類的話）。
+4. 請分為兩個段落：
+   - 第一段【市場趨勢與情報整合】：說明各家消息指出的最新供需狀態、產能配給（Allocation）或交期拉長等宏觀趨勢。
+   - 第二段【風險提示與專案影響】：基於上述趨勢，分析此類元件對公司量產專案、BOM 成本以及採購規劃的實質影響與風險預警。
+5. 輸出繁體中文，總字數控制在 250 至 350 字之間。
+6. 請僅輸出這兩個段落的內容，段落之間用換行隔開，不要有任何其他引言或 markdown 標題。`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000); // 8s timeout
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          maxOutputTokens: 1200,
+          temperature: 0.3
+        }
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      console.warn(`[WeeklyReport Gemini] API error: ${res.status} ${res.statusText}`);
+      return fallbackStory;
+    }
+
+    const json = await res.json();
+    const resultText = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+    if (!resultText) {
+      return fallbackStory;
+    }
+
+    const paragraphs = resultText
+      .split(/\n+/)
+      .map((p: string) => p.trim())
+      .filter(Boolean);
+
+    if (paragraphs.length === 0) {
+      return fallbackStory;
+    }
+
+    // Update cost tracking
+    const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
+    const estimatedOutputTokens = Math.ceil(resultText.length * 2.5);
+    const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
+
+    tracking.cost = (tracking.cost || 0) + callCost;
+    tracking.calls = (tracking.calls || 0) + 1;
+    await setGenericCache('gemini_monthly_usage', tracking);
+
+    try {
+      await setGenericCache(cacheKey, paragraphs);
+      console.log(`[WeeklyReport Gemini] Cached successfully for key: ${cacheKey}`);
+    } catch (err) {
+      console.warn(`[WeeklyReport Gemini] Failed to cache generated story for key: ${cacheKey}`, err);
+    }
+
+    return paragraphs;
+  } catch (err: any) {
+    console.error(`[WeeklyReport Gemini] Error during AI synthesis:`, err.message);
+    return fallbackStory;
+  }
+}
+
+async function buildExecutiveItem(reportId: string, signal: WeeklyReportDetail['categorySignals'][number], evidence: string[]) {
   const category = signal.category;
+  const fallbackStory = categoryEvidenceSummary(signal.categoryId, evidence);
+  const story = await synthesizeWeeklyReportStoryWithGemini(reportId, signal.categoryId, category, evidence, fallbackStory);
 
   if (signal.categoryId === 'C01') {
     return {
       category,
       headline: 'MLCC 市場高容值品項庫存消耗加速，交期風險浮現',
-      story: categoryEvidenceSummary(signal.categoryId, evidence),
+      story,
       suggestedMove: '請採購窗口向授權代理商確認未來 8-12 週高容值 MLCC 的在途訂單與可供量；研發窗口可評估準備替代品牌（Second Source）規格。',
       evidence,
     };
@@ -393,7 +531,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: '記憶體市場產能受限，DRAM 與 Flash 價格與交期呈上行趨勢',
-      story: categoryEvidenceSummary(signal.categoryId, evidence),
+      story,
       suggestedMove: 'PM 應於本週重新檢視 Forecast，確保未來 4-8 週之記憶體採購預算無虞；採購窗口建議與原廠鎖定配額，以規避價格波動風險。',
       evidence,
     };
@@ -403,7 +541,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: '功率元件常用封裝交期出現波動，建議提早對接授權通路',
-      story: categoryEvidenceSummary(signal.categoryId, evidence),
+      story,
       suggestedMove: '針對 BOM 中常用之 Nexperia、onsemi、Infineon MOSFET 料號，採購請提早與授權通路確認交期走勢；工程端可先行備妥替代料清單。',
       evidence,
     };
@@ -413,10 +551,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
     return {
       category,
       headline: `${category} 產品生命週期公告（PCN/EOL）警訊，需評估替代方案`,
-      story: [
-        '【生命週期風險】本類別近期外部訊號主要圍繞在原廠釋出之產品變更通知（PCN）或停產通知（EOL），並非突發性市場缺料。',
-        '【量產影響評估】這類風險對量產中或即將導入之案子影響最為深遠。若 BOM 包含公告料號，需確認最後下單時間（LTB）、庫存儲備及替代料驗證時程。',
-      ],
+      story,
       suggestedMove: '請即刻比對現有專案 BOM 表是否包含此公告品牌料號；若有，應向原廠確認最後下單日期（LTB），並評估啟動替代料認證。',
       evidence,
     };
@@ -425,10 +560,7 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   return {
     category,
     headline: `${category} 出現外部供應警示，列入重點觀察名單`,
-    story: [
-      '【前置監測】本週外部情報提及該類別有零星供應壓力或價格波動，但目前訊號強度尚未構成實質短缺。',
-      '【追蹤機制】建議將此類別列入下週觀察清單，密切跟進通路報價及交期是否產生連續性變動。',
-    ],
+    story,
     suggestedMove: '暫無需啟動緊急採購或工程變更，維持例行供應鏈監控並與通路窗口保持對接即可。',
     evidence,
   };
@@ -706,7 +838,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       ...(await categoryEvidence(signal.categoryId, lifecycleNews, 1)),
       ...reportEvidenceList,
     ].slice(0, 4);
-    return buildExecutiveItem(signal, evidence);
+    return buildExecutiveItem(id, signal, evidence);
   }));
 
   const newsHighlights = shortageNews.slice(0, 5).map((item: any) => ({
