@@ -83,6 +83,18 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                         <p key={paragraph} style={{ margin: 0, fontSize: 15.5, lineHeight: 1.85, color: 'var(--text-2)' }}>{paragraph}</p>
                       ))}
                     </div>
+                    {item.evidence && item.evidence.length > 0 && (
+                      <div style={{ marginTop: 12, padding: '12px 14px', background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          <span>🔍 原始情報片段 (佐證來源)</span>
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: 16, fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
+                          {item.evidence.map((snippet, sIdx) => (
+                            <li key={sIdx} style={{ marginBottom: 4 }}>{snippet}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>

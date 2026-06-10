@@ -352,30 +352,25 @@ function evidenceSentence(evidence: string[], fallback: string) {
 }
 
 function categoryEvidenceSummary(categoryId: string, evidence: string[]) {
-  const sourceText = evidenceSentence(evidence, '目前可參考之外部情報內容有限。');
   if (categoryId === 'C01') {
     return [
-      `【情報摘要】根據外部監測資料：${sourceText}。`,
-      '【市場趨勢】當前 MLCC（積層陶瓷電容）市場雖未呈現全面性缺料，但部分大廠高容值品項之通路庫存已在低檔，交貨週期有拉長跡象。',
+      '【市場趨勢】當前 MLCC（積層陶瓷電容）市場雖未呈現全面性缺料，但部分大廠高容值品項之通路庫存已在低檔，前置交期有拉長趨勢。',
       '【風險提示】高容值與車規級被動元件之供應鏈水溫正在上升。本週將其列入重點關注，後續需核對內部 BOM 表與大廠供應鏈之重合度。',
     ];
   }
   if (categoryId === 'C04') {
     return [
-      `【情報摘要】根據外部監測資料：${sourceText}。`,
       '【市場趨勢】受惠於 AI 伺服器與高效能運算對 DRAM、DDR 及快閃記憶體（Flash）的強勁拉貨，晶圓廠產能大幅移轉，導致常規記憶體產能受限。',
       '【風險提示】主要大廠（如三星、美光等）已啟動產能分配，部分型號開始反映價格調漲，專案團隊需提防價格上行與交期變動壓力。',
     ];
   }
   if (categoryId === 'C03') {
     return [
-      `【情報摘要】根據外部監測資料：${sourceText}。`,
       '【市場趨勢】低壓與中壓 MOSFET 通路庫存已逐步去化，Nexperia、onsemi 等指標品牌常用封裝之功率元件交期出現波動。',
       '【風險提示】本類別屬於供應鏈前置警訊，目前無即時性短缺風險，但建議提早向授權通路確認常用料號之供貨排程。',
     ];
   }
   return [
-    `【情報摘要】根據外部監測資料：${sourceText}。`,
     '【市場趨勢】此類別目前外部情報僅提及零星事件，全球供應鏈態勢整體平穩，暫無結構性供需失衡。',
     '【風險提示】列入常規追蹤清單，持續關注後續交期與價格波動。',
   ];
