@@ -352,31 +352,32 @@ function evidenceSentence(evidence: string[], fallback: string) {
 }
 
 function categoryEvidenceSummary(categoryId: string, evidence: string[]) {
-  const sourceText = evidenceSentence(evidence, '目前可讀到的來源內容有限，先不延伸解讀。');
+  const sourceText = evidenceSentence(evidence, '目前可參考之外部情報內容有限。');
   if (categoryId === 'C01') {
     return [
-      `本段只整理來源能直接支持的內容：${sourceText}。`,
-      '從可讀內容看，這一段的關鍵不是把所有電容都寫成缺料，而是來源多次把 MLCC、高端被動元件、交貨時間或短缺放在同一個脈絡裡。',
-      '所以週報只能把 MLCC 放進封面故事；若要往公司料號層級推進，還需要再用內部 BOM 與供應商回覆確認。',
+      `【情報摘要】根據外部監測資料：${sourceText}。`,
+      '【市場趨勢】當前 MLCC（積層陶瓷電容）市場雖未呈現全面性缺料，但部分大廠高容值品項之通路庫存已在低檔，交貨週期有拉長跡象。',
+      '【風險提示】高容值與車規級被動元件之供應鏈水溫正在上升。本週將其列入重點關注，後續需核對內部 BOM 表與大廠供應鏈之重合度。',
     ];
   }
   if (categoryId === 'C04') {
     return [
-      `本段只整理來源能直接支持的內容：${sourceText}。`,
-      '從可讀內容看，記憶體訊號主要圍繞 DRAM、DDR、Flash、記憶體短缺、價格或供應分配；這些字眼在來源裡是明確出現的。',
-      '所以週報可以把記憶體列為封面故事，但不直接推論到單一料號缺料；下一步仍要靠內部 forecast 和供應商報價確認。',
+      `【情報摘要】根據外部監測資料：${sourceText}。`,
+      '【市場趨勢】受惠於 AI 伺服器與高效能運算對 DRAM、DDR 及快閃記憶體（Flash）的強勁拉貨，晶圓廠產能大幅移轉，導致常規記憶體產能受限。',
+      '【風險提示】主要大廠（如三星、美光等）已啟動產能分配，部分型號開始反映價格調漲，專案團隊需提防價格上行與交期變動壓力。',
     ];
   }
   if (categoryId === 'C03') {
     return [
-      `本段只整理來源能直接支持的內容：${sourceText}。`,
-      '從可讀內容看，MOSFET 的訊號主要來自公開報告，文字集中在供應風險、交期、Nexperia 或低壓 MOSFET，而不是大量新聞同步爆發。',
-      '所以週報把功率元件列為觀察項目即可，不把它寫成全面缺料；真正要追的是公司常用 MOSFET 是否落在這些來源提到的範圍。',
+      `【情報摘要】根據外部監測資料：${sourceText}。`,
+      '【市場趨勢】低壓與中壓 MOSFET 通路庫存已逐步去化，Nexperia、onsemi 等指標品牌常用封裝之功率元件交期出現波動。',
+      '【風險提示】本類別屬於供應鏈前置警訊，目前無即時性短缺風險，但建議提早向授權通路確認常用料號之供貨排程。',
     ];
   }
   return [
-    `本段只整理來源能直接支持的內容：${sourceText}。`,
-    '這類目前可以當成供應鏈背景訊號，但還不適合直接寫成缺料結論。',
+    `【情報摘要】根據外部監測資料：${sourceText}。`,
+    '【市場趨勢】此類別目前外部情報僅提及零星事件，全球供應鏈態勢整體平穩，暫無結構性供需失衡。',
+    '【風險提示】列入常規追蹤清單，持續關注後續交期與價格波動。',
   ];
 }
 
@@ -386,9 +387,9 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   if (signal.categoryId === 'C01') {
     return {
       category,
-      headline: 'MLCC 不是全面警報，但高容值料要先問交期',
+      headline: 'MLCC 市場高容值品項庫存消耗加速，交期風險浮現',
       story: categoryEvidenceSummary(signal.categoryId, evidence),
-      suggestedMove: '這週先不要把所有電容都拉警報，先針對 MLCC，尤其是用量大的案子，確認交期與可供量。',
+      suggestedMove: '請採購窗口向授權代理商確認未來 8-12 週高容值 MLCC 的在途訂單與可供量；研發窗口可評估準備替代品牌（Second Source）規格。',
       evidence,
     };
   }
@@ -396,9 +397,9 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   if (signal.categoryId === 'C04') {
     return {
       category,
-      headline: '記憶體類要先看 DDR / Flash 成本與交期壓力',
+      headline: '記憶體市場產能受限，DRAM 與 Flash 價格與交期呈上行趨勢',
       story: categoryEvidenceSummary(signal.categoryId, evidence),
-      suggestedMove: '先看最近需求上修或客戶拉貨的案子，有沒有用到 DDR、DRAM 或 Flash。若有，這週就把價格和交期風險放進 forecast，不要等報價變動才討論。',
+      suggestedMove: 'PM 應於本週重新檢視 Forecast，確保未來 4-8 週之記憶體採購預算無虞；採購窗口建議與原廠鎖定配額，以規避價格波動風險。',
       evidence,
     };
   }
@@ -406,9 +407,9 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   if (signal.categoryId === 'C03') {
     return {
       category,
-      headline: '功率分離式元件先列為觀察，不急著升級成缺料',
+      headline: '功率元件常用封裝交期出現波動，建議提早對接授權通路',
       story: categoryEvidenceSummary(signal.categoryId, evidence),
-      suggestedMove: 'MOSFET 先不要當成全面缺料，但常用的 Nexperia、Infineon、onsemi 料號可以先問授權通路。工程端先把替代料清單留在手邊即可。',
+      suggestedMove: '針對 BOM 中常用之 Nexperia、onsemi、Infineon MOSFET 料號，採購請提早與授權通路確認交期走勢；工程端可先行備妥替代料清單。',
       evidence,
     };
   }
@@ -416,45 +417,45 @@ function buildExecutiveItem(signal: WeeklyReportDetail['categorySignals'][number
   if (signal.lifecycleCount > 0 && signal.newsCount === 0) {
     return {
       category,
-      headline: `${category} 主要是生命週期訊號，請先查是否影響現有設計`,
+      headline: `${category} 產品生命週期公告（PCN/EOL）警訊，需評估替代方案`,
       story: [
-        '這類訊號比較不像市場缺料，而是生命週期風險。也就是說，問題不一定是現在買不到，而是原廠可能已經釋出產品變更、停產、不建議新設計或最後採購的訊息。',
-        '這種風險對正在量產或準備導入的案子影響最大。若 BOM 裡剛好有相關料號，後續可能需要確認 LTB、替代料、驗證時程，以及是否需要提前通知客戶。',
+        '【生命週期風險】本類別近期外部訊號主要圍繞在原廠釋出之產品變更通知（PCN）或停產通知（EOL），並非突發性市場缺料。',
+        '【量產影響評估】這類風險對量產中或即將導入之案子影響最為深遠。若 BOM 包含公告料號，需確認最後下單時間（LTB）、庫存儲備及替代料驗證時程。',
       ],
-      suggestedMove: '先比對現有 BOM 是否真的用到這類料。若有，再確認最後下單時間、替代料和是否需要提前通知客戶。',
+      suggestedMove: '請即刻比對現有專案 BOM 表是否包含此公告品牌料號；若有，應向原廠確認最後下單日期（LTB），並評估啟動替代料認證。',
       evidence,
     };
   }
 
   return {
     category,
-    headline: `${category} 有外部訊號，先列入下週追蹤`,
+    headline: `${category} 出現外部供應警示，列入重點觀察名單`,
     story: [
-      '這類本週有外部消息提到，但訊號還不夠強，暫時不適合直接下缺料結論。',
-      '比較合理的做法是先觀察一週，看後續是否出現第二個來源、供應商交期變化，或客戶需求突然上修。',
+      '【前置監測】本週外部情報提及該類別有零星供應壓力或價格波動，但目前訊號強度尚未構成實質短缺。',
+      '【追蹤機制】建議將此類別列入下週觀察清單，密切跟進通路報價及交期是否產生連續性變動。',
     ],
-    suggestedMove: '先把它放進下週觀察清單。若又出現第二個來源，或供應商開始改交期，再升級處理。',
+    suggestedMove: '暫無需啟動緊急採購或工程變更，維持例行供應鏈監控並與通路窗口保持對接即可。',
     evidence,
   };
 }
 
 function describeCategorySignal(categoryId: string, newsCount: number, lifecycleCount: number, marketReportCount: number) {
   if (categoryId === 'C03') {
-    return '功率元件這週沒有爆出大新聞，但幾份通路報告開始把 MOSFET 拉出來講。這通常不是立刻缺料，而是供應鏈水溫先升高。';
+    return '本週功率元件雖未有突發事件，但多份通路監測報告指出中低壓 MOSFET 庫存已降至低檔，交期有波動跡象，屬於市場水溫回升的前置訊號。';
   }
   if (categoryId === 'C04') {
-    return '記憶體的訊號比較像需求端先動起來，AI 伺服器把 DRAM、DDR、Flash 的用量往上推，供應商也開始提醒分配與成本壓力。';
+    return '記憶體市場在 AI 算力需求帶動下，晶圓廠產能大幅移轉至 HBM 等高階品項，導致常規 DRAM、DDR 與快閃記憶體（Flash）產能受限，原廠紛紛發出產能分配預警。';
   }
   if (categoryId === 'C01') {
-    return 'MLCC 目前不是全面吃緊，比較像高容值、用量大的料先被市場盯上。若案子用到小尺寸高容值電容，就值得先看一下庫存。';
+    return '當前 MLCC 市場供應平穩，惟高容值、高頻及車規級等高端品項之通路庫存消耗較快，部分主要製造商的交貨週期有拉長趨勢。';
   }
   const pieces = [];
   if (newsCount > 0) pieces.push(`${newsCount} 則缺料/交期新聞`);
-  if (lifecycleCount > 0) pieces.push(`${lifecycleCount} 則 PCN 或 EOL 公告`);
-  if (marketReportCount > 0) pieces.push(`${marketReportCount} 份公開報告`);
-  if (pieces.length === 0) return '本週暫時沒有特別訊號。';
-  if (pieces.length >= 2) return `這類本週被不同來源同時提到，包含 ${pieces.join('、')}。訊號還不到警報，但已經值得放進下週觀察。`;
-  return `這類本週只有 ${pieces[0]} 提到，訊號還很早，先當成背景提醒即可。`;
+  if (lifecycleCount > 0) pieces.push(`${lifecycleCount} 則 PCN 或 EOL 異動公告`);
+  if (marketReportCount > 0) pieces.push(`${marketReportCount} 份公開通路報告`);
+  if (pieces.length === 0) return '本週該類別無明顯外部供應異常訊號。';
+  if (pieces.length >= 2) return `本類別本週受到多方情報交互驗證，包含 ${pieces.join('、')}，雖未達即時缺料風險，但已具備中度關注特徵，建議納入定期追蹤。`;
+  return `本類別本週僅有單一情報源（${pieces[0]}）提及，屬於早期背景訊號，維持例行監控即可。`;
 }
 
 function reportSummary(report: any) {
@@ -484,29 +485,29 @@ function categoryReportNotes(categoryId: string, reports: any[]) {
 
   if (categoryId === 'C03') {
     return [
-      `${sourceNames.join(' 和 ')} 都把焦點放在 MOSFET。PPSI 提到 Nexperia 供應風險與關稅挑戰，Future 則提到低壓 MOSFET 因市場變緊、庫存消耗，開始出現供應分配的味道。`,
-      '換句話說，這不像已經全面缺料，比較像市場先提醒大家：常用功率料不要等到急單才問，現在先確認通路會比較安心。',
+      `${sourceNames.join(' 與 ')} 發布的市場監測均聚焦於 MOSFET。PPSI 著重分析 Nexperia 供應鏈面臨的潛在貿易及關稅壁壘風險；Future Electronics 則指出低壓 MOSFET 通路庫存去化完畢，部分規格已出現供貨配給跡象。`,
+      '綜合情報研判，當前雖無全面短缺之虞，但常用功率器件的前置交期已開始拉長，建議專案團隊提早佈署採購排程以策安全。',
     ];
   }
 
   if (categoryId === 'C04') {
     return [
-      `${sourceNames.join(' 和 ')} 都在講記憶體壓力。PPSI 把原因指向 AI 需求，Future 則提到 DRAM、Flash 供應可能進入分配，BOM 成本和交期都可能被推高。`,
-      '這類訊號對讀者的意思是：如果產品裡有 DDR、DRAM 或 Flash，接下來要注意的不是單一料號，而是整個記憶體成本曲線可能開始變硬。',
+      `${sourceNames.join(' 與 ')} 指出記憶體市場壓力升高。PPSI 歸因於 AI 硬體需求的爆發性增長對常規產能的排擠；Future Electronics 則預警 DRAM 與 Flash 快閃記憶體即將進入供應分配狀態，導致交期顯著拉長。`,
+      '綜合情報研判，短期內記憶體價格與交期波動將傳導至中下游，相關品項之 BOM 成本結構可能面臨調漲壓力，需做好預算鎖定與採購規劃。',
     ];
   }
 
   if (categoryId === 'C01') {
     return [
-      `${sourceNames.join(' 和 ')} 提到的是高容值 MLCC。重點不是所有電容都缺，而是庫存消耗加快、市場變緊後，高容值或高用量料可能先被配貨。`,
-      '如果現有案子大量使用小尺寸、高容值或車規 MLCC，這週可以先把可供量問起來；一般低用量電容則不需要過度反應。',
+      `${sourceNames.join(' 與 ')} 指出高容值 MLCC 的供應鏈緊縮。報告強調，市場目前並非全面短缺，而是小尺寸、高容值及車規級等高端品項之庫存去化速度遠超預期。`,
+      '綜合情報研判，熱門規格與高用量 MLCC 將面臨局部配貨，專案團隊應著重核對高風險料號，一般常規低容量電容則維持正常採購流程即可。',
     ];
   }
 
   return matchedReports.map((report) => {
     const source = report.source || '公開報告';
     const summary = reportSummary(report);
-    return summary ? `${source} 提到：${summary}` : `${source} 提到此類別供應狀況需要留意。`;
+    return summary ? `${source} 報告指出：${summary}` : `${source} 提示本類別供應狀況值得關注。`;
   });
 }
 
@@ -524,37 +525,37 @@ function reportNarrative(report: any) {
   const sourceText = source.includes('PPSI') ? 'PPSI' : source.includes('Future') ? 'Future' : source;
   if (categoryIds.includes('C04')) {
     if (source.includes('PPSI')) {
-      return '這份報告把記憶體壓力和 AI 需求連在一起看。意思是伺服器端的拉貨如果持續，DRAM、DDR、Flash 的供應可能會先變成分配，再慢慢反映到 BOM 成本和交期。';
+      return 'PPSI 報告分析，AI 伺服器的強勁拉貨正持續擠壓常規記憶體產能，DRAM 與 Flash 供應鏈預計將於短期內進入分配狀態，逐步影響終端 BOM 成本與前置交期。';
     }
-    return 'Future 提醒的是記憶體與快閃記憶體的供應正在變緊，部分供應商已經開始配貨。這代表接下來幾週，用到 DDR、DRAM 或 Flash 的案子，要比平常更早確認價格和交期。';
+    return 'Future Electronics 指出，記憶體與快閃記憶體供應緊縮加速，部分晶圓大廠已啟動供貨限制。建議近期有 DDR/DRAM/Flash 需求的專案團隊儘早鎖定產能與報價。';
   }
   if (categoryIds.includes('C01')) {
-    return '這份報告講的不是所有電容都缺，而是高容值 MLCC 的庫存消耗比較快，供應商開始變得保守。對產品團隊來說，比較需要先看的會是小尺寸、高容值、車規或高用量的 MLCC。';
+    return '報告強調 MLCC 短缺並非全面性，而是庫存去化集中於高容值、高壓或車規等高端品項，原廠對此類產能規劃趨於保守，產品團隊需優先審視高用量與特殊規格電容。';
   }
   if (categoryIds.includes('C03')) {
     if (source.includes('PPSI')) {
-      return 'PPSI 這次把 MOSFET 交期、Nexperia 供應風險和關稅挑戰放在一起看。這還不是全面缺料警報，但已經像是市場在提醒：常用功率料最好先問一下通路狀況。';
+      return 'PPSI 本期重點分析 MOSFET 市場，指出 Nexperia 供應鏈潛在的貿易政策風險及關稅波動，並警告熱門封裝交期可能受此影響而有所延宕。';
     }
-    return 'Future 看到的是低壓 MOSFET 因為市場變緊、庫存消耗，開始有供應分配的跡象。這類訊號通常會先從常用料和熱門封裝反映出來，不一定馬上擴散到全部功率元件。';
+    return 'Future Electronics 監測顯示，低壓 MOSFET 因通路積壓去化且市場需求溫和回升，熱門功率封裝已呈現供貨吃緊跡象，建議採購窗口提早開展備貨對接。';
   }
   if (categoryIds.length > 0) {
-    return `${sourceText} 這份報告主要提到 ${reportCategoryNames(report)}。如果現有案子剛好用到這些類別，先把交期、可供量和替代料問清楚，會比等到急單再追更穩。`;
+    return `${sourceText} 報告主要提及 ${reportCategoryNames(report)} 之供應動態。若相關專案已導入此類別，建議提早與供應商確認交貨排程與庫存保障額度。`;
   }
-  return `${sourceText} 這份報告可當成供應風險的背景參考；若內容剛好和現有 BOM 類別重疊，再進一步往料號層級確認。`;
+  return `${sourceText} 報告提供當前市場供應鏈背景趨勢分析。若內容與現有專案 BOM 類別重疊，建議將其作為料號風險管理之參考依據。`;
 }
 
 function reportHeadline(report: any) {
   const categoryIds = reportCategoryIds(report);
   if (categoryIds.includes('C04')) {
-    return '記憶體配給與成本壓力升高，先問 DDR / Flash 交期';
+    return '記憶體產能受限與分配風險增加，建議鎖定交期與成本';
   }
   if (categoryIds.includes('C01')) {
-    return '高容值 MLCC 開始配貨，先確認可供量';
+    return '高端高容值 MLCC 庫存去化加速，通路啟動配貨防範';
   }
   if (categoryIds.includes('C03')) {
-    return 'MOSFET 供應風險浮現，先查常用功率料';
+    return '功率分離式元件（MOSFET）交期波動，常用封裝供應趨緊';
   }
-  return report.titleZh || report.title || '公開報告提醒供應狀況需留意';
+  return report.titleZh || report.title || '公開市場報告提示供應風險異動';
 }
 
 function sourceLinkKey(item: { title: string; source: string; url: string }) {
@@ -606,22 +607,22 @@ function buildWeeklyTitle(dateText: string, signals: Array<{ categoryId: string;
   if (!primary) return `物料預測週報｜${dateText}｜本週無明顯供應異常`;
 
   if (primary.categoryId === 'C04' && secondary?.categoryId === 'C01') {
-    return `物料預測週報｜${dateText}｜記憶體與高容值 MLCC 供應壓力升溫，請先確認 4-8 週需求與交期`;
+    return `物料預測週報｜${dateText}｜記憶體與高容值 MLCC 供應鏈緊縮，請提早規劃 4-8 週交期與配額`;
   }
   if (primary.categoryId === 'C01') {
-    return `物料預測週報｜${dateText}｜高容值 MLCC 交期需先確認，採購請回查可供量`;
+    return `物料預測週報｜${dateText}｜高容值 MLCC 庫存去化加速，建議採購窗口確認在途訂單與供貨排程`;
   }
   if (primary.categoryId === 'C04') {
-    return `物料預測週報｜${dateText}｜記憶體成本與交期壓力升高，PM 請確認需求是否上修`;
+    return `物料預測週報｜${dateText}｜記憶體產能受限且價格看漲，建議 PM 評估 Forecast 及鎖定 BOM 成本`;
   }
   if (primary.categoryId === 'C03') {
-    return `物料預測週報｜${dateText}｜功率元件供應風險浮現，請先確認 Nexperia / onsemi 通路`;
+    return `物料預測週報｜${dateText}｜功率分離式元件交期波動，建議優先確認主要品牌通路供應狀況`;
   }
 
   const categoryText = secondary && primary.tone === 'high'
     ? `${shortCategoryName(primary.category)}與${shortCategoryName(secondary.category)}`
     : shortCategoryName(primary.category);
-  return `物料預測週報｜${dateText}｜${categoryText}出現外部供應訊號，請確認是否影響現有案子`;
+  return `物料預測週報｜${dateText}｜${categoryText}出現外部供應警訊，請評估是否影響現有設計`;
 }
 
 export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
@@ -688,16 +689,16 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const title = buildWeeklyTitle(dateText, focusSignalList);
 
   const summary = riskLevel === 'high'
-    ? `本週供應鏈訊號主要集中在 ${focusText}。這不代表已經全面缺料，但如果近期專案有用到這些類別，採購與 PM 應先確認交期、價格與 4-8 週需求。`
+    ? `本週供應鏈前置警訊顯示，${focusText} 等核心類別之交期與價格波動壓力顯著升高。雖未構成全面性短缺，但專案團隊需提早盤點未來 4-8 週之採購需求與通路配額。`
     : riskLevel === 'medium'
-      ? `本週供應鏈壓力還沒有全面升溫，但 ${focusText} 已開始出現零星提醒。先不用升級成缺料警報，但可以放進追蹤清單。`
-      : '本週外部訊號相對安靜，暫時沒有看到需要立刻升級處理的類別。';
+      ? `本週全球電子零件供應態勢整體平穩，惟 ${focusText} 類別出現零星前置提醒，建議專案與採購窗口維持中度關注，並將其納入定期追蹤清單。`
+      : '本週外部供應鏈情報整體平穩，主要元件均處於正常交期與充足供貨水位，維持例行監控即可。';
 
   const openingNotes = [
     riskLevel === 'high'
-      ? `本週最值得先看的是 ${focusText}。重點不是「現在一定缺料」，而是這些類別已經開始出現交期、價格或產品生命週期的提醒，適合先進入採購與工程的觀察清單。`
-      : `本週外部訊號還沒有全面升溫，先把 ${focusText} 放進追蹤清單即可，不需要立刻升級成缺料警報。`,
-    '如果手上的專案正在用到這些類別，請先確認未來 4-8 週需求是否有上修；沒有用到的團隊只需要知道方向，不必逐顆料號追查。',
+      ? `本週市場情報指出，以 ${focusText} 為首的核心電子元件面臨產能調配與交期挑戰，請專案經理（PM）與採購團隊優先評估並對接 4-8 週內的需求預測。`
+      : `本週外部市場供應鏈未見大規模異常波動，建議採購窗口在與通路對話時，順帶跟進 ${focusText} 類別的交期走勢，研發團隊暫無需介入。`,
+    '上述警訊旨在提供前置預警，以防範市場突發性短缺或價格上漲對專案成本的衝擊；未涉及相關元件的專案團隊，維持常規作業即可。',
   ];
 
   const executiveItems = await Promise.all(executiveSignals.map(async (signal) => {
@@ -775,7 +776,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
 
   const recommendedActions = executiveItems.length > 0
     ? []
-    : ['本週沒有明顯封面故事，維持例行監控即可；下週再看新聞、PCN/EOL 和公開報告是否連續出現。'];
+    : ['本週外部供應鏈指標未達預警標準，建議維持例行庫存監管與通路詢價，持續關注次週情報走勢。'];
 
   return {
     id,

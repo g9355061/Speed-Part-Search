@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { useSession } from 'next-auth/react';
 import { Header } from '@/components/Header';
@@ -208,6 +208,7 @@ interface ForecastPart {
   errors?: string[];
   summary: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險';
   riskReasons?: string[];
+  queryTime?: number;
 }
 
 interface ForecastNews {
@@ -351,6 +352,9 @@ export default function DemandForecastPage() {
   const [data, setData] = useState<ForecastResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState('');
+  const [fullProgress, setFullProgress] = useState<{ done: number; total: number } | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [activeSection, setActiveSection] = useState('');
   const [mode, setMode] = useState<'cached' | 'summary' | 'full'>('cached');
   const [category, setCategory] = useState('all');
   const [query, setQuery] = useState('');
@@ -397,25 +401,136 @@ export default function DemandForecastPage() {
     }, 50);
   };
 
+  // 與後端 cacheTTL 一致：12 小時內查過的料件視為「本輪已完成」（full 模式會跳過）
+  const FRESH_MS = 12 * 60 * 60 * 1000;
+
+  function countFresh(parts: ForecastPart[] | undefined): number {
+    if (!parts) return 0;
+    const now = Date.now();
+    return parts.filter((p) => p.queryTime && now - p.queryTime < FRESH_MS && p.supplierCount !== null).length;
+  }
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  /** full 模式：每 6 秒輪詢漸進寫入的快取，回報進度並即時更新表格。
+   *  Railway 邊緣約 50 秒會切斷主請求（502），但伺服器仍在背景查詢並漸進寫快取，
+   *  所以連線斷掉不算失敗——輪詢接手直到全部料件新鮮（或停滯逾時）。 */
+  function startFullPolling() {
+    stopPolling();
+    let lastDone = -1;
+    let stallTicks = 0;
+    pollRef.current = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/demand-forecast?mode=cached&t=${Date.now()}`, { cache: 'no-store' });
+        if (!resp.ok) return;
+        const json = await resp.json();
+        const total = json.parts?.length ?? BENCHMARK_PARTS.length;
+        const done = countFresh(json.parts);
+        setFullProgress({ done, total });
+        // 漸進更新表格與矩陣，讓使用者看到結果陸續到位
+        setData((prev) => (prev ? { ...prev, parts: json.parts, categorySummary: json.categorySummary } : json));
+        if (done >= total) {
+          stopPolling();
+          setFullProgress(null);
+          setLoading(false);
+          setLoadingLabel('');
+          return;
+        }
+        // 停滯偵測：進度連續 50 次輪詢（約 5 分鐘）無變化就停，避免無限轉圈
+        if (done === lastDone) {
+          stallTicks += 1;
+          if (stallTicks >= 50) {
+            stopPolling();
+            setFullProgress(null);
+            setLoading(false);
+            setLoadingLabel('');
+            setError(`查詢進度停滯（${done}/${total}），伺服器可能已中斷。可再按一次「查詢 150 顆料件」接力完成。`);
+          }
+        } else {
+          lastDone = done;
+          stallTicks = 0;
+        }
+      } catch {
+        /* 單次輪詢失敗不中斷，下一輪再試 */
+      }
+    }, 6000);
+  }
+
   async function loadForecast(nextMode: 'cached' | 'summary' | 'full') {
     setLoading(nextMode !== 'cached');
     if (nextMode !== 'cached') setLoadingLabel(nextMode === 'summary' ? '正在更新產業新聞' : '正在查詢 150 顆料件');
     setError('');
     setMode(nextMode);
+    if (nextMode === 'full') startFullPolling();
     try {
       const resp = await fetch(`/api/demand-forecast?mode=${nextMode}`, { cache: 'no-store' });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const result = await resp.json();
       setData(result);
+      if (nextMode === 'full') {
+        stopPolling();
+        setFullProgress(null);
+      }
       return result;
     } catch (err) {
+      if (nextMode === 'full' && pollRef.current) {
+        // 主請求被邊緣切斷（常見 502）≠ 失敗：伺服器仍在背景查詢，輪詢會接手收尾
+        setLoadingLabel('連線已被切斷，伺服器仍在背景查詢，進度持續更新中');
+        return null;
+      }
       setError(err instanceof Error ? err.message : '缺料預測更新失敗');
       return null;
     } finally {
-      setLoading(false);
-      setLoadingLabel('');
+      if (nextMode !== 'full' || !pollRef.current) {
+        setLoading(false);
+        setLoadingLabel('');
+      }
     }
   }
+
+  // 離開頁面時清掉輪詢
+  useEffect(() => stopPolling, []);
+
+  // 區塊錨點導航（sticky）：頁面長，提供「跳得過去、回得來」的導航
+  const SECTION_NAV = [
+    { id: 'weekly-reports-panel', label: '週報' },
+    { id: 'risk-matrix-panel', label: '風險矩陣' },
+    { id: 'shortage-category-panel', label: '缺料新聞' },
+    { id: 'market-reports-category-panel', label: '市場情報' },
+    { id: 'api-parts-panel', label: '料件明細' },
+  ];
+
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    // 56px 站頭 + 48px 導航列，留 12px 呼吸空間
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 116, behavior: 'smooth' });
+  };
+
+  // 以 IntersectionObserver 追蹤目前捲到哪個區塊，高亮對應導航鈕
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActiveSection(visible[0].target.id);
+      },
+      { rootMargin: '-120px 0px -60% 0px' }
+    );
+    for (const s of SECTION_NAV) {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+    // data 載入後各區塊才存在，需重新 observe
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   async function loadThresholds() {
     try {
@@ -549,6 +664,19 @@ export default function DemandForecastPage() {
   }, [parts, category, query]);
 
   const riskParts = parts.filter((part) => part.summary === '有缺料風險').length;
+  // 行動清單：高風險料件 + 已查詢數（全部「尚未查詢」時不顯示綠燈，避免誤導）
+  const highRiskParts = useMemo(() => parts.filter((p) => p.summary === '有缺料風險'), [parts]);
+  const queriedPartCount = parts.filter((p) => p.summary !== '尚未查詢').length;
+  // 資料時效：updatedAt 距今天數；> 8 天代表週排程可能失敗
+  const dataAgeDays = data?.updatedAt ? Math.floor((Date.now() - new Date(data.updatedAt).getTime()) / 86400000) : null;
+  const dataStale = dataAgeDays !== null && dataAgeDays > 8;
+  const jumpToPart = (part: ForecastPart) => {
+    setCategory('all');
+    setQuery(part.mpn);
+    setTimeout(() => {
+      document.getElementById('api-parts-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
   const shortageCategorySummary: CategorySummary[] = data?.newsCategorySummary ?? DEMAND_CATEGORIES.map((cat) => ({
     ...cat,
     newsCount: 0,
@@ -614,10 +742,105 @@ export default function DemandForecastPage() {
               <Icon name="globe" size={14} /> {loading && mode === 'summary' ? '處理中，請耐心等待' : '更新產業新聞'}
             </button>
             <button className="btn-primary" disabled={loading} onClick={() => loadForecast('full')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="zap" size={14} /> {loading && mode === 'full' ? '處理中，請耐心等待' : '查詢 150 顆料件'}
+              <Icon name="zap" size={14} />
+              {loading && mode === 'full'
+                ? fullProgress
+                  ? `查詢中 ${fullProgress.done}/${fullProgress.total}`
+                  : '處理中，請耐心等待'
+                : '查詢 150 顆料件'}
             </button>
           </div>
         </section>
+
+        {/* 區塊導航列：sticky 在站頭下方，目前區塊高亮 */}
+        <nav
+          style={{
+            position: 'sticky',
+            top: 56,
+            zIndex: 40,
+            display: 'flex',
+            gap: 6,
+            alignItems: 'center',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: '6px 8px',
+            marginBottom: 18,
+            boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
+            overflowX: 'auto',
+          }}
+        >
+          {SECTION_NAV.map((s) => {
+            const active = activeSection === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() => scrollToSection(s.id)}
+                style={{
+                  border: 'none',
+                  cursor: 'pointer',
+                  borderRadius: 8,
+                  padding: '6px 14px',
+                  fontSize: 13,
+                  fontWeight: active ? 700 : 500,
+                  whiteSpace: 'nowrap',
+                  background: active ? 'var(--primary)' : 'transparent',
+                  color: active ? '#fff' : 'var(--text-2)',
+                  transition: 'background 0.15s, color 0.15s',
+                }}
+                onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--surface-2)'; }}
+                onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            style={{ marginLeft: 'auto', border: 'none', cursor: 'pointer', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', background: 'transparent', color: 'var(--text-3)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface-2)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            ↑ 頂部
+          </button>
+        </nav>
+
+        {/* 本週需要行動：高風險料件一覽（採購 5 秒得到答案） */}
+        {queriedPartCount > 0 && (
+          highRiskParts.length > 0 ? (
+            <section style={{ border: '1px solid #FECDCA', background: '#FFFBFA', borderRadius: 12, padding: '16px 18px', marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#B42318' }}>🔴 本週需要行動 — {highRiskParts.length} 顆高風險料件</span>
+                <span style={{ fontSize: 12, color: 'var(--text-3)' }}>點擊料號可跳至明細</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {highRiskParts.slice(0, 8).map((part) => (
+                  <button
+                    key={part.mpn}
+                    onClick={() => jumpToPart(part)}
+                    style={{ display: 'flex', alignItems: 'baseline', gap: 10, background: 'none', border: 'none', padding: '4px 2px', cursor: 'pointer', textAlign: 'left', borderRadius: 6 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#FEF3F2')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                  >
+                    <span className="mono" style={{ fontWeight: 700, fontSize: 13, color: '#B42318', whiteSpace: 'nowrap' }}>{part.mpn}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>{categoryName(part.categoryId, part.category)}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {part.riskReasons?.[0] ?? '高風險'}
+                    </span>
+                  </button>
+                ))}
+                {highRiskParts.length > 8 && (
+                  <span style={{ fontSize: 12, color: 'var(--text-3)', paddingLeft: 2 }}>… 還有 {highRiskParts.length - 8} 顆，見下方料件明細</span>
+                )}
+              </div>
+            </section>
+          ) : (
+            <section style={{ border: '1px solid #A6F4C5', background: '#F6FEF9', borderRadius: 12, padding: '12px 18px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#067647' }}>✅ 本週無高風險料件</span>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>已查詢 {queriedPartCount} 顆基準料，無 🔴 高風險判定</span>
+            </section>
+          )
+        )}
 
         <WeeklyReportsPanel reports={weeklyReports} />
 
@@ -634,13 +857,26 @@ export default function DemandForecastPage() {
           <Metric label="風險料件" value={`${riskParts} / ${parts.length}`} tone={riskParts > 0 ? 'risk' : 'normal'} />
         </section>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 18, color: 'var(--text-3)', fontSize: 12 }}>
-          <span>更新時間：{updatedAt}</span>
-          {loading && <span className="mono">處理中，請耐心等待：{loadingLabel}</span>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 18, fontSize: 12 }}>
+          <span
+            style={dataStale
+              ? { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#FFFAEB', border: '1px solid #FEDF89', color: '#B54708', borderRadius: 999, padding: '4px 12px', fontWeight: 700 }
+              : { display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-3)' }}
+          >
+            {dataStale && '⚠'} 資料截至 {updatedAt}
+            {dataAgeDays !== null && dataAgeDays >= 1 && `（${dataAgeDays} 天前）`}
+            {dataStale && ' — 已逾 8 天未更新，週排程可能失敗'}
+          </span>
+          {loading && (
+            <span className="mono" style={{ color: 'var(--text-3)' }}>
+              {loadingLabel}
+              {fullProgress && ` · 已完成 ${fullProgress.done}/${fullProgress.total} 顆`}
+            </span>
+          )}
         </div>
 
         <section style={{ marginBottom: 20 }}>
-          <Panel title="缺料預測風險對照矩陣" tone="api">
+          <Panel id="risk-matrix-panel" title="缺料預測風險對照矩陣" tone="api">
             <p style={{ margin: '0 0 14px 0', fontSize: 13, color: 'var(--text-3)' }}>
               整合兩種預警偵測管道（RSS 新聞、實時通路代理商庫存）及市場情報佐證，橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
@@ -857,8 +1093,8 @@ export default function DemandForecastPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredParts.map((part) => (
-                  <tr key={`${part.categoryId}-${part.mpn}`} style={{ borderTop: '1px solid var(--hairline)' }}>
+                {filteredParts.map((part, idx) => (
+                  <tr key={`${part.categoryId}-${part.mpn}-${idx}`} style={{ borderTop: '1px solid var(--hairline)' }}>
                     <Td>{categoryName(part.categoryId, part.category)}</Td>
                     <Td mono>{part.mpn}</Td>
                     <Td>{part.apiManufacturer || part.manufacturer}</Td>
@@ -1949,6 +2185,7 @@ function WeeklyReportsPanel({ reports }: { reports: WeeklyReportLink[] }) {
 
   return (
     <section
+      id="weekly-reports-panel"
       style={{
         gridColumn: '1 / -1',
         border: `1px solid ${toneStyle.border}`,
