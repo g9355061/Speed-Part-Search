@@ -55,40 +55,22 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
           </div>
         </section>
 
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 18 }}>
-          <Metric label="數據異動類別" value={report.metrics.dataAlertCategories} tone={report.metrics.dataAlertCategories > 0 ? 'danger' : undefined} />
-          <Metric label="監控料件(可比)" value={report.metrics.partsWithSnapshot} />
-          <Metric label="缺料新聞" value={report.metrics.shortageNews} />
-          <Metric label="PCN 或 EOL" value={report.metrics.lifecycleNews} />
-        </section>
-
         <div style={{ display: 'grid', gap: 18 }}>
           <ArticleSection eyebrow="編輯室觀察" title="本週先讀這段">
             {report.openingNotes.map((note) => (
               <p key={note} style={{ margin: '0 0 10px', fontSize: 16, lineHeight: 1.85, color: 'var(--text-2)' }}>{note}</p>
             ))}
-          </ArticleSection>
-
-          <ArticleSection eyebrow="自家快照" title="本週哪些類別的數字在動">
-            {report.categorySignals.filter((s) => s.data.tone !== 'normal').length === 0 ? (
-              <EmptyText>本週 {report.metrics.partsWithSnapshot} 顆可比對料件的庫存、價格與供應商家數均無顯著週變動。</EmptyText>
-            ) : (
-              <div style={{ display: 'grid', gap: 10 }}>
+            {report.categorySignals.filter((s) => s.tone !== 'normal').length > 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
                 {report.categorySignals
-                  .filter((s) => s.data.tone !== 'normal')
+                  .filter((s) => s.tone !== 'normal')
+                  .slice(0, 6)
                   .map((s) => {
-                    const c = riskColor(s.data.tone);
+                    const c = riskColor(s.tone);
                     return (
-                      <div key={s.categoryId} style={{ border: `1px solid ${c.border}`, borderLeft: `4px solid ${c.text}`, borderRadius: 8, background: c.bg, padding: '12px 14px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 13, fontWeight: 900, color: c.text }}>{s.category}</span>
-                          <span style={{ borderRadius: 999, padding: '2px 8px', background: '#fff', border: `1px solid ${c.border}`, color: c.text, fontSize: 11, fontWeight: 800 }}>{c.label}</span>
-                          {s.crossHit && (
-                            <span style={{ borderRadius: 999, padding: '2px 8px', background: '#FEF3F2', border: '1px solid #FECDCA', color: '#B42318', fontSize: 11, fontWeight: 800 }}>⚡ 數據×新聞交叉命中</span>
-                          )}
-                        </div>
-                        <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.75, color: 'var(--text)' }}>{s.data.text}</p>
-                      </div>
+                      <span key={s.categoryId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${c.border}`, background: c.bg, color: c.text, borderRadius: 999, padding: '5px 12px', fontSize: 12.5, fontWeight: 800 }}>
+                        {s.category}
+                      </span>
                     );
                   })}
               </div>
@@ -164,16 +146,6 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
 
         </div>
       </main>
-    </div>
-  );
-}
-
-function Metric({ label, value, tone }: { label: string; value: number; tone?: 'danger' | 'warning' }) {
-  const color = tone === 'danger' ? '#B42318' : tone === 'warning' ? '#B54708' : 'var(--text)';
-  return (
-    <div style={{ border: '1px solid var(--hairline)', borderRadius: 8, background: '#fff', padding: '12px 14px' }}>
-      <div style={{ color: 'var(--text-3)', fontSize: 11, marginBottom: 5 }}>{label}</div>
-      <div style={{ color, fontSize: 22, fontWeight: 800 }}>{value}</div>
     </div>
   );
 }

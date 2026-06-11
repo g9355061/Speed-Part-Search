@@ -95,24 +95,20 @@ function computeCategoryDataSignal(
   return signal;
 }
 
-// 類別層級數據敘述（只講類別與顆數/幅度，不點名個別料號）
+// 類別層級數據敘述：high-level 質性語言。數字只在幕後決定嚴重度（tone），不輸出顆數/百分比。
 function buildDataSignalText(categoryId: string, s: CategoryDataSignal): string {
   if (s.partsWithSnapshot === 0) return '';
   const label = categoryLabel(categoryId);
-  const parts: string[] = [];
-  if (s.stockDrop30 > 0) {
-    const deepest = s.worstStockPct != null ? `（最深 ${Math.round(s.worstStockPct)}%）` : '';
-    parts.push(`${s.stockDrop30} 顆庫存週減逾 30%${deepest}`);
+  const trends: string[] = [];
+  if (s.stockDrop50 > 0) trends.push('通路庫存水位明顯下滑');
+  else if (s.stockDrop30 > 0) trends.push('通路庫存出現去化跡象');
+  if (s.priceRise20 > 0) trends.push('價格走勢轉強');
+  else if (s.priceRise10 > 0) trends.push('價格略有上行');
+  if (s.supplierDrop > 0) trends.push('供應來源有收斂現象');
+  if (trends.length === 0) {
+    return `${label}本週通路供應平穩，庫存與價格未見明顯波動。`;
   }
-  if (s.priceRise10 > 0) {
-    const peak = s.worstPricePct != null ? `（最高 +${Math.round(s.worstPricePct)}%）` : '';
-    parts.push(`${s.priceRise10} 顆最低價週漲逾 10%${peak}`);
-  }
-  if (s.supplierDrop > 0) parts.push(`${s.supplierDrop} 顆授權供應商家數減少`);
-  if (parts.length === 0) {
-    return `${label}：本週監控的 ${s.partsWithSnapshot} 顆料件庫存、價格與供應商家數均無顯著週變動。`;
-  }
-  return `${label}：本週監控的 ${s.partsWithSnapshot} 顆料件中，${parts.join('、')}。`;
+  return `本站每週通路監測顯示，${label}本週${trends.join('、')}。`;
 }
 
 const WEEKLY_CATEGORY_LABELS: Record<string, string> = {
@@ -496,22 +492,20 @@ async function synthesizeWeeklyReportStoryWithGemini(
   }
 
   const evidenceText = evidence.join('\n');
-  const prompt = `你是電子零組件採購的供應鏈分析師。針對類別「${categoryName}」（${categoryId}），我們有兩類資訊：
+  const prompt = `你是一位供應鏈線記者，正在為公司內部刊物撰寫「${categoryName}」這個元件類別的本週供應動態報導。讀者是採購、PM 與工程師，他們想像讀報紙一樣輕鬆掌握重點。
 
-【我方每週實測數據（最重要、必須引用）】
-${data.text || '（本週無顯著數據異動）'}
-
-【外部情報佐證】
+【本週市場素材（報導主體，請充分使用其中的事實與細節）】
 "${evidenceText}"
 
-任務：寫一段精煉的供應鏈解讀，給採購與 PM 看。
+【本站通路觀測（只能輕輕帶過一句，當作旁證）】
+${data.text || '（本週通路平穩）'}
 
-嚴格要求：
-1. 必須以「我方實測數據」為主軸開場，並原樣引用上面數據中的具體數字（顆數、百分比）。數據是事實，外部情報只是佐證為什麼會這樣。
-2. 總長 80–120 個中文字，只寫一段，不分段、不列點、不下標題。
-3. 禁止空泛形容詞堆疊（如「壓力顯著升高」「水溫上升」）與任何沒有數字支撐的宏觀斷言；不要提到本段如何生成之類的 meta 說明。
-4. 結尾用一句話點出對「我們公司量產專案 / BOM 成本」的具體影響。
-5. 繁體中文輸出，只輸出這段內容本身。`;
+寫作要求：
+1. 以「市場素材」的實際內容為文章主體——誰報導了什麼、哪些原廠或通路有什麼動作、交期價格的趨勢方向。要融會貫通寫成流暢的報導，不是逐條翻譯拼貼。
+2. 通路觀測最多佔一句，例如「本站監測的通路庫存亦同步走低」，嚴禁列出任何顆數、百分比或統計數字清單。
+3. 兩段，總長 180–260 個中文字：第一段講市場正在發生什麼事（可自然提及消息來源名稱）；第二段講這對讀者的意義——採購、交期或成本上該留意什麼。
+4. 筆調像報紙產業版：自然、口語、好讀。禁止空泛詞堆疊（「壓力顯著升高」「水溫上升」），禁止 meta 說明。
+5. 繁體中文輸出，段落間空一行，只輸出報導本身。`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   
@@ -619,15 +613,19 @@ ${data.text || '（本週無顯著數據異動）'}
   return fallbackStory;
 }
 
-// 依「實際數據訊號」決定標題與建議動作，不再用硬編碼類別劇本（刀口1）
+// 報紙式標題：數據只決定「講哪件事」，標題本身不出現顆數/百分比
 function dataDrivenHeadline(category: string, d: CategoryDataSignal, lifecycleCount: number, crossHit: boolean): string {
-  if (d.stockDrop50 > 0) return `${category}：${d.stockDrop50} 顆料件庫存週減逾 50%${crossHit ? '，外部新聞同步示警' : ''}`;
-  if (d.priceRise20 > 0) return `${category}：${d.priceRise20} 顆料件最低價週漲逾 20%${crossHit ? '，外部新聞同步示警' : ''}`;
-  if (d.supplierDrop > 0) return `${category}：${d.supplierDrop} 顆料件授權供應商家數減少`;
-  if (d.stockDrop30 > 0) return `${category}：${d.stockDrop30} 顆料件庫存週減逾 30%`;
-  if (d.priceRise10 > 0) return `${category}：${d.priceRise10} 顆料件最低價週漲逾 10%`;
-  if (lifecycleCount > 0) return `${category}：出現 PCN/EOL 生命週期公告，需評估替代方案`;
-  return `${category}：出現外部供應警示，列入重點觀察名單`;
+  const short = shortCategoryName(category);
+  if (crossHit && d.stockDrop50 > 0) return `${short}通路庫存快速去化，市場消息同步轉緊`;
+  if (crossHit && d.priceRise20 > 0) return `${short}價格蠢蠢欲動，供應端傳出漲價聲音`;
+  if (crossHit) return `${short}供應訊號升溫，通路與市場消息同步示警`;
+  if (d.stockDrop50 > 0) return `${short}通路庫存水位明顯下滑，補貨交期值得留意`;
+  if (d.priceRise20 > 0) return `${short}價格走勢轉強，採購成本壓力浮現`;
+  if (d.supplierDrop > 0) return `${short}供應來源收斂，替代方案宜先預備`;
+  if (d.stockDrop30 > 0) return `${short}通路庫存悄悄去化，建議納入觀察`;
+  if (d.priceRise10 > 0) return `${short}報價略有上行，後續走勢待觀察`;
+  if (lifecycleCount > 0) return `${short}原廠發布生命週期公告，替代方案需提早評估`;
+  return `${short}出現外部供應警示，列入觀察名單`;
 }
 
 function dataDrivenSuggestedMove(d: CategoryDataSignal, newsCount: number, lifecycleCount: number, crossHit: boolean): string {
@@ -654,34 +652,48 @@ async function buildExecutiveItem(
   const headline = dataDrivenHeadline(category, d, signal.lifecycleCount, signal.crossHit);
   const suggestedMove = dataDrivenSuggestedMove(d, signal.newsCount, signal.lifecycleCount, signal.crossHit);
 
-  // Gemini 只在「交叉命中」時呼叫（刀口3）：自家數據異動 + 外部新聞同類別佐證。
-  // 其餘情況用資料驅動的本地敘述，省 API、也避免空泛文章腔。
+  // 只要有市場素材（新聞/報告內容）就請 Gemini 寫成報導——報紙化的主體就是這些素材。
+  // 無素材或 AI 失敗時，走本地敘述（引用第一條素材 + high-level 通路觀察）。
+  // 成本保護：$5/月熔斷 + 週報 6 小時快取 + 每期最多 4 個類別。
   let story: string[];
-  if (signal.crossHit && evidence.length > 0) {
-    const fallbackStory = dataGroundedFallbackStory(signal);
+  if (evidence.length > 0) {
+    const fallbackStory = dataGroundedFallbackStory(signal, evidence);
     story = await synthesizeWeeklyReportStoryWithGemini(reportId, signal.categoryId, category, signal.data, evidence, fallbackStory);
   } else {
-    story = dataGroundedFallbackStory(signal);
+    story = dataGroundedFallbackStory(signal, evidence);
   }
 
   return { category, headline, story, suggestedMove, evidence };
 }
 
-// 不呼叫 AI 時的本地敘述：用真實數字 + 外部情報筆數，不掰劇本
-function dataGroundedFallbackStory(signal: WeeklyReportDetail['categorySignals'][number]): string[] {
+// 不呼叫 AI 時的本地敘述：把新聞/報告內容織進文章，輔以 high-level 通路觀察，不列統計、不掰劇本
+function dataGroundedFallbackStory(
+  signal: WeeklyReportDetail['categorySignals'][number],
+  evidence: string[]
+): string[] {
   const d = signal.data;
   const out: string[] = [];
+
+  // 市場面：直接取第一條外部情報內容當報導主體（去掉「標題：/摘要：」等格式前綴）
+  const firstEvidence = evidence[0];
+  if (firstEvidence) {
+    const m = firstEvidence.match(/^([^：]{1,30})：([\s\S]+)$/);
+    if (m) {
+      const body = m[2].replace(/^(標題|摘要)：/g, '').trim().replace(/[。\s]+$/, '');
+      out.push(`市場方面，${m[1]} 報導指出：${body}。`);
+    } else {
+      out.push(`市場方面，${firstEvidence.replace(/^(標題|摘要)：/, '').replace(/[。\s]+$/, '')}。`);
+    }
+  }
+  // 通路面：high-level 自家觀察
   if (d.text) out.push(d.text);
-  const ext: string[] = [];
-  if (signal.newsCount > 0) ext.push(`${signal.newsCount} 則缺料/交期新聞`);
-  if (signal.lifecycleCount > 0) ext.push(`${signal.lifecycleCount} 則 PCN/EOL 公告`);
-  if (signal.marketReportCount > 0) ext.push(`${signal.marketReportCount} 份通路報告`);
-  if (ext.length > 0) out.push(`外部情報佐證：本週另有 ${ext.join('、')}（詳見下方來源連結）。`);
-  if (out.length === 0) out.push('本週此類別僅有零星外部訊號，無自家數據異動，維持例行監控即可。');
+  if (out.length === 0) {
+    out.push('本週此類別僅有零星外部訊號，通路供應大致平穩，維持例行關注即可。');
+  }
   return out;
 }
 
-// 類別綜述：先講自家數據（事實），再講外部情報數量（佐證）。不再有硬編碼劇本。
+// 類別綜述：high-level 質性語言，不列統計數字
 function describeCategorySignal(
   categoryId: string,
   data: CategoryDataSignal,
@@ -689,27 +701,20 @@ function describeCategorySignal(
   lifecycleCount: number,
   marketReportCount: number
 ) {
-  const external: string[] = [];
-  if (newsCount > 0) external.push(`${newsCount} 則缺料/交期新聞`);
-  if (lifecycleCount > 0) external.push(`${lifecycleCount} 則 PCN/EOL 公告`);
-  if (marketReportCount > 0) external.push(`${marketReportCount} 份公開通路報告`);
-  const externalText = external.length > 0 ? `外部情報：${external.join('、')}。` : '';
+  const hasExternal = newsCount > 0 || lifecycleCount > 0 || marketReportCount > 0;
+  const externalText = hasExternal ? '市場上也有相關消息流通。' : '';
 
-  // 有自家數據異動 → 以數據敘述為主體
   if (data.tone !== 'normal' && data.text) {
-    const verdict = (newsCount > 0 || lifecycleCount > 0)
-      ? '內部實測與外部新聞同步出現訊號（交叉驗證），建議列為本週優先。'
-      : '目前僅內部數據先行示警、外部尚未發酵，屬早期訊號，建議納入追蹤。';
-    return `${data.text}${externalText}${verdict}`;
+    const verdict = hasExternal
+      ? '通路與市場消息同步出現變化，建議列為本週優先關注。'
+      : '市場消息尚平靜，屬通路端的早期訊號，建議納入觀察。';
+    return `${data.text}${verdict}`;
   }
-
-  // 無自家數據異動，只有外部訊號
   if (data.partsWithSnapshot > 0) {
-    return `本類別 ${data.partsWithSnapshot} 顆監控料件之庫存與價格本週無顯著變動。${externalText || '外部亦無明顯訊號。'}`;
+    return `本類別通路供應本週平穩。${externalText || '市場亦無明顯訊號。'}`;
   }
-  // 連快照都還沒累積（資料不足）
-  if (external.length === 0) return '本週該類別無明顯外部供應異常訊號，且尚無足夠快照可比對週變動。';
-  return `本類別尚無足夠快照可比對週變動。${externalText}建議維持例行監控。`;
+  if (!hasExternal) return '本週該類別市場與通路皆無明顯訊號。';
+  return `本類別市場上有相關消息流通，通路觀測資料仍在累積中，建議維持例行關注。`;
 }
 
 function reportSummary(report: any) {
@@ -868,22 +873,22 @@ function buildWeeklyTitle(
     ? `${shortCategoryName(primary.category)}、${shortCategoryName(secondary.category)}`
     : shortCategoryName(primary.category);
 
-  // 交叉命中：自家數據 + 外部新聞雙重驗證 → 語氣最強
+  // 交叉命中：市場消息 + 通路觀測同步 → 語氣最強
   if (primary.crossHit) {
-    return `物料預測週報｜${dateText}｜${catText} 庫存／價格實測異動且外部新聞同步示警，建議優先盤點 4-8 週需求`;
+    return `物料預測週報｜${dateText}｜${catText} 供應訊號升溫，建議提早確認交期與需求`;
   }
-  // 純自家數據異動（外部新聞尚未發酵）
+  // 純通路觀測異動（市場消息尚未發酵）
   if (primary.data.tone !== 'normal') {
     if (primary.data.priceRise10 > 0 && primary.data.stockDrop30 === 0) {
-      return `物料預測週報｜${dateText}｜${catText} 最低價週環比走揚，建議留意採購成本`;
+      return `物料預測週報｜${dateText}｜${catText} 價格走勢轉強，留意採購成本`;
     }
     if (primary.data.supplierDrop > 0 && primary.data.stockDrop30 === 0 && primary.data.priceRise10 === 0) {
-      return `物料預測週報｜${dateText}｜${catText} 授權供應商家數收斂，建議評估替代來源`;
+      return `物料預測週報｜${dateText}｜${catText} 供應來源收斂，建議預備替代方案`;
     }
-    return `物料預測週報｜${dateText}｜${catText} 庫存週環比下降，內部數據先行示警`;
+    return `物料預測週報｜${dateText}｜${catText} 通路庫存走弱，值得提早留意`;
   }
-  // 只有外部新聞、自家數據無異動 → 用語放軟，不誇大
-  return `物料預測週報｜${dateText}｜外部新聞提及 ${catText} 等類別，內部數據暫無異動，維持觀察`;
+  // 只有外部新聞、通路無異動 → 用語放軟，不誇大
+  return `物料預測週報｜${dateText}｜市場消息聚焦 ${catText}，通路供應暫穩，維持觀察`;
 }
 
 const REPORT_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 小時
@@ -1010,23 +1015,19 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const dateText = formatDate(start);
   const title = buildWeeklyTitle(dateText, focusSignalList);
 
-  // 摘要以「自家數據」為主軸，新聞為輔——講具體顆數，不空泛
-  const crossCount = categorySignals.filter((s) => s.crossHit).length;
+  // 導語：high-level 報紙式，只說「哪幾個類別值得看」，不堆數字
   const summary = riskLevel === 'high'
-    ? `本週監控的 ${partsWithSnapshot} 顆基準料中，${focusText} 等 ${crossCount} 個類別同時出現「庫存／價格實測異動」與「外部缺料新聞」交叉訊號，建議優先盤點未來 4-8 週採購需求與通路配額。`
+    ? `本週 ${focusText} 的供應訊號明顯升溫——市場消息與本站通路觀測同步轉緊，建議用到這些類別的專案提早確認未來一至兩個月的需求與交期。`
     : riskLevel === 'medium'
-      ? dataAlertCategories > 0
-        ? `本週外部新聞無重大事件，但自家快照顯示 ${focusText} 等 ${dataAlertCategories} 個類別出現庫存或價格的週環比異動，建議納入追蹤清單，留意是否擴大。`
-        : `本週自家快照無明顯異動，僅外部新聞提及 ${focusText} 等類別之零星前置訊號，維持中度關注即可。`
-      : '本週自家快照與外部情報均無顯著異常，主要元件處於正常交期與充足供貨水位，維持例行監控即可。';
+      ? `本週供應鏈大致平穩，惟 ${focusText} 出現值得留意的早期訊號，建議相關採購窗口順手確認交期走勢即可。`
+      : '本週市場與通路皆平穩，主要元件交期與供貨正常，維持例行監控即可。';
 
   const openingNotes = [
     riskLevel === 'high'
-      ? `本週重點：${focusText}。這些類別不只外部有缺料新聞，我們每週實測的庫存／價格數據同步出現異動（雙重驗證），請 PM 與採購優先對接 4-8 週需求。`
+      ? `本週先看 ${focusText}。這幾個類別的市場消息與通路供應同步出現變化，詳見下方報導；用不到這些類別的專案維持常規作業即可。`
       : dataAlertCategories > 0
-        ? `本週重點：${focusText}。外部新聞尚平穩，但我們的快照數據已偵測到這些類別的庫存或價格週變動，屬早期訊號，建議納入追蹤。`
-        : `本週外部與內部數據均無大幅異常，建議採購窗口順帶跟進 ${focusText} 類別走勢，研發端暫無需介入。`,
-    '本週報以「150 顆基準料的每週實測快照」為主訊號，外部新聞與通路報告為佐證；未涉及相關類別的專案維持常規作業即可。',
+        ? `本週先看 ${focusText}。市場消息尚平靜，但通路端已有早期變化的跡象，提早留意總是便宜的。`
+        : `本週整體平靜，${focusText} 有些零星消息，順手翻閱即可，研發端暫無需介入。`,
   ];
 
   const executiveItems = [];
