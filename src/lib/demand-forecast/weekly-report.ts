@@ -8,7 +8,7 @@ const NEWS_CACHE_PATH = path.join(process.cwd(), 'data', 'news-cache.json');
 const RECENT_SIGNAL_DAYS = 45;
 const ARTICLE_FETCH_TIMEOUT_MS = 4500;
 const ARTICLE_TEXT_LIMIT = 9000;
-const ARTICLE_POINT_LIMIT = 2;
+const ARTICLE_POINT_LIMIT = 4;
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -415,16 +415,23 @@ function isRecentSignal(item: any, now: Date) {
   return now.getTime() - time <= RECENT_SIGNAL_DAYS * 24 * 60 * 60 * 1000;
 }
 
-async function categoryEvidence(categoryId: string, items: any[], limit = 2) {
+async function categoryEvidence(categoryId: string, items: any[], limit = 3) {
   const keywords = WEEKLY_CATEGORY_KEYWORDS[categoryId] ?? [];
+  const keywordHit = (item: any) => {
+    if (keywords.length === 0) return true;
+    const text = `${pickTitle(item)} ${pickSummary(item)}`.toLowerCase();
+    return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+  };
+  // 只要新聞已被標記為此類別就納入（上游 fetcher 已分類）；關鍵字命中者優先排序，
+  // 不再硬篩掉「標題沒關鍵字、但內文相關」的新聞——這是先前報導內容過少的主因。
   const matched = items
-    .filter((item) => {
-      if (!item.categoryIds?.includes(categoryId)) return false;
-      if (keywords.length === 0) return true;
-      const text = `${pickTitle(item)} ${pickSummary(item)}`.toLowerCase();
-      return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+    .filter((item) => item.categoryIds?.includes(categoryId))
+    .sort((a, b) => {
+      const ka = keywordHit(a) ? 1 : 0;
+      const kb = keywordHit(b) ? 1 : 0;
+      if (ka !== kb) return kb - ka;
+      return dateValue(b) - dateValue(a);
     })
-    .sort((a, b) => dateValue(b) - dateValue(a))
     .slice(0, limit);
 
   return Promise.all(matched.map(async (item) => {
@@ -503,7 +510,7 @@ ${data.text || '（本週通路平穩）'}
 寫作要求：
 1. 以「市場素材」的實際內容為文章主體——誰報導了什麼、哪些原廠或通路有什麼動作、交期價格的趨勢方向。要融會貫通寫成流暢的報導，不是逐條翻譯拼貼。
 2. 通路觀測最多佔一句，例如「本站監測的通路庫存亦同步走低」，嚴禁列出任何顆數、百分比或統計數字清單。
-3. 兩段，總長 180–260 個中文字：第一段講市場正在發生什麼事（可自然提及消息來源名稱）；第二段講這對讀者的意義——採購、交期或成本上該留意什麼。
+3. 兩到三段，總長 280–420 個中文字：盡量把上面每一則素材的重點都用進去（不同消息來源、不同角度都帶到）。前面講市場正在發生什麼事（自然提及消息來源名稱）；最後一段講這對讀者的意義——採購、交期或成本上該留意什麼。
 4. 筆調像報紙產業版：自然、口語、好讀。禁止空泛詞堆疊（「壓力顯著升高」「水溫上升」），禁止 meta 說明。
 5. 繁體中文輸出，段落間空一行，只輸出報導本身。`;
 
@@ -674,18 +681,21 @@ function dataGroundedFallbackStory(
   const d = signal.data;
   const out: string[] = [];
 
-  // 市場面：直接取第一條外部情報內容當報導主體（去掉「標題：/摘要：」等格式前綴）
-  const firstEvidence = evidence[0];
-  if (firstEvidence) {
-    const m = firstEvidence.match(/^([^：]{1,30})：([\s\S]+)$/);
-    if (m) {
-      const body = m[2].replace(/^(標題|摘要)：/g, '').trim().replace(/[。\s]+$/, '');
-      out.push(`市場方面，${m[1]} 報導指出：${body}。`);
-    } else {
-      out.push(`市場方面，${firstEvidence.replace(/^(標題|摘要)：/, '').replace(/[。\s]+$/, '')}。`);
-    }
+  // 市場面：把多則新聞織成報導（每則一句，標明來源），不只第一則
+  const parse = (raw: string) => {
+    const m = raw.match(/^([^：]{1,30})：([\s\S]+)$/);
+    const source = m ? m[1] : '';
+    const body = (m ? m[2] : raw).replace(/^(標題|摘要)：/g, '').trim().replace(/[。\s]+$/, '');
+    return { source, body };
+  };
+  const items = evidence.slice(0, 3).map(parse).filter((x) => x.body.length > 0);
+  if (items.length > 0) {
+    const first = items[0];
+    out.push(first.source ? `市場方面，${first.source} 報導指出：${first.body}。` : `市場方面，${first.body}。`);
+    const rest = items.slice(1).map((x) => (x.source ? `${x.source}則提到，${x.body}` : x.body)).join('；');
+    if (rest) out.push(`另一方面，${rest}。`);
   }
-  // 通路面：high-level 自家觀察
+  // 通路面：high-level 自家觀察（收尾一句）
   if (d.text) out.push(d.text);
   if (out.length === 0) {
     out.push('本週此類別僅有零星外部訊號，通路供應大致平穩，維持例行關注即可。');
@@ -994,12 +1004,18 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       ? 'medium'
       : 'normal';
 
-  // 進 executive 故事的：優先交叉命中，其次數據 high，再不然取前幾名
+  // 進「封面故事」的類別：優先挑「有新聞素材可寫」的——交叉命中最佳，其次有新聞/PCN
+  // 的類別（不論數據），確保每篇報導都吃得到 RSS 內容、不再出現只有一句通路觀察的空殼。
+  // 真的沒有任何新聞時，才退而用純數據類別（會是較短的通路觀察）。
+  const hasNews = (s: typeof categorySignals[number]) => s.newsCount > 0 || s.lifecycleCount > 0;
   const executiveSignals = (() => {
     const cross = categorySignals.filter((s) => s.crossHit);
-    if (cross.length > 0) return cross.slice(0, 4);
+    const newsBacked = categorySignals.filter((s) => !s.crossHit && hasNews(s));
+    const featured = [...cross, ...newsBacked].slice(0, 4);
+    if (featured.length > 0) return featured;
+    // 完全沒有新聞素材 → 用數據最顯著的類別墊檔
     const dataHigh = categorySignals.filter((s) => s.data.tone === 'high');
-    if (dataHigh.length > 0) return dataHigh.slice(0, 4);
+    if (dataHigh.length > 0) return dataHigh.slice(0, 3);
     return categorySignals.slice(0, 3);
   })();
 
@@ -1037,10 +1053,10 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       .slice(0, 2)
       .map((item: any) => reportEvidence(item)));
     const evidence = [
-      ...(await categoryEvidence(signal.categoryId, shortageNews, 2)),
-      ...(await categoryEvidence(signal.categoryId, lifecycleNews, 1)),
+      ...(await categoryEvidence(signal.categoryId, shortageNews, 3)),
+      ...(await categoryEvidence(signal.categoryId, lifecycleNews, 2)),
       ...reportEvidenceList,
-    ].slice(0, 4);
+    ].slice(0, 6);
 
     const item = await buildExecutiveItem(id, signal, evidence);
     executiveItems.push(item);
