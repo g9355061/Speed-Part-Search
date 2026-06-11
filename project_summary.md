@@ -39,6 +39,8 @@
 - [x] **驗證**：本機種合成快照 + 測試帳號實測——標題「記憶體、MLCC 供應訊號升溫，建議提早確認交期與需求」、story 以 Tom's Hardware 新聞內容開場 + 一句通路觀察收尾、全頁無「週減逾/週漲逾/顆料件」字眼。`tsc --noEmit` 通過。測試資料全清。
 - 註：過程中曾誤解「全部取消」為砍掉週報功能而 git rm 檔案，經澄清後已全數還原再改。
 - **修改檔案**：`src/lib/demand-forecast/weekly-report.ts`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`。
+- [x] **（同日後續）週報吃進更多 RSS 新聞內容**：使用者反映「有數據訊號但無新聞」的類別只剩一句通路觀察、太單薄。改法：(1) 封面故事改優先挑「有新聞素材」的類別（交叉命中 + 有 news/PCN），純數據無新聞者不再硬塞成空殼頭條；(2) categoryEvidence 關鍵字由硬篩改軟性排序（已被上游分類的新聞即納入、關鍵字命中者優先），每篇新聞 2→3 則、PCN 1→2 則、article 抽句 2→4、evidence 總量 4→6；(3) Gemini prompt 要求盡量用上每一則素材、280-420 字 2-3 段；(4) fallback 亦織入多則新聞。本機實測 Gemini 正常時，記憶體文章融合 Tom's Hardware/AOL/Z2Data/Future Electronics 四源、MLCC 融合 Astute/DIGITIMES/Holy Stone 等，讀感接近產業版報導。tsc 通過、測試資料已清。
+
 
 ---
 
