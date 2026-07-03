@@ -1,6 +1,20 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-03（QQ 按鈕改為複製完整詢價內容並喚起桌面 QQ）
+> 最後更新：2026-07-03（QQ 詢價支援多筆 BOM 料號各自保存華強結果）
+
+---
+
+### 2026-07-03 — 修正 QQ 詢價多筆 BOM 切換與上傳按鈕
+
+- [x] **第二筆以後使用自己的華強/QQ 結果**：新增依 BOM 料號保存華強查詢結果的前端狀態；切換第 2、3...筆料號時，會載入該料號自己的供應商與 QQ 入口，不再只保留第一筆或上一筆結果。
+- [x] **QQ 按鈕恢復直接喚起 App 嘗試**：個人 QQ 也會在複製詢價內容後嘗試 `tencent://message` 與 `mqqwpa://` 兩種 QQ App protocol；企業企點連結仍優先使用華強解析出的簽章入口。
+- [x] **BOM 上傳按鈕改穩定觸發**：將隱藏 input + ref click 改成原生 label 綁定 file input，避免瀏覽器環境下按鈕點擊不開檔案選擇器。
+- [x] **文案同步**：QQ 操作說明改為「複製詢價內容 + 嘗試開 QQ App」，避免仍顯示舊版「個人 QQ 無法直接跳轉」。
+- [x] **驗證**：`npx tsc --noEmit` 通過。
+- **修改檔案**：
+  - `src/app/qq-inquiry/page.tsx`
+  - `src/app/globals.css`
+  - `project_summary.md`
 
 ---
 

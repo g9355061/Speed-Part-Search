@@ -1294,6 +1294,18 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
+.qq-upload-label {
+  user-select: none;
+}
+.qq-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .qq-bom-actions a {
   text-decoration: none;
 }

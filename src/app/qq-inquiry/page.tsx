@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
@@ -301,6 +301,26 @@ function isQidianHref(href?: string) {
   return !!href && /qidian=true|wpa1\.qq\.com/i.test(href);
 }
 
+function openExternalProtocol(url: string) {
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  window.setTimeout(() => iframe.remove(), 1800);
+}
+
+function openPersonalQqApp(qq?: string) {
+  if (!qq) return;
+  const cleanQq = qq.replace(/\D/g, '');
+  if (!cleanQq) return;
+
+  openExternalProtocol(`tencent://message/?uin=${cleanQq}&Site=qq&Menu=yes`);
+  window.setTimeout(() => {
+    openExternalProtocol(`mqqwpa://im/chat?chat_type=wpa&uin=${cleanQq}&version=1&src_type=web`);
+  }, 350);
+}
+
 export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -309,6 +329,7 @@ export default function QqInquiryPage() {
   const [bomRows, setBomRows] = useState<BomRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [hqewResult, setHqewResult] = useState<HqewSearchResponse | null>(null);
+  const [hqewResultsByMpn, setHqewResultsByMpn] = useState<Record<string, HqewSearchResponse>>({});
   const [hqewLoading, setHqewLoading] = useState(false);
   const [hqewError, setHqewError] = useState<string | null>(null);
   const [quoteRecords, setQuoteRecords] = useState<QuoteRecord[]>([]);
@@ -319,7 +340,6 @@ export default function QqInquiryPage() {
   const [copiedSampleIdx, setCopiedSampleIdx] = useState<number | null>(null);
   const [bomIndex, setBomIndex] = useState(0);
   const [queriedMpns, setQueriedMpns] = useState<string[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const activeCase = cases.find((item) => item.id === activeCaseId) ?? null;
   const activeBom = bomRows[bomIndex] ?? bomRows[0];
@@ -412,6 +432,7 @@ export default function QqInquiryPage() {
     setBomRows(nextCase.bomRows);
     setQuoteRecords(nextCase.quoteRecords);
     setHqewResult(null);
+    setHqewResultsByMpn({});
     setHqewError(null);
     setSelected(0);
     setBomIndex(0);
@@ -439,6 +460,7 @@ export default function QqInquiryPage() {
       setQuoteRecords([]);
     }
     setHqewResult(null);
+    setHqewResultsByMpn({});
     setHqewError(null);
     setSelected(0);
     setBomIndex(0);
@@ -465,7 +487,7 @@ export default function QqInquiryPage() {
 
   async function openSupplierQq(row: InquiryRow) {
     // 一律先複製完整詢價內容到剪貼簿（最有價值、且不會出錯的部分）
-    await navigator.clipboard.writeText(buildMessage(row));
+    void navigator.clipboard.writeText(buildMessage(row)).catch(() => undefined);
     setCopiedInquiryQq(row.rfqId);
     window.setTimeout(() => setCopiedInquiryQq(null), 3200);
 
@@ -475,14 +497,15 @@ export default function QqInquiryPage() {
       return;
     }
 
-    // 個人 QQ：QQ 官方封鎖裸號跳轉，不再嘗試 tencent://（只會彈風險視窗）。
-    // 詢價內容已複製，依按鈕提示手動加此 QQ 好友後，直接 Cmd+V 貼上即可。
+    // 個人 QQ：立即嘗試兩種 QQ App protocol。若本機 QQ 或瀏覽器未接住，詢價內容仍已複製。
+    openPersonalQqApp(row.qq);
   }
 
   async function handleBomUpload(file: File) {
     setParseError(null);
     setHqewError(null);
     setHqewResult(null);
+    setHqewResultsByMpn({});
     setSelected(0);
     setBomIndex(0);
     setQueriedMpns([]);
@@ -532,6 +555,7 @@ export default function QqInquiryPage() {
     setBomRows(nextCase.bomRows);
     setQuoteRecords([]);
     setHqewResult(null);
+    setHqewResultsByMpn({});
     setHqewError(null);
     setSelected(0);
     setBomIndex(0);
@@ -548,8 +572,9 @@ export default function QqInquiryPage() {
   function selectBomIndex(nextIndex: number) {
     if (!bomRows.length) return;
     const safeIndex = Math.min(Math.max(nextIndex, 0), bomRows.length - 1);
+    const nextMpn = bomRows[safeIndex]?.mpn;
     setBomIndex(safeIndex);
-    setHqewResult(null);
+    setHqewResult(nextMpn ? hqewResultsByMpn[nextMpn] ?? null : null);
     setHqewError(null);
     setSelected(0);
   }
@@ -566,6 +591,7 @@ export default function QqInquiryPage() {
       const json: HqewSearchResponse = await resp.json();
       if (!resp.ok) throw new Error(json.error || `HTTP ${resp.status}`);
       setHqewResult(json);
+      setHqewResultsByMpn((prev) => ({ ...prev, [activeBom.mpn]: json }));
       setQueriedMpns((prev) => prev.includes(activeBom.mpn) ? prev : [...prev, activeBom.mpn]);
     } catch (e) {
       setHqewError(e instanceof Error ? e.message : String(e));
@@ -730,9 +756,9 @@ export default function QqInquiryPage() {
               </div>
             )}
             <div className="qq-bom-actions">
-              <button className="btn-primary" onClick={() => fileRef.current?.click()}>
+              <label className="btn-primary qq-upload-label" htmlFor="qq-bom-file-input">
                 <Icon name="file" size={14} />上傳 BOM Excel / CSV
-              </button>
+              </label>
               <button className="btn" onClick={() => selectBomIndex(bomIndex - 1)} disabled={!hasPrevBom || hqewLoading}>
                 上一筆
               </button>
@@ -748,10 +774,10 @@ export default function QqInquiryPage() {
                 </a>
               )}
               <input
-                ref={fileRef}
+                id="qq-bom-file-input"
+                className="qq-file-input"
                 type="file"
                 accept=".xlsx,.xls,.csv"
-                style={{ display: 'none' }}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) void handleBomUpload(file);
@@ -867,13 +893,13 @@ export default function QqInquiryPage() {
                             title={
                               isQidianHref(row.qqHref)
                                 ? '點擊：複製詢價內容並直接開啟 QQ 企業客服對話'
-                                : '個人 QQ 無法直接跳轉；點擊複製詢價內容，請手動加此 QQ 好友後貼上'
+                                : '點擊：複製詢價內容並嘗試直接開啟 QQ App 對話'
                             }
                           >
                             {copiedInquiryQq === row.rfqId
                               ? isQidianHref(row.qqHref)
                                 ? '✓ 已複製，正在開 QQ'
-                                : `✓ 已複製，請手動加 ${row.qq}`
+                                : '✓ 已複製，正在開 QQ'
                               : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
@@ -911,7 +937,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  企點企業帳號（華強顯示可線上諮詢者）點 QQ 會複製好詢價內容並直接開啟臨時會話，Command + V 貼上即可；若為個人 QQ，QQ 官方禁止裸號跳轉，請依按鈕提示手動加此 QQ 好友後再貼上。
+                  點 QQ 會先複製詢價內容，再嘗試直接開啟 QQ App；QQ 開啟後 Command + V 貼上即可。若本機瀏覽器或 QQ 未接住跳轉，請手動搜尋該 QQ 號後貼上。
                 </p>
               </div>
             </div>
