@@ -468,8 +468,9 @@ export default function QqInquiryPage() {
     setCopiedInquiryQq(row.rfqId);
     window.setTimeout(() => setCopiedInquiryQq(null), 3200);
 
-    // 所有供應商都走同一套華強頁入口，避免不同 QQ 連結型態造成行為不一致或風險彈窗。
-    window.open(hqewSearchUrl(row.mpn), '_blank', 'noopener,noreferrer');
+    if (row.qqHref) {
+      window.open(row.qqHref, '_blank', 'noopener,noreferrer');
+    }
   }
 
   async function handleBomUpload(file: File) {
@@ -854,17 +855,17 @@ export default function QqInquiryPage() {
                       <td className="mono">{row.stock.toLocaleString()}</td>
                       <td>{row.location}</td>
                       <td>
-                        {row.qq || row.qqHref ? (
+                        {row.qqHref ? (
                           <button
                             className={`qq-link-btn qidian-link-btn ${copiedInquiryQq === row.rfqId ? 'copied-success' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               void openSupplierQq(row);
                             }}
-                            title="點擊：複製詢價內容並打開華強料號頁，從華強入口進 QQ"
+                            title="點擊：複製詢價內容並開啟華強解析出的 QQ 入口"
                           >
                             {copiedInquiryQq === row.rfqId
-                              ? '✓ 已複製，已開華強'
+                              ? '✓ 已複製，正在開 QQ'
                               : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (

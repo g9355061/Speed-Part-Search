@@ -81,9 +81,14 @@ export async function GET(req: NextRequest) {
           location: cell('.td-storeLocation') || cells[8] || '',
           note: cell('.td-premark') || cells[9] || '',
           date: cells[10] || '',
-          qq: row.querySelector('a.a-qq')?.getAttribute('qq') || '',
+          qq: row.querySelector('a.a-qq, a[qq]')?.getAttribute('qq') || '',
           qqHref: (() => {
-            const a = row.querySelector('a.a-qq');
+            const anchors = Array.from(row.querySelectorAll<HTMLAnchorElement>('a.a-qq, a[qq], a[href*="wpa"], a[href*="qq"], a[href*="qidian"]'));
+            const a = anchors.find((item) => {
+              const raw = item.getAttribute('data') || '';
+              const href = item.getAttribute('href') || '';
+              return /qqHref|wpa|qq|qidian/i.test(`${raw} ${href}`);
+            });
             if (!a) return '';
             const raw = a.getAttribute('data') || '';
             let href = '';
@@ -93,7 +98,8 @@ export async function GET(req: NextRequest) {
               href = '';
             }
             // featured 供應商的企點連結直接掛在 href（無 data JSON），補抓
-            return href || a.getAttribute('href') || '';
+            const directHref = a.getAttribute('href') || '';
+            return href || (directHref && !/^javascript:/i.test(directHref) ? directHref : '');
           })(),
         };
       })
