@@ -1678,3 +1678,26 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - Railway 上華強查詢曾因 Playwright Chromium 未下載而失敗；已新增 `postinstall` 自動安裝 Chromium，讓部署環境可啟動 headless browser 查詢華強。
 - Railway 上 Chromium 啟動後仍缺少 Linux 系統函式庫（例如 `libglib-2.0.so.0`）；已新增 `railpack.json`，在 Railway runtime 映像安裝 Chromium/headless browser 所需的底層套件。
 - 新增 `.railwayignore`，避免部署時將本機暫存資料、環境檔、build 產物或 scratch 測試資料一併上傳。
+
+## 17. QQ 詢價按鈕改用企點（QiDian）簽章連結，修正無法跳轉 QQ
+
+### 問題根因（實測確認）
+使用者反映「點網頁 QQ 帳號無法跳轉 Mac QQ 並自動貼入詢價內容」。在使用者 Mac（QQ NT 6.9.96）逐一實測後確認：
+- 舊做法拿裸 QQ 號自組 `tencent://message/?uin=...`、`mqqwpa://...` 全部失敗：`tencent://` 被 QQ 當「链接有潜在风险，暂不支持跳转」擋下、且**不會切換到目標供應商**（只是把 QQ 叫到前景並停在原本開著的對話）；`mqqwpa://` 在 macOS 根本沒註冊。
+- 用 Playwright 渲染 `https://s.hqew.com/<MPN>.html` 抓出 `a.a-qq` 真正的連結後發現：華強能乾淨跳轉是因為它用**企點官方簽章連結** `wpa1.qq.com/<碼>?_type=wpa&qidian=true`，會 302 轉址到帶 `kfuin`＋簽章 `key` 的企點頁，QQ 才信任放行、直接開臨時會話。實測開啟該連結，QQ 乾淨進入臨時會話、無任何風險視窗。
+- 華強對兩種供應商本就不同：企點企業帳號（`hasQqUrlData:true`）給企點連結可跳；個人 QQ（如 451576571，`hasQqUrlData:false`）華強自己也不跳，只提示「复制加 <號>」手動加好友。
+
+### 改動
+- `src/app/api/hqew/search/route.ts`：`a.a-qq` 的 `qqHref` 擷取在 `data` JSON 沒有時，fallback 去抓 anchor 的 `href`（補抓 featured 供應商直接掛在 `href` 的企點連結）。
+- `src/app/qq-inquiry/page.tsx`：
+  - 移除失效的 `launchDesktopProtocol` 與 `tencent://`／`mqqwpa://` 呼叫，改為 `isQidianHref()` 分類。
+  - `openSupplierQq`：一律先複製完整詢價內容；若 `qqHref` 為企點連結（含 `qidian=true` 或 `wpa1.qq.com`）→ `window.open(qqHref)` 乾淨跳轉；個人 QQ → 只複製內容並提示手動加好友，不再彈風險視窗。
+  - 按鈕 highlight key 由 `row.qq` 改為 `row.rfqId`（避免 featured 供應商 `qq` 為空時多列誤判為同一狀態）；label/title 依企點或個人 QQ 顯示不同文案；更新下方 helper text。
+
+### 驗證
+- `npx tsc --noEmit` 通過（exit 0）。
+- 企點連結乾淨喚起 QQ 臨時會話一節，已於使用者 Mac 以 computer-use 實測確認。
+- 未起 preview：`/qq-inquiry` 有管理者權限閘、資料需 Playwright 爬華強、且 QQ 跳轉為 OS 層行為，preview server 無法重現該路徑。
+
+### 已知限制
+- 個人 QQ 供應商（非企點）仍無法自動跳轉——此為 QQ 官方封鎖裸號跳轉所致，華強頁面同樣不跳，只能手動加好友。

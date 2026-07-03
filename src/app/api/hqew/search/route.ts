@@ -83,12 +83,17 @@ export async function GET(req: NextRequest) {
           date: cells[10] || '',
           qq: row.querySelector('a.a-qq')?.getAttribute('qq') || '',
           qqHref: (() => {
-            const raw = row.querySelector('a.a-qq')?.getAttribute('data') || '';
+            const a = row.querySelector('a.a-qq');
+            if (!a) return '';
+            const raw = a.getAttribute('data') || '';
+            let href = '';
             try {
-              return raw ? JSON.parse(raw).qqHref || '' : '';
+              href = raw ? JSON.parse(raw).qqHref || '' : '';
             } catch {
-              return '';
+              href = '';
             }
+            // featured 供應商的企點連結直接掛在 href（無 data JSON），補抓
+            return href || a.getAttribute('href') || '';
           })(),
         };
       })

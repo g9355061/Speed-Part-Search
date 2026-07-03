@@ -294,12 +294,11 @@ function makeCaseId(existingCases: BomCase[]) {
   return `${base}-${Date.now().toString().slice(-4)}`;
 }
 
-function launchDesktopProtocol(url: string, ttl = 1200) {
-  const launcher = document.createElement('iframe');
-  launcher.style.display = 'none';
-  launcher.src = url;
-  document.body.appendChild(launcher);
-  window.setTimeout(() => launcher.remove(), ttl);
+// 企點（QiDian）企業客服連結才是華強能乾淨跳轉的機制：
+// 華強後端簽出 wpa1.qq.com/<碼>?_type=wpa&qidian=true，QQ 才信任放行、直接開臨時會話。
+// 個人 QQ 的裸號連結（wpa.qq.com/msgrd?uin=...）會被 QQ 當「陌生人風險」擋掉。
+function isQidianHref(href?: string) {
+  return !!href && /qidian=true|wpa1\.qq\.com/i.test(href);
 }
 
 export default function QqInquiryPage() {
@@ -465,22 +464,19 @@ export default function QqInquiryPage() {
   }
 
   async function openSupplierQq(row: InquiryRow) {
-    if (row.qq) {
-      await navigator.clipboard.writeText(buildMessage(row));
-      setCopiedInquiryQq(row.qq);
-      window.setTimeout(() => setCopiedInquiryQq(null), 3200);
+    // 一律先複製完整詢價內容到剪貼簿（最有價值、且不會出錯的部分）
+    await navigator.clipboard.writeText(buildMessage(row));
+    setCopiedInquiryQq(row.rfqId);
+    window.setTimeout(() => setCopiedInquiryQq(null), 3200);
 
-      const qq = encodeURIComponent(row.qq);
-      launchDesktopProtocol(`tencent://message/?uin=${qq}&Site=qq&Menu=yes`);
-      window.setTimeout(() => {
-        launchDesktopProtocol(`mqqwpa://im/chat?chat_type=wpa&uin=${qq}&version=1&src_type=web`);
-      }, 450);
+    // 企點企業帳號：用華強同款的簽章連結，QQ 會乾淨開啟臨時會話（不會被風險視窗擋）
+    if (isQidianHref(row.qqHref)) {
+      window.open(row.qqHref!, '_blank', 'noopener,noreferrer');
       return;
     }
 
-    if (row.qqHref) {
-      window.open(row.qqHref, '_blank', 'noopener,noreferrer');
-    }
+    // 個人 QQ：QQ 官方封鎖裸號跳轉，不再嘗試 tencent://（只會彈風險視窗）。
+    // 詢價內容已複製，依按鈕提示手動加此 QQ 好友後，直接 Cmd+V 貼上即可。
   }
 
   async function handleBomUpload(file: File) {
@@ -862,14 +858,22 @@ export default function QqInquiryPage() {
                       <td>
                         {row.qq || row.qqHref ? (
                           <button
-                            className={`qq-link-btn qidian-link-btn ${copiedInquiryQq === row.qq ? 'copied-success' : ''}`}
+                            className={`qq-link-btn qidian-link-btn ${copiedInquiryQq === row.rfqId ? 'copied-success' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               void openSupplierQq(row);
                             }}
-                            title="點擊：自動複製詢價內容並嘗試直接開啟桌面 QQ"
+                            title={
+                              isQidianHref(row.qqHref)
+                                ? '點擊：複製詢價內容並直接開啟 QQ 企業客服對話'
+                                : '個人 QQ 無法直接跳轉；點擊複製詢價內容，請手動加此 QQ 好友後貼上'
+                            }
                           >
-                            {copiedInquiryQq === row.qq ? '✓ 已複製詢價，正在開 QQ' : `QQ ${row.qq || '開啟'}`}
+                            {copiedInquiryQq === row.rfqId
+                              ? isQidianHref(row.qqHref)
+                                ? '✓ 已複製，正在開 QQ'
+                                : `✓ 已複製，請手動加 ${row.qq}`
+                              : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
                           <span className="qq-muted">-</span>
@@ -905,7 +909,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  QQ 按鈕會先複製該供應商的完整詢價內容，再嘗試直接喚起桌面 QQ；若 QQ 對話開啟後未自動填入，請直接按 Command + V 貼上。
+                  企點企業帳號（華強顯示可線上諮詢者）點 QQ 會複製好詢價內容並直接開啟臨時會話，Command + V 貼上即可；若為個人 QQ，QQ 官方禁止裸號跳轉，請依按鈕提示手動加此 QQ 好友後再貼上。
                 </p>
               </div>
             </div>
