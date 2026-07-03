@@ -305,7 +305,7 @@ function launchDesktopProtocol(url: string, ttl = 1200) {
 export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
   const [copied, setCopied] = useState(false);
-  const [copiedQq, setCopiedQq] = useState<string | null>(null);
+  const [copiedInquiryQq, setCopiedInquiryQq] = useState<string | null>(null);
   const [reply, setReply] = useState('單價：0.112 含稅，庫存 100000，MOQ 10000，今天可發貨，報價有效期 3 天。');
   const [bomRows, setBomRows] = useState<BomRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -466,9 +466,9 @@ export default function QqInquiryPage() {
 
   async function openSupplierQq(row: InquiryRow) {
     if (row.qq) {
-      await navigator.clipboard.writeText(row.qq);
-      setCopiedQq(row.qq);
-      window.setTimeout(() => setCopiedQq(null), 2600);
+      await navigator.clipboard.writeText(buildMessage(row));
+      setCopiedInquiryQq(row.qq);
+      window.setTimeout(() => setCopiedInquiryQq(null), 3200);
 
       const qq = encodeURIComponent(row.qq);
       launchDesktopProtocol(`tencent://message/?uin=${qq}&Site=qq&Menu=yes`);
@@ -862,14 +862,14 @@ export default function QqInquiryPage() {
                       <td>
                         {row.qq || row.qqHref ? (
                           <button
-                            className={`qq-link-btn qidian-link-btn ${copiedQq === row.qq ? 'copied-success' : ''}`}
+                            className={`qq-link-btn qidian-link-btn ${copiedInquiryQq === row.qq ? 'copied-success' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               void openSupplierQq(row);
                             }}
-                            title="點擊：自動複製 QQ 號並嘗試直接開啟桌面 QQ"
+                            title="點擊：自動複製詢價內容並嘗試直接開啟桌面 QQ"
                           >
-                            {copiedQq === row.qq ? '✓ 已複製，正在開 QQ' : `QQ ${row.qq || '開啟'}`}
+                            {copiedInquiryQq === row.qq ? '✓ 已複製詢價，正在開 QQ' : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
                           <span className="qq-muted">-</span>
@@ -905,7 +905,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  QQ 按鈕會先複製供應商 QQ 號，再嘗試直接喚起桌面 QQ；若瀏覽器或系統沒有進入對話，請在 QQ 搜尋框貼上 QQ 號。
+                  QQ 按鈕會先複製該供應商的完整詢價內容，再嘗試直接喚起桌面 QQ；若 QQ 對話開啟後未自動填入，請直接按 Command + V 貼上。
                 </p>
               </div>
             </div>
