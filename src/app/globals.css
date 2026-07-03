@@ -1442,10 +1442,34 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   display: grid;
   gap: 16px;
 }
+.qq-table-scroll {
+  overflow-x: auto;
+}
 .qq-table {
   width: 100%;
+  min-width: 860px;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 12.5px;
+}
+/* 固定各欄寬，供應商欄（第 2 欄）取剩餘空間，避免庫存出現超長數字時把供應商擠成單字直排 */
+.qq-table th:nth-child(1),
+.qq-table td:nth-child(1) { width: 200px; }
+.qq-table th:nth-child(3),
+.qq-table td:nth-child(3) { width: 130px; }
+.qq-table th:nth-child(4),
+.qq-table td:nth-child(4) { width: 140px; }
+.qq-table th:nth-child(5),
+.qq-table td:nth-child(5) { width: 54px; }
+.qq-table th:nth-child(6),
+.qq-table td:nth-child(6) { width: 150px; }
+.qq-table td:nth-child(2) strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.qq-table td.mono {
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 .qq-table th {
   padding: 10px 14px;

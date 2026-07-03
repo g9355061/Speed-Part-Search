@@ -831,6 +831,7 @@ export default function QqInquiryPage() {
               <span className="sub">{hqewResult ? '每家供應商都有獨立 RFQ 編號' : '華強電子網前 3 家候選示例'}</span>
             </div>
             <div className="card-bd flush">
+              <div className="qq-table-scroll">
               <table className="qq-table">
                 <thead>
                   <tr>
@@ -883,6 +884,7 @@ export default function QqInquiryPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
 
