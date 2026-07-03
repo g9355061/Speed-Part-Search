@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import * as XLSX from 'xlsx-js-style';
 import { Icon } from '@/components/Icon';
 
@@ -962,6 +963,8 @@ const SUPPLIER_LABELS: Record<string, string> = {
 };
 
 export default function BatchPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === 'admin';
   const [results, setResults] = useState<ResultRow[]>([]);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -1056,6 +1059,9 @@ export default function BatchPage() {
         <nav className="hdr-nav">
 	          <Link href="/" className="hdr-nav-link"><Icon name="search" size={14} /><span className="lbl">Search</span></Link>
 	          <Link href="/batch" className="hdr-nav-link active"><Icon name="compare" size={14} /><span className="lbl">BOM Batch</span></Link>
+	          {isAdmin && (
+	            <Link href="/qq-inquiry" className="hdr-nav-link"><Icon name="message" size={14} /><span className="lbl">QQ詢價</span></Link>
+	          )}
 	          <Link href="/batch-manufacturer" className="hdr-nav-link"><Icon name="compare" size={14} /><span className="lbl">BOM Batch - MFR</span></Link>
 	          <Link href="/manufacturer-mapping" className="hdr-nav-link"><Icon name="compare" size={14} /><span className="lbl">廠商對照表</span></Link>
 	          <Link href="/demand-forecast" className="hdr-nav-link"><Icon name="trend" size={14} /><span className="lbl">缺料預測</span></Link>

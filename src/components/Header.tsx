@@ -52,6 +52,11 @@ export function Header() {
         <Link href="/batch" className={'hdr-nav-link' + (pathname === '/batch' ? ' active' : '')}>
           <Icon name="compare" size={14} /><span className="lbl">BOM Batch</span>
         </Link>
+        {isAdmin && (
+          <Link href="/qq-inquiry" className={'hdr-nav-link' + (pathname === '/qq-inquiry' ? ' active' : '')}>
+            <Icon name="message" size={14} /><span className="lbl">QQ詢價</span>
+          </Link>
+        )}
         <Link href="/batch-manufacturer" className={'hdr-nav-link' + (pathname === '/batch-manufacturer' ? ' active' : '')}>
           <Icon name="compare" size={14} /><span className="lbl">BOM Batch - MFR</span>
         </Link>

@@ -232,7 +232,7 @@ async function summarizeWithGemini(
       return null;
     }
 
-    // 2. Call Gemini 2.5 Flash API
+    // 2. Call Gemini 2.5 Flash API with retry logic
     const prompt = `You are a senior electronic component procurement and supply chain analyst.
 Read the following market report snippet for the category "${categoryName}" (ID: ${categoryId}):
 "${evidenceText}"
@@ -244,63 +244,96 @@ Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Tra
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000); // 6s timeout
+    let attempts = 0;
+    const maxAttempts = 3;
+    let delayMs = 1500;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          maxOutputTokens: 1000,
-          temperature: 0.2
+    while (attempts < maxAttempts) {
+      attempts++;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+      try {
+        console.log(`[Gemini] Invoking Gemini API for category ${categoryName} (Attempt ${attempts}/${maxAttempts})...`);
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              maxOutputTokens: 2048,
+              temperature: 0.2,
+              thinkingConfig: {
+                thinkingBudget: 0
+              }
+            }
+          }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timer);
+
+        if (res.ok) {
+          const json = await res.json();
+          const summary = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+          if (!summary) {
+            return null;
+          }
+
+          // Clean up summary markdown formatting if any
+          const cleanSummary = summary.replace(/[\n\r]+/g, ' ').trim();
+          console.log('[Gemini DEBUG] Prompt for ' + categoryName + ':', prompt);
+          console.log('[Gemini DEBUG] Output:', cleanSummary);
+
+          // 3. Update monthly usage tracking
+          const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
+          const estimatedOutputTokens = Math.ceil(cleanSummary.length * 2.5);
+          const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
+
+          tracking.cost = (tracking.cost || 0) + callCost;
+          tracking.calls = (tracking.calls || 0) + 1;
+          await setGenericCache('gemini_monthly_usage', tracking);
+
+          console.log(`[Gemini] Summary generated successfully. Monthly Cost: $${tracking.cost.toFixed(4)} USD (${tracking.calls} calls).`);
+
+          return cleanSummary;
         }
-      }),
-      signal: controller.signal
-    });
 
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      console.warn(`[Gemini] API error: ${res.status} ${res.statusText}`);
-      return null;
+        console.warn(`[Gemini] API error (Attempt ${attempts}): ${res.status} ${res.statusText}`);
+        if (res.status === 429 || res.status >= 500) {
+          if (attempts < maxAttempts) {
+            console.log(`[Gemini] Retrying in ${delayMs}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            delayMs *= 2;
+            continue;
+          }
+        }
+        return null;
+      } catch (err: any) {
+        clearTimeout(timer);
+        if (err.name === 'AbortError') {
+          console.warn(`[Gemini] Request timed out after 10 seconds (Attempt ${attempts}).`);
+        } else {
+          console.error(`[Gemini] Failed to generate AI summary (Attempt ${attempts}):`, err.message);
+        }
+        if (attempts < maxAttempts) {
+          console.log(`[Gemini] Retrying in ${delayMs}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          delayMs *= 2;
+          continue;
+        }
+        return null;
+      }
     }
 
-    const json = await res.json();
-    const summary = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (!summary) {
-      return null;
-    }
-
-    // Clean up summary markdown formatting if any
-    const cleanSummary = summary.replace(/[\n\r]+/g, ' ').trim();
-    console.log('[Gemini DEBUG] Prompt for ' + categoryName + ':', prompt);
-    console.log('[Gemini DEBUG] Output:', cleanSummary);
-
-    // 3. Update monthly usage tracking
-    const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
-    const estimatedOutputTokens = Math.ceil(cleanSummary.length * 2.5);
-    const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
-
-    tracking.cost = (tracking.cost || 0) + callCost;
-    tracking.calls = (tracking.calls || 0) + 1;
-    await setGenericCache('gemini_monthly_usage', tracking);
-
-    console.log(`[Gemini] Summary generated successfully. Monthly Cost: $${tracking.cost.toFixed(4)} USD (${tracking.calls} calls).`);
-
-    return cleanSummary;
+    return null;
   } catch (err: any) {
-    if (err.name === 'AbortError') {
-      console.warn('[Gemini] Request timed out after 6 seconds.');
-    } else {
-      console.error('[Gemini] Failed to generate AI summary:', err.message);
-    }
+    console.error('[Gemini] Unexpected error in summarizeWithGemini:', err.message);
     return null;
   }
 }

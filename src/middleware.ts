@@ -48,6 +48,9 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith('/admin/') && token.role !== 'admin') {
     return NextResponse.redirect(new URL('/', req.url));
   }
+  if (pathname.startsWith('/qq-inquiry') && token.role !== 'admin') {
+    return NextResponse.redirect(new URL('/', req.url));
+  }
 
   return NextResponse.next();
 }
