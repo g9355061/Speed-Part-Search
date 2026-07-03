@@ -301,24 +301,8 @@ function isQidianHref(href?: string) {
   return !!href && /qidian=true|wpa1\.qq\.com/i.test(href);
 }
 
-function openExternalProtocol(url: string) {
-  const iframe = document.createElement('iframe');
-  iframe.style.display = 'none';
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.src = url;
-  document.body.appendChild(iframe);
-  window.setTimeout(() => iframe.remove(), 1800);
-}
-
-function openPersonalQqApp(qq?: string) {
-  if (!qq) return;
-  const cleanQq = qq.replace(/\D/g, '');
-  if (!cleanQq) return;
-
-  openExternalProtocol(`tencent://message/?uin=${cleanQq}&Site=qq&Menu=yes`);
-  window.setTimeout(() => {
-    openExternalProtocol(`mqqwpa://im/chat?chat_type=wpa&uin=${cleanQq}&version=1&src_type=web`);
-  }, 350);
+function hqewSearchUrl(mpn: string) {
+  return `https://s.hqew.com/${encodeURIComponent(mpn)}.html`;
 }
 
 export default function QqInquiryPage() {
@@ -476,7 +460,7 @@ export default function QqInquiryPage() {
   async function copyAndOpenHqew() {
     await copyMessage();
     const mpn = activeBom?.mpn ?? current.mpn;
-    window.open(`https://s.hqew.com/${encodeURIComponent(mpn)}.html`, '_blank', 'noopener,noreferrer');
+    window.open(hqewSearchUrl(mpn), '_blank', 'noopener,noreferrer');
   }
 
   async function copySampleReply(text: string, idx: number) {
@@ -497,8 +481,8 @@ export default function QqInquiryPage() {
       return;
     }
 
-    // 個人 QQ：立即嘗試兩種 QQ App protocol。若本機 QQ 或瀏覽器未接住，詢價內容仍已複製。
-    openPersonalQqApp(row.qq);
+    // 個人 QQ 裸號或未簽章連結會被 QQ 判定風險；照第一筆流程改走華強頁入口。
+    window.open(hqewSearchUrl(row.mpn), '_blank', 'noopener,noreferrer');
   }
 
   async function handleBomUpload(file: File) {
@@ -769,7 +753,7 @@ export default function QqInquiryPage() {
                 <Icon name="search" size={13} />{hqewLoading ? '查詢華強中...' : `查詢第 ${bomRows.length ? bomIndex + 1 : '-'} 筆`}
               </button>
               {activeBom && (
-                <a className="btn" href={`https://s.hqew.com/${encodeURIComponent(activeBom.mpn)}.html`} target="_blank" rel="noreferrer">
+                <a className="btn" href={hqewSearchUrl(activeBom.mpn)} target="_blank" rel="noreferrer">
                   <Icon name="external" size={13} />打開華強頁面
                 </a>
               )}
@@ -893,13 +877,13 @@ export default function QqInquiryPage() {
                             title={
                               isQidianHref(row.qqHref)
                                 ? '點擊：複製詢價內容並直接開啟 QQ 企業客服對話'
-                                : '點擊：複製詢價內容並嘗試直接開啟 QQ App 對話'
+                                : '點擊：複製詢價內容並打開華強料號頁，從華強入口進 QQ'
                             }
                           >
                             {copiedInquiryQq === row.rfqId
                               ? isQidianHref(row.qqHref)
                                 ? '✓ 已複製，正在開 QQ'
-                                : '✓ 已複製，正在開 QQ'
+                                : '✓ 已複製，已開華強'
                               : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
@@ -929,7 +913,7 @@ export default function QqInquiryPage() {
                   <a className="btn" href={`mailto:?subject=${encodeURIComponent(`詢價 ${current.mpn}`)}&body=${encodeURIComponent(message)}`}>
                     <Icon name="message" size={13} />Email
                   </a>
-                  <a className="btn" href={`https://s.hqew.com/${encodeURIComponent(current.mpn)}.html`} target="_blank" rel="noreferrer">
+                  <a className="btn" href={hqewSearchUrl(current.mpn)} target="_blank" rel="noreferrer">
                     <Icon name="external" size={13} />華強頁面
                   </a>
                   <button className="btn" onClick={copyAndOpenHqew}>
@@ -937,7 +921,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  點 QQ 會先複製詢價內容，再嘗試直接開啟 QQ App；QQ 開啟後 Command + V 貼上即可。若本機瀏覽器或 QQ 未接住跳轉，請手動搜尋該 QQ 號後貼上。
+                  點 QQ 會先複製詢價內容；若華強提供企業簽章入口，會直接開啟 QQ 對話，否則會打開該料號華強頁，請從華強頁 QQ 入口進入後 Command + V 貼上。
                 </p>
               </div>
             </div>
