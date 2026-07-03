@@ -294,13 +294,6 @@ function makeCaseId(existingCases: BomCase[]) {
   return `${base}-${Date.now().toString().slice(-4)}`;
 }
 
-// 企點（QiDian）企業客服連結才是華強能乾淨跳轉的機制：
-// 華強後端簽出 wpa1.qq.com/<碼>?_type=wpa&qidian=true，QQ 才信任放行、直接開臨時會話。
-// 個人 QQ 的裸號連結（wpa.qq.com/msgrd?uin=...）會被 QQ 當「陌生人風險」擋掉。
-function isQidianHref(href?: string) {
-  return !!href && /qidian=true|wpa1\.qq\.com/i.test(href);
-}
-
 function hqewSearchUrl(mpn: string) {
   return `https://s.hqew.com/${encodeURIComponent(mpn)}.html`;
 }
@@ -475,13 +468,7 @@ export default function QqInquiryPage() {
     setCopiedInquiryQq(row.rfqId);
     window.setTimeout(() => setCopiedInquiryQq(null), 3200);
 
-    // 企點企業帳號：用華強同款的簽章連結，QQ 會乾淨開啟臨時會話（不會被風險視窗擋）
-    if (isQidianHref(row.qqHref)) {
-      window.open(row.qqHref!, '_blank', 'noopener,noreferrer');
-      return;
-    }
-
-    // 個人 QQ 裸號或未簽章連結會被 QQ 判定風險；照第一筆流程改走華強頁入口。
+    // 所有供應商都走同一套華強頁入口，避免不同 QQ 連結型態造成行為不一致或風險彈窗。
     window.open(hqewSearchUrl(row.mpn), '_blank', 'noopener,noreferrer');
   }
 
@@ -874,16 +861,10 @@ export default function QqInquiryPage() {
                               e.stopPropagation();
                               void openSupplierQq(row);
                             }}
-                            title={
-                              isQidianHref(row.qqHref)
-                                ? '點擊：複製詢價內容並直接開啟 QQ 企業客服對話'
-                                : '點擊：複製詢價內容並打開華強料號頁，從華強入口進 QQ'
-                            }
+                            title="點擊：複製詢價內容並打開華強料號頁，從華強入口進 QQ"
                           >
                             {copiedInquiryQq === row.rfqId
-                              ? isQidianHref(row.qqHref)
-                                ? '✓ 已複製，正在開 QQ'
-                                : '✓ 已複製，已開華強'
+                              ? '✓ 已複製，已開華強'
                               : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
@@ -921,7 +902,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  點 QQ 會先複製詢價內容；若華強提供企業簽章入口，會直接開啟 QQ 對話，否則會打開該料號華強頁，請從華強頁 QQ 入口進入後 Command + V 貼上。
+                  點 QQ 會先複製詢價內容，並統一打開該料號華強頁；請從華強頁 QQ 入口進入後 Command + V 貼上。
                 </p>
               </div>
             </div>
