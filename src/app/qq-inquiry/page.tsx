@@ -298,6 +298,11 @@ function hqewSearchUrl(mpn: string) {
   return `https://s.hqew.com/${encodeURIComponent(mpn)}.html`;
 }
 
+function qqWpaUrl(qq?: string) {
+  const cleanQq = qq?.replace(/\D/g, '');
+  return cleanQq ? `http://wpa.qq.com/msgrd?v=3&uin=${cleanQq}&exe=qq&site=hqew&menu=no` : '';
+}
+
 export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -468,8 +473,9 @@ export default function QqInquiryPage() {
     setCopiedInquiryQq(row.rfqId);
     window.setTimeout(() => setCopiedInquiryQq(null), 3200);
 
-    if (row.qqHref) {
-      window.open(row.qqHref, '_blank', 'noopener,noreferrer');
+    const targetHref = row.qqHref || qqWpaUrl(row.qq);
+    if (targetHref) {
+      window.open(targetHref, '_blank', 'noopener,noreferrer');
     }
   }
 
@@ -855,7 +861,7 @@ export default function QqInquiryPage() {
                       <td className="mono">{row.stock.toLocaleString()}</td>
                       <td>{row.location}</td>
                       <td>
-                        {row.qqHref ? (
+                        {row.qqHref || row.qq ? (
                           <button
                             className={`qq-link-btn qidian-link-btn ${copiedInquiryQq === row.rfqId ? 'copied-success' : ''}`}
                             onClick={(e) => {
