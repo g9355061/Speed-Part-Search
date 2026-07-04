@@ -1,6 +1,20 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-04（QQ 按鈕有 QQ 號即顯示）
+> 最後更新：2026-07-04（新增 AppleScript 貼到 QQ 工具）
+
+---
+
+### 2026-07-04 — 新增本機「貼到 QQ」AppleScript 工具
+
+- [x] **新增本機貼上工具**：建立 `tools/qq-paste/PasteInquiryToQQ.applescript`，會尋找已開啟的 `腾讯企点` 或 `QQ`，切到前景後執行 `Command + V`，只貼上剪貼簿內容，不自動送出。
+- [x] **新增安裝腳本**：建立 `tools/qq-paste/install-paste-to-qq.command`，會把 AppleScript 安裝到 `~/Library/Scripts/Speed Part Search/`，並在桌面建立 `貼到QQ.command`。
+- [x] **已完成本機安裝**：桌面已建立 `/Users/dannychen/Desktop/貼到QQ.command`；首次使用需在 macOS「隱私與安全性 > 輔助使用」允許 Terminal / Codex 控制電腦。
+- [x] **QQ 詢價頁提示更新**：頁面提示改為「點 QQ 複製內容並開啟 QQ 入口，對話出現後執行桌面的貼到QQ.command 自動貼上」。
+- **修改檔案**：
+  - `tools/qq-paste/PasteInquiryToQQ.applescript`
+  - `tools/qq-paste/install-paste-to-qq.command`
+  - `src/app/qq-inquiry/page.tsx`
+  - `project_summary.md`
 
 ---
 

@@ -909,7 +909,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  點 QQ 會先複製詢價內容，並統一打開該料號華強頁；請從華強頁 QQ 入口進入後 Command + V 貼上。
+                  點 QQ 會先複製詢價內容並開啟華強解析出的 QQ 入口；QQ 對話出現後，可執行桌面的「貼到QQ.command」自動貼上。
                 </p>
               </div>
             </div>
