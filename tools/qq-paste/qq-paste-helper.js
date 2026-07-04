@@ -7,6 +7,8 @@ const path = require('path');
 const PORT = Number(process.env.SPEEDPART_QQ_PASTE_PORT || 5299);
 const SCRIPT_PATH = process.env.SPEEDPART_QQ_PASTE_SCRIPT ||
   path.join(process.env.HOME, 'Library/Scripts/Speed Part Search/PasteInquiryToQQ.applescript');
+const APP_PATH = process.env.SPEEDPART_QQ_PASTE_APP ||
+  path.join(process.env.HOME, 'Library/Scripts/Speed Part Search/PasteInquiryToQQ.app');
 
 function send(res, status, body) {
   res.writeHead(status, {
@@ -36,7 +38,9 @@ const server = http.createServer((req, res) => {
 
   req.resume();
   setTimeout(() => {
-    execFile('/usr/bin/osascript', [SCRIPT_PATH], { timeout: 8000 }, (error) => {
+    const command = APP_PATH ? '/usr/bin/open' : '/usr/bin/osascript';
+    const args = APP_PATH ? ['-W', APP_PATH] : [SCRIPT_PATH];
+    execFile(command, args, { timeout: 10000 }, (error) => {
       if (error) {
         send(res, 500, { ok: false, error: error.message });
         return;

@@ -11,10 +11,11 @@ mkdir -p "$INSTALL_DIR"
 cp "$SCRIPT_DIR/PasteInquiryToQQ.applescript" "$INSTALL_DIR/PasteInquiryToQQ.applescript"
 cp "$SCRIPT_DIR/qq-paste-helper.js" "$INSTALL_DIR/qq-paste-helper.js"
 chmod +x "$INSTALL_DIR/qq-paste-helper.js"
+/usr/bin/osacompile -o "$INSTALL_DIR/PasteInquiryToQQ.app" "$INSTALL_DIR/PasteInquiryToQQ.applescript"
 
 cat > "$DESKTOP_COMMAND" <<'EOF'
 #!/bin/zsh
-/usr/bin/osascript "$HOME/Library/Scripts/Speed Part Search/PasteInquiryToQQ.applescript"
+/usr/bin/open -W "$HOME/Library/Scripts/Speed Part Search/PasteInquiryToQQ.app"
 EOF
 
 chmod +x "$DESKTOP_COMMAND"
@@ -36,6 +37,8 @@ cat > "$LAUNCH_AGENT" <<EOF
   <dict>
     <key>SPEEDPART_QQ_PASTE_SCRIPT</key>
     <string>$INSTALL_DIR/PasteInquiryToQQ.applescript</string>
+    <key>SPEEDPART_QQ_PASTE_APP</key>
+    <string>$INSTALL_DIR/PasteInquiryToQQ.app</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -56,5 +59,5 @@ launchctl enable "gui/$(id -u)/com.speedpart.qq-paste-helper" >/dev/null 2>&1 ||
 /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" >/dev/null 2>&1 || true
 
 /usr/bin/osascript <<'EOF'
-display dialog "已安装 QQ 自动贴上 helper。\n\n现在网页点 QQ 后，会复制询价内容、打开 QQ，并自动呼叫本机 helper 贴上。\n\n第一次使用时，请在系统设置 > 隐私与安全性 > 辅助使用，允许 Terminal / iTerm / Codex 控制电脑。\n\n桌面的「貼到QQ.command」仍保留为手动备用。" buttons {"确定"} default button "确定"
+display dialog "已安装 QQ 自动贴上 helper。\n\n现在网页点 QQ 后，会复制询价内容、打开 QQ，并自动呼叫本机 helper 贴上。\n\n第一次使用时，请在系统设置 > 隐私与安全性 > 辅助使用，允许 PasteInquiryToQQ 控制电脑。\n\n桌面的「貼到QQ.command」仍保留为手动备用。" buttons {"确定"} default button "确定"
 EOF
