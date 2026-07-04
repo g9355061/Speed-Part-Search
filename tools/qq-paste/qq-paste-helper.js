@@ -8,7 +8,9 @@ const PORT = Number(process.env.SPEEDPART_QQ_PASTE_PORT || 5299);
 const SCRIPT_PATH = process.env.SPEEDPART_QQ_PASTE_SCRIPT ||
   path.join(process.env.HOME, 'Library/Scripts/Speed Part Search/PasteInquiryToQQ.applescript');
 const APP_PATH = process.env.SPEEDPART_QQ_PASTE_APP ||
-  path.join(process.env.HOME, 'Library/Scripts/Speed Part Search/PasteInquiryToQQ.app');
+  '/Applications/PasteInquiryToQQ.app';
+const PASTE_DELAY_MS = Number(process.env.SPEEDPART_QQ_PASTE_DELAY_MS || 1800);
+let lastPaste = null;
 
 function send(res, status, body) {
   res.writeHead(status, {
@@ -16,6 +18,7 @@ function send(res, status, body) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Private-Network': 'true',
   });
   res.end(JSON.stringify(body));
 }
@@ -27,7 +30,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.url === '/health') {
-    send(res, 200, { ok: true });
+    send(res, 200, { ok: true, lastPaste });
     return;
   }
 
@@ -37,17 +40,23 @@ const server = http.createServer((req, res) => {
   }
 
   req.resume();
+  const requestedAt = new Date().toISOString();
+  console.log(`[${requestedAt}] paste requested`);
   setTimeout(() => {
     const command = APP_PATH ? '/usr/bin/open' : '/usr/bin/osascript';
-    const args = APP_PATH ? ['-W', APP_PATH] : [SCRIPT_PATH];
-    execFile(command, args, { timeout: 10000 }, (error) => {
+    const args = APP_PATH ? [APP_PATH] : [SCRIPT_PATH];
+    execFile(command, args, { timeout: 4000 }, (error) => {
       if (error) {
+        lastPaste = { ok: false, requestedAt, completedAt: new Date().toISOString(), error: error.message };
+        console.error(`[${new Date().toISOString()}] paste failed: ${error.message}`);
         send(res, 500, { ok: false, error: error.message });
         return;
       }
+      lastPaste = { ok: true, requestedAt, completedAt: new Date().toISOString() };
+      console.log(`[${new Date().toISOString()}] paste completed`);
       send(res, 200, { ok: true });
     });
-  }, 900);
+  }, PASTE_DELAY_MS);
 });
 
 server.listen(PORT, '127.0.0.1', () => {

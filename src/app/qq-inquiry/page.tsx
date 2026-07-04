@@ -307,10 +307,10 @@ function triggerLocalQqPasteHelper() {
   window.setTimeout(() => {
     fetch('http://127.0.0.1:5299/paste', {
       method: 'POST',
-      mode: 'no-cors',
+      mode: 'cors',
       keepalive: true,
     }).catch(() => undefined);
-  }, 350);
+  }, 2600);
 }
 
 export default function QqInquiryPage() {
