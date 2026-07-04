@@ -489,11 +489,10 @@ export default function QqInquiryPage() {
     setCopiedInquiryQq(row.rfqId);
     window.setTimeout(() => setCopiedInquiryQq(null), 3200);
 
-    if (isQidianHref(row.qqHref)) {
-      window.open(row.qqHref!, '_blank', 'noopener,noreferrer');
+    const targetHref = row.qqHref || qqWpaUrl(row.qq);
+    if (targetHref) {
+      window.open(targetHref, '_blank');
       triggerLocalQqPasteHelper();
-    } else {
-      window.open(hqewSearchUrl(row.mpn), '_blank', 'noopener,noreferrer');
     }
   }
 
@@ -886,16 +885,10 @@ export default function QqInquiryPage() {
                               e.stopPropagation();
                               void openSupplierQq(row);
                             }}
-                            title={
-                              isQidianHref(row.qqHref)
-                                ? '點擊：複製詢價內容並直接開啟 QQ 企業客服對話'
-                                : '點擊：複製詢價內容並打開華強料號頁，從華強入口進 QQ'
-                            }
+                            title="點擊：複製詢價內容並開啟 QQ 對話"
                           >
                             {copiedInquiryQq === row.rfqId
-                              ? isQidianHref(row.qqHref)
-                                ? '✓ 已複製，正在開 QQ'
-                                : '✓ 已複製，已開華強'
+                              ? '✓ 已複製，正在開 QQ'
                               : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
