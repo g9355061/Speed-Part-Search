@@ -11,6 +11,7 @@
 - [x] **新增安裝腳本**：`tools/qq-paste/install-paste-to-qq.command` 會把 AppleScript/helper 安裝到 `~/Library/Scripts/Speed Part Search/`，建立 `~/Library/LaunchAgents/com.speedpart.qq-paste-helper.plist` 並啟動背景服務；桌面 `貼到QQ.command` 保留為手動備用。
 - [x] **權限模型修正**：helper 不再直接用 `/usr/bin/osascript` 送鍵盤，改呼叫編譯後的 `PasteInquiryToQQ.app`，macOS 只需在「輔助使用」授權此 app。
 - [x] **固定 app 授權路徑**：`PasteInquiryToQQ.app` 改安裝到 `/Applications/PasteInquiryToQQ.app`，helper 也固定呼叫此路徑，避免每次重編譯到 Library 路徑後 macOS 輔助使用授權失效。
+- [x] **固定 bundle id 與簽章**：安裝腳本會將 app 的 `CFBundleIdentifier` 設為 `com.speedpart.PasteInquiryToQQ`，並重新 ad-hoc codesign，避免 macOS TCC 把每次重編譯的 app 視為不同身份。
 - [x] **已完成本機安裝與啟動**：`curl http://127.0.0.1:5299/health` 回 `{"ok":true}`，LaunchAgent 狀態為 running；授權 `PasteInquiryToQQ.app` 後，`POST /paste` 回 `{"ok":true}`。
 - [x] **QQ 詢價頁提示更新**：頁面提示改為「點 QQ 複製內容並開啟 QQ 入口，本機 helper 會自動切到 QQ 並貼上，不會自動送出」。
 - **修改檔案**：

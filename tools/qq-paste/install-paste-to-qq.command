@@ -14,6 +14,14 @@ cp "$SCRIPT_DIR/qq-paste-helper.js" "$INSTALL_DIR/qq-paste-helper.js"
 chmod +x "$INSTALL_DIR/qq-paste-helper.js"
 rm -rf "$APP_BUNDLE"
 /usr/bin/osacompile -o "$APP_BUNDLE" "$INSTALL_DIR/PasteInquiryToQQ.applescript"
+/usr/bin/xattr -cr "$APP_BUNDLE" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.speedpart.PasteInquiryToQQ" "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1 || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.speedpart.PasteInquiryToQQ" "$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 1.0" "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1 || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 1.0" "$APP_BUNDLE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0" "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1 || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0" "$APP_BUNDLE/Contents/Info.plist"
+/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
 
 cat > "$DESKTOP_COMMAND" <<'EOF'
 #!/bin/zsh
