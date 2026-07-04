@@ -1,6 +1,17 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-04（改用 Hammerspoon 自動貼上 QQ）
+> 最後更新：2026-07-04（修正 QQ 詢價連結被微信/維信覆蓋問題）
+
+---
+
+### 2026-07-04 — 修正 QQ 詢價連結被微信/維信覆蓋與跳轉問題
+
+- [x] **修正 QQ/微信 連結誤判**：修正華強電子網 (s.hqew.com) 搜尋結果解析邏輯。部分供應商將微信客服放在 QQ 前面，且微信連結含有 `work.weixin.qq.com`，因帶有 `qq` 被誤判定為 QQ 入口。
+- [x] **過濾微信連結**：在後端解析 `qqHref` 時加上 `.filter` 規則，排除 href、className 或 data 中含有 `weixin` 或 `wechat` 的連結，防止微信連結覆蓋真正的 QQ / 企點連結。
+- [x] **本機腳本驗證成功**：透過 `node scratch/test-hqew.js` 爬取實際資料，證實原先被微信連結覆蓋的供應商（例如：深圳市金百珂實業有限公司）現在已能正確還原出真實的 QQ / 企點連結 `https://wpa1.qq.com/seFIaQA8?_type=wpa&qidian=true`。
+- **修改檔案**：
+  - `src/app/api/hqew/search/route.ts`
+  - `project_summary.md`
 
 ---
 

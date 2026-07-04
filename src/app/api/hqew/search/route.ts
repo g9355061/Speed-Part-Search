@@ -83,7 +83,13 @@ export async function GET(req: NextRequest) {
           date: cells[10] || '',
           qq: row.querySelector('a.a-qq, a[qq]')?.getAttribute('qq') || '',
           qqHref: (() => {
-            const anchors = Array.from(row.querySelectorAll<HTMLAnchorElement>('a.a-qq, a[qq], a[href*="wpa"], a[href*="qq"], a[href*="qidian"]'));
+            const anchors = Array.from(row.querySelectorAll<HTMLAnchorElement>('a.a-qq, a[qq], a[href*="wpa"], a[href*="qq"], a[href*="qidian"]'))
+              .filter((item) => {
+                const href = item.getAttribute('href') || '';
+                const className = item.className || '';
+                const raw = item.getAttribute('data') || '';
+                return !/weixin|wechat/i.test(`${href} ${className} ${raw}`);
+              });
             const a = anchors.find((item) => {
               const raw = item.getAttribute('data') || '';
               const href = item.getAttribute('href') || '';
