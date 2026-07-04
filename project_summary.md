@@ -9,9 +9,7 @@
 - [x] **新增本機貼上工具**：建立 `tools/qq-paste/PasteInquiryToQQ.applescript`，會尋找已開啟的 `腾讯企点` 或 `QQ`，切到前景後執行 `Command + V`，只貼上剪貼簿內容，不自動送出。
 - [x] **新增背景 helper**：建立 `tools/qq-paste/qq-paste-helper.js`，在本機 `127.0.0.1:5299` 提供 `/paste`，由網頁點 QQ 後自動呼叫 AppleScript 貼上，不需要再雙擊桌面檔。
 - [x] **新增安裝腳本**：`tools/qq-paste/install-paste-to-qq.command` 會把 AppleScript/helper 安裝到 `~/Library/Scripts/Speed Part Search/`，建立 `~/Library/LaunchAgents/com.speedpart.qq-paste-helper.plist` 並啟動背景服務；桌面 `貼到QQ.command` 保留為手動備用。
-- [x] **權限模型修正**：helper 不再直接用 `/usr/bin/osascript` 送鍵盤，改呼叫編譯後的 `PasteInquiryToQQ.app`，macOS 只需在「輔助使用」授權此 app。
-- [x] **固定 app 授權路徑**：`PasteInquiryToQQ.app` 改安裝到 `/Applications/PasteInquiryToQQ.app`，helper 也固定呼叫此路徑，避免每次重編譯到 Library 路徑後 macOS 輔助使用授權失效。
-- [x] **固定 bundle id 與簽章**：安裝腳本會將 app 的 `CFBundleIdentifier` 設為 `com.speedpart.PasteInquiryToQQ`，並重新 ad-hoc codesign，避免 macOS TCC 把每次重編譯的 app 視為不同身份。
+- [x] **權限模型修正**：放棄 AppleScript app bundle 路線，改回 helper 直接執行 `/usr/bin/osascript`；使用者授權 `osascript` / Terminal / Codex 後，Terminal 直接測試與 helper `/paste` 測試皆回成功。
 - [x] **已完成本機安裝與啟動**：`curl http://127.0.0.1:5299/health` 回 `{"ok":true}`，LaunchAgent 狀態為 running；授權 `PasteInquiryToQQ.app` 後，`POST /paste` 回 `{"ok":true}`。
 - [x] **QQ 詢價頁提示更新**：頁面提示改為「點 QQ 複製內容並開啟 QQ 入口，本機 helper 會自動切到 QQ 並貼上，不會自動送出」。
 - **修改檔案**：

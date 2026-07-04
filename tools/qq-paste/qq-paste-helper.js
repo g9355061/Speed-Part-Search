@@ -7,8 +7,6 @@ const path = require('path');
 const PORT = Number(process.env.SPEEDPART_QQ_PASTE_PORT || 5299);
 const SCRIPT_PATH = process.env.SPEEDPART_QQ_PASTE_SCRIPT ||
   path.join(process.env.HOME, 'Library/Scripts/Speed Part Search/PasteInquiryToQQ.applescript');
-const APP_PATH = process.env.SPEEDPART_QQ_PASTE_APP ||
-  '/Applications/PasteInquiryToQQ.app';
 const PASTE_DELAY_MS = Number(process.env.SPEEDPART_QQ_PASTE_DELAY_MS || 1800);
 let lastPaste = null;
 
@@ -43,9 +41,7 @@ const server = http.createServer((req, res) => {
   const requestedAt = new Date().toISOString();
   console.log(`[${requestedAt}] paste requested`);
   setTimeout(() => {
-    const command = APP_PATH ? '/usr/bin/open' : '/usr/bin/osascript';
-    const args = APP_PATH ? [APP_PATH] : [SCRIPT_PATH];
-    execFile(command, args, { timeout: 4000 }, (error) => {
+    execFile('/usr/bin/osascript', [SCRIPT_PATH], { timeout: 10000 }, (error) => {
       if (error) {
         lastPaste = { ok: false, requestedAt, completedAt: new Date().toISOString(), error: error.message };
         console.error(`[${new Date().toISOString()}] paste failed: ${error.message}`);

@@ -6,26 +6,15 @@ INSTALL_DIR="$HOME/Library/Scripts/Speed Part Search"
 DESKTOP_COMMAND="$HOME/Desktop/貼到QQ.command"
 LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.speedpart.qq-paste-helper.plist"
 NODE_BIN="$(command -v node)"
-APP_BUNDLE="/Applications/PasteInquiryToQQ.app"
 
 mkdir -p "$INSTALL_DIR"
 cp "$SCRIPT_DIR/PasteInquiryToQQ.applescript" "$INSTALL_DIR/PasteInquiryToQQ.applescript"
 cp "$SCRIPT_DIR/qq-paste-helper.js" "$INSTALL_DIR/qq-paste-helper.js"
 chmod +x "$INSTALL_DIR/qq-paste-helper.js"
-rm -rf "$APP_BUNDLE"
-/usr/bin/osacompile -o "$APP_BUNDLE" "$INSTALL_DIR/PasteInquiryToQQ.applescript"
-/usr/bin/xattr -cr "$APP_BUNDLE" >/dev/null 2>&1 || true
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.speedpart.PasteInquiryToQQ" "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1 || \
-  /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string com.speedpart.PasteInquiryToQQ" "$APP_BUNDLE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 1.0" "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1 || \
-  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 1.0" "$APP_BUNDLE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0" "$APP_BUNDLE/Contents/Info.plist" >/dev/null 2>&1 || \
-  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0" "$APP_BUNDLE/Contents/Info.plist"
-/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null
 
 cat > "$DESKTOP_COMMAND" <<'EOF'
 #!/bin/zsh
-/usr/bin/open "/Applications/PasteInquiryToQQ.app"
+/usr/bin/osascript "$HOME/Library/Scripts/Speed Part Search/PasteInquiryToQQ.applescript"
 EOF
 
 chmod +x "$DESKTOP_COMMAND"
@@ -47,8 +36,6 @@ cat > "$LAUNCH_AGENT" <<EOF
   <dict>
     <key>SPEEDPART_QQ_PASTE_SCRIPT</key>
     <string>$INSTALL_DIR/PasteInquiryToQQ.applescript</string>
-    <key>SPEEDPART_QQ_PASTE_APP</key>
-    <string>$APP_BUNDLE</string>
     <key>SPEEDPART_QQ_PASTE_DELAY_MS</key>
     <string>1800</string>
   </dict>
@@ -71,5 +58,5 @@ launchctl enable "gui/$(id -u)/com.speedpart.qq-paste-helper" >/dev/null 2>&1 ||
 /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" >/dev/null 2>&1 || true
 
 /usr/bin/osascript <<'EOF'
-display dialog "已安装 QQ 自动贴上 helper。\n\n现在网页点 QQ 后，会复制询价内容、打开 QQ，并自动呼叫本机 helper 贴上。\n\n第一次使用时，请在系统设置 > 隐私与安全性 > 辅助使用，允许 /Applications/PasteInquiryToQQ.app 控制电脑。\n\n桌面的「貼到QQ.command」仍保留为手动备用。" buttons {"确定"} default button "确定"
+display dialog "已安装 QQ 自动贴上 helper。\n\n现在网页点 QQ 后，会复制询价内容、打开 QQ，并自动呼叫本机 helper 贴上。\n\n请在系统设置 > 隐私与安全性 > 辅助使用，允许 /usr/bin/osascript 或当前 Terminal/Codex 执行环境控制电脑。\n\n桌面的「貼到QQ.command」仍保留为手动备用。" buttons {"确定"} default button "确定"
 EOF
