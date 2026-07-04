@@ -304,13 +304,15 @@ function qqWpaUrl(qq?: string) {
 }
 
 function triggerLocalQqPasteHelper() {
-  window.setTimeout(() => {
-    fetch('http://127.0.0.1:5299/paste', {
-      method: 'POST',
-      mode: 'cors',
-      keepalive: true,
-    }).catch(() => undefined);
-  }, 2600);
+  const link = document.createElement('a');
+  link.href = 'hammerspoon://speedpartPaste?delay=2600';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  window.setTimeout(() => link.remove(), 2000);
+
+  const img = new Image();
+  img.src = `http://127.0.0.1:5298/paste?delay=2600&ts=${Date.now()}`;
 }
 
 export default function QqInquiryPage() {
@@ -920,7 +922,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  點 QQ 會先複製詢價內容並開啟華強解析出的 QQ 入口；本機 helper 啟動後會自動切到 QQ 並貼上，不會自動送出。
+                  點 QQ 會先複製詢價內容並開啟華強解析出的 QQ 入口；Hammerspoon 啟動後會自動切到 QQ 並貼上，不會自動送出。
                 </p>
               </div>
             </div>

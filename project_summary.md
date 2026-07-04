@@ -1,20 +1,21 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-04（新增 QQ 自動貼上本機 helper）
+> 最後更新：2026-07-04（改用 Hammerspoon 自動貼上 QQ）
 
 ---
 
-### 2026-07-04 — 新增本機 QQ 自動貼上 helper
+### 2026-07-04 — 改用 Hammerspoon 自動貼上 QQ
 
-- [x] **新增本機貼上工具**：建立 `tools/qq-paste/PasteInquiryToQQ.applescript`，會尋找已開啟的 `腾讯企点` 或 `QQ`，切到前景後執行 `Command + V`，只貼上剪貼簿內容，不自動送出。
-- [x] **新增背景 helper**：建立 `tools/qq-paste/qq-paste-helper.js`，在本機 `127.0.0.1:5299` 提供 `/paste`，由網頁點 QQ 後自動呼叫 AppleScript 貼上，不需要再雙擊桌面檔。
-- [x] **新增安裝腳本**：`tools/qq-paste/install-paste-to-qq.command` 會把 AppleScript/helper 安裝到 `~/Library/Scripts/Speed Part Search/`，建立 `~/Library/LaunchAgents/com.speedpart.qq-paste-helper.plist` 並啟動背景服務；桌面 `貼到QQ.command` 保留為手動備用。
-- [x] **權限模型修正**：放棄 AppleScript app bundle 路線，改回 helper 直接執行 `/usr/bin/osascript`；使用者授權 `osascript` / Terminal / Codex 後，Terminal 直接測試與 helper `/paste` 測試皆回成功。
-- [x] **已完成本機安裝與啟動**：`curl http://127.0.0.1:5299/health` 回 `{"ok":true}`，LaunchAgent 狀態為 running；授權 `PasteInquiryToQQ.app` 後，`POST /paste` 回 `{"ok":true}`。
-- [x] **QQ 詢價頁提示更新**：頁面提示改為「點 QQ 複製內容並開啟 QQ 入口，本機 helper 會自動切到 QQ 並貼上，不會自動送出」。
+- [x] **改用 Hammerspoon 觸發**：QQ 詢價頁點供應商 QQ 後，先複製詢價內容並開啟華強 QQ 入口，同一次點擊立即呼叫 `hammerspoon://speedpartPaste?delay=2600`，由 Hammerspoon 等 QQ 開好後貼上。
+- [x] **新增 Hammerspoon HTTP 備援入口**：Hammerspoon 會在 `127.0.0.1:5298` 啟動 `/paste` 與 `/paste-now`；網頁點 QQ 時會同時送出本機圖片請求，避免 `hammerspoon://` URL 事件沒有進入 Hammerspoon。
+- [x] **移除網頁對 5299 helper 的依賴**：不再由瀏覽器呼叫 `127.0.0.1:5299/paste`，避免 Chrome / Railway / 私有網路請求造成手動測試與網頁點擊結果不同。
+- [x] **新增 Hammerspoon 設定檔**：`tools/qq-paste/speedpart-qq-paste.lua` 綁定 `speedpartPaste` URL 事件，會尋找 `腾讯企点` 或 `QQ`，切到前景後送出 `Command + V`，只貼上、不送出。
+- [x] **新增 Hammerspoon 診斷 log**：每次載入設定、收到 URL、找到 QQ、切換 App、送出貼上都會寫入 `~/Library/Logs/speedpart-hammerspoon-qq.log`，方便判斷卡在哪一步。
+- [x] **更新安裝腳本**：`tools/qq-paste/install-paste-to-qq.command` 改為安裝 `~/.hammerspoon/speedpart-qq-paste.lua`、在 `init.lua` 加入 require、移除舊 LaunchAgent，並開啟 Hammerspoon 與輔助使用設定。
+- [x] **刪除舊 helper 源碼**：移除 `PasteInquiryToQQ.applescript` 與 `qq-paste-helper.js`，避免後續再回到 osascript 權限錯誤流程。
+- [x] **本機實測成功**：`curl http://127.0.0.1:5298/health` 回 `{"ok":true}`，`/paste-now` log 顯示找到 `QQ` 並送出 `Command + V`；使用者確認 QQ 輸入框有成功自動貼上。
 - **修改檔案**：
-  - `tools/qq-paste/PasteInquiryToQQ.applescript`
-  - `tools/qq-paste/qq-paste-helper.js`
+  - `tools/qq-paste/speedpart-qq-paste.lua`
   - `tools/qq-paste/install-paste-to-qq.command`
   - `src/app/qq-inquiry/page.tsx`
   - `project_summary.md`

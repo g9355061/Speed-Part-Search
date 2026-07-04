@@ -2,61 +2,31 @@
 set -euo pipefail
 
 SCRIPT_DIR="${0:A:h}"
-INSTALL_DIR="$HOME/Library/Scripts/Speed Part Search"
-DESKTOP_COMMAND="$HOME/Desktop/貼到QQ.command"
 LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.speedpart.qq-paste-helper.plist"
-NODE_BIN="$(command -v node)"
-
-mkdir -p "$INSTALL_DIR"
-cp "$SCRIPT_DIR/PasteInquiryToQQ.applescript" "$INSTALL_DIR/PasteInquiryToQQ.applescript"
-cp "$SCRIPT_DIR/qq-paste-helper.js" "$INSTALL_DIR/qq-paste-helper.js"
-chmod +x "$INSTALL_DIR/qq-paste-helper.js"
-
-cat > "$DESKTOP_COMMAND" <<'EOF'
-#!/bin/zsh
-/usr/bin/osascript "$HOME/Library/Scripts/Speed Part Search/PasteInquiryToQQ.applescript"
-EOF
-
-chmod +x "$DESKTOP_COMMAND"
-
-mkdir -p "$HOME/Library/LaunchAgents"
-cat > "$LAUNCH_AGENT" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.speedpart.qq-paste-helper</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$NODE_BIN</string>
-    <string>$INSTALL_DIR/qq-paste-helper.js</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>SPEEDPART_QQ_PASTE_SCRIPT</key>
-    <string>$INSTALL_DIR/PasteInquiryToQQ.applescript</string>
-    <key>SPEEDPART_QQ_PASTE_DELAY_MS</key>
-    <string>1800</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>$HOME/Library/Logs/speedpart-qq-paste-helper.log</string>
-  <key>StandardErrorPath</key>
-  <string>$HOME/Library/Logs/speedpart-qq-paste-helper.err.log</string>
-</dict>
-</plist>
-EOF
+HAMMERSPOON_DIR="$HOME/.hammerspoon"
+HAMMERSPOON_MODULE="$HAMMERSPOON_DIR/speedpart-qq-paste.lua"
+HAMMERSPOON_INIT="$HAMMERSPOON_DIR/init.lua"
 
 launchctl bootout "gui/$(id -u)" "$LAUNCH_AGENT" >/dev/null 2>&1 || true
-launchctl bootstrap "gui/$(id -u)" "$LAUNCH_AGENT"
-launchctl enable "gui/$(id -u)/com.speedpart.qq-paste-helper" >/dev/null 2>&1 || true
+rm -f "$LAUNCH_AGENT"
+rm -f "$HOME/Library/Scripts/Speed Part Search/PasteInquiryToQQ.applescript"
+rm -f "$HOME/Library/Scripts/Speed Part Search/qq-paste-helper.js"
 
+mkdir -p "$HAMMERSPOON_DIR"
+cp "$SCRIPT_DIR/speedpart-qq-paste.lua" "$HAMMERSPOON_MODULE"
+
+touch "$HAMMERSPOON_INIT"
+if ! grep -Fq 'require("speedpart-qq-paste")' "$HAMMERSPOON_INIT"; then
+  {
+    echo ''
+    echo '-- Speed Part Search QQ paste helper'
+    echo 'require("speedpart-qq-paste")'
+  } >> "$HAMMERSPOON_INIT"
+fi
+
+/usr/bin/open -a Hammerspoon >/dev/null 2>&1 || true
 /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" >/dev/null 2>&1 || true
 
 /usr/bin/osascript <<'EOF'
-display dialog "已安装 QQ 自动贴上 helper。\n\n现在网页点 QQ 后，会复制询价内容、打开 QQ，并自动呼叫本机 helper 贴上。\n\n请在系统设置 > 隐私与安全性 > 辅助使用，允许 /usr/bin/osascript 或当前 Terminal/Codex 执行环境控制电脑。\n\n桌面的「貼到QQ.command」仍保留为手动备用。" buttons {"确定"} default button "确定"
+display dialog "已安裝 Hammerspoon QQ 自動貼上 helper。\n\n現在網頁點 QQ 後，會先複製詢價內容、開啟 QQ，再呼叫 Hammerspoon 貼上。\n\n請在系統設定 > 隱私權與安全性 > 輔助使用，允許 Hammerspoon 控制電腦。\n\n若 Hammerspoon 已開啟，請點它選單列圖示並選 Reload Config。" buttons {"確定"} default button "確定"
 EOF
