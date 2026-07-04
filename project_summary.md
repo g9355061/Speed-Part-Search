@@ -1,17 +1,19 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-04（新增 AppleScript 貼到 QQ 工具）
+> 最後更新：2026-07-04（新增 QQ 自動貼上本機 helper）
 
 ---
 
-### 2026-07-04 — 新增本機「貼到 QQ」AppleScript 工具
+### 2026-07-04 — 新增本機 QQ 自動貼上 helper
 
 - [x] **新增本機貼上工具**：建立 `tools/qq-paste/PasteInquiryToQQ.applescript`，會尋找已開啟的 `腾讯企点` 或 `QQ`，切到前景後執行 `Command + V`，只貼上剪貼簿內容，不自動送出。
-- [x] **新增安裝腳本**：建立 `tools/qq-paste/install-paste-to-qq.command`，會把 AppleScript 安裝到 `~/Library/Scripts/Speed Part Search/`，並在桌面建立 `貼到QQ.command`。
-- [x] **已完成本機安裝**：桌面已建立 `/Users/dannychen/Desktop/貼到QQ.command`；首次使用需在 macOS「隱私與安全性 > 輔助使用」允許 Terminal / Codex 控制電腦。
-- [x] **QQ 詢價頁提示更新**：頁面提示改為「點 QQ 複製內容並開啟 QQ 入口，對話出現後執行桌面的貼到QQ.command 自動貼上」。
+- [x] **新增背景 helper**：建立 `tools/qq-paste/qq-paste-helper.js`，在本機 `127.0.0.1:5299` 提供 `/paste`，由網頁點 QQ 後自動呼叫 AppleScript 貼上，不需要再雙擊桌面檔。
+- [x] **新增安裝腳本**：`tools/qq-paste/install-paste-to-qq.command` 會把 AppleScript/helper 安裝到 `~/Library/Scripts/Speed Part Search/`，建立 `~/Library/LaunchAgents/com.speedpart.qq-paste-helper.plist` 並啟動背景服務；桌面 `貼到QQ.command` 保留為手動備用。
+- [x] **已完成本機安裝與啟動**：`curl http://127.0.0.1:5299/health` 回 `{"ok":true}`，LaunchAgent 狀態為 running；首次使用仍需在 macOS「隱私與安全性 > 輔助使用」允許 Terminal / Codex 控制電腦。
+- [x] **QQ 詢價頁提示更新**：頁面提示改為「點 QQ 複製內容並開啟 QQ 入口，本機 helper 會自動切到 QQ 並貼上，不會自動送出」。
 - **修改檔案**：
   - `tools/qq-paste/PasteInquiryToQQ.applescript`
+  - `tools/qq-paste/qq-paste-helper.js`
   - `tools/qq-paste/install-paste-to-qq.command`
   - `src/app/qq-inquiry/page.tsx`
   - `project_summary.md`

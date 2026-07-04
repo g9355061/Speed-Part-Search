@@ -303,6 +303,16 @@ function qqWpaUrl(qq?: string) {
   return cleanQq ? `http://wpa.qq.com/msgrd?v=3&uin=${cleanQq}&exe=qq&site=hqew&menu=no` : '';
 }
 
+function triggerLocalQqPasteHelper() {
+  window.setTimeout(() => {
+    fetch('http://127.0.0.1:5299/paste', {
+      method: 'POST',
+      mode: 'no-cors',
+      keepalive: true,
+    }).catch(() => undefined);
+  }, 350);
+}
+
 export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -476,6 +486,7 @@ export default function QqInquiryPage() {
     const targetHref = row.qqHref || qqWpaUrl(row.qq);
     if (targetHref) {
       window.open(targetHref, '_blank', 'noopener,noreferrer');
+      triggerLocalQqPasteHelper();
     }
   }
 
@@ -909,7 +920,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  點 QQ 會先複製詢價內容並開啟華強解析出的 QQ 入口；QQ 對話出現後，可執行桌面的「貼到QQ.command」自動貼上。
+                  點 QQ 會先複製詢價內容並開啟華強解析出的 QQ 入口；本機 helper 啟動後會自動切到 QQ 並貼上，不會自動送出。
                 </p>
               </div>
             </div>
