@@ -18,6 +18,52 @@ interface HqewSupplier {
   date: string;
   qq?: string;
   qqHref?: string;
+  jumpUrl?: string | null;
+}
+
+const BROWSER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
+
+// 取得騰訊企點簽章跳轉連結（tencent://QQInterLive?...&kfuin=...&uid=...）。
+// gateway getWpaUrl 直接以 server fetch 呼叫會回 10001 parameter error（需瀏覽器指紋與
+// 前端 JS 產生的 client 狀態），所以用 Playwright 渲染官方 wpa 頁、攔截它自己發出的
+// getWpaUrl 回應。簽章 uid 實測可重複使用且存活至少 40 分鐘，搜尋階段預抓即可。
+async function fetchQqJumpUrl(
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+  qq: string,
+): Promise<string | null> {
+  // 快路徑：v1/b2b/qq/wpa 可直接 server fetch。部分企點號在這層就拿到
+  // wpa1.qq.com/<碼>?qidian=true 簽章短連結（官方頁對這種號也是直接轉走、
+  // 不會再呼叫 getWpaUrl），直接回傳給前端 window.open 即可。
+  try {
+    const res = await fetch(`https://gateway.qidian.qq.com/v1/b2b/qq/wpa?uin=${qq}&_=${Date.now()}`, {
+      headers: { 'User-Agent': BROWSER_UA, Referer: 'https://wpa.qq.com/' },
+      signal: AbortSignal.timeout(5000),
+      cache: 'no-store',
+    });
+    const data = (await res.json()) as { code?: number; data?: { direct_jump_url?: string } | null };
+    const direct = data.code === 0 ? data.data?.direct_jump_url ?? '' : '';
+    if (/qidian=true|wpa1\.qq\.com/i.test(direct)) return direct;
+  } catch {
+    // 快路徑失敗就走 Playwright
+  }
+
+  const page = await browser.newPage({ userAgent: BROWSER_UA, locale: 'zh-CN' });
+  try {
+    const respPromise = page.waitForResponse((r) => r.url().includes('/v1/b2b/wpa/getWpaUrl'), { timeout: 12000 });
+    await page.goto(`https://wpa.qq.com/msgrd?v=3&uin=${qq}&exe=qq&site=hqew&menu=no`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    });
+    const resp = await respPromise;
+    const data = (await resp.json()) as { code?: number; data?: { url?: string } | null };
+    const jumpUrl = data.code === 0 && data.data?.url?.startsWith('tencent://') ? data.data.url : null;
+    return jumpUrl;
+  } catch {
+    return null;
+  } finally {
+    await page.close().catch(() => undefined);
+  }
 }
 
 function cleanSupplierName(text: string) {
@@ -124,6 +170,15 @@ export async function GET(req: NextRequest) {
       qq: s.qq,
       qqHref: s.qqHref,
     })).filter((s) => s.supplier && s.mpn);
+
+    // 預抓每家的簽章跳轉連結（華強已給企點連結者不需要）；三家並行
+    const activeBrowser = browser;
+    await Promise.all(
+      normalized.map(async (s) => {
+        if (!s.qq || /qidian=true|wpa1\.qq\.com/i.test(s.qqHref ?? '')) return;
+        s.jumpUrl = await fetchQqJumpUrl(activeBrowser, s.qq.replace(/\D/g, ''));
+      }),
+    );
 
     return NextResponse.json({
       partNumber,

@@ -24,6 +24,7 @@ interface InquiryRow {
   date?: string;
   qq?: string;
   qqHref?: string;
+  jumpUrl?: string | null;
 }
 
 interface HqewSearchResponse {
@@ -43,6 +44,7 @@ interface HqewSearchResponse {
     date: string;
     qq?: string;
     qqHref?: string;
+    jumpUrl?: string | null;
   }>;
   error?: string;
 }
@@ -373,6 +375,7 @@ export default function QqInquiryPage() {
       date: s.date,
       qq: s.qq,
       qqHref: s.qqHref,
+      jumpUrl: s.jumpUrl,
     }));
   }, [activeBom, activeCaseId, hqewResult]);
 
@@ -492,30 +495,28 @@ export default function QqInquiryPage() {
     setQqOpenOutcome('opening');
     window.setTimeout(() => setCopiedInquiryQq(null), 4000);
 
-    // 華強已給企點簽章連結：QQ 直接開「正確供應商」的臨時會話，
-    // 此時才觸發 Hammerspoon 自動貼上（貼進去的一定是剛開的那家）。
+    // 搜尋階段已預抓的簽章深層連結（tencent://QQInterLive）：QQ 直接切到
+    // 「正確供應商」的臨時會話，此時才觸發 Hammerspoon 自動貼上。
+    // 在點擊手勢內同步喚起，不經 async 請求，避免瀏覽器擋自訂協議。
+    if (row.jumpUrl) {
+      if (row.jumpUrl.startsWith('tencent://')) {
+        launchQqDeepLink(row.jumpUrl);
+      } else {
+        window.open(row.jumpUrl, '_blank');
+      }
+      triggerLocalQqPasteHelper();
+      return;
+    }
+
+    // 華強已給企點簽章連結：開官方頁由騰訊喚起 QQ。
     if (isQidianHref(row.qqHref)) {
       window.open(row.qqHref!, '_blank');
       triggerLocalQqPasteHelper();
       return;
     }
 
-    // 其餘供應商：即時向騰訊企點 gateway 換簽章深層連結。
-    // 多數華強客服號（288/300/800 開頭）都有開通，可直達；
-    // 真的未開通（如個人 QQ）才提示手動加好友，且絕不觸發自動貼上（會貼進錯誤對話）。
-    if (row.qq) {
-      try {
-        const res = await fetch(`/api/qq/wpa-url?uin=${encodeURIComponent(row.qq)}`);
-        const data = (await res.json()) as { jumpUrl?: string | null };
-        if (data.jumpUrl) {
-          launchQqDeepLink(data.jumpUrl);
-          triggerLocalQqPasteHelper();
-          return;
-        }
-      } catch {
-        // gateway 失敗視同未開通，走手動提示
-      }
-    }
+    // 未開通臨時會話（個人 QQ）：提示手動加好友，
+    // 絕不觸發自動貼上（QQ 不會切換對話，會貼進錯誤對話）。
     setQqOpenOutcome('manual');
   }
 

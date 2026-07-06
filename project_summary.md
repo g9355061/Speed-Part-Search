@@ -1784,3 +1784,20 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - 實測 `tencent://QQInterLive`（宝利士 3007316873 簽章連結）：QQ 無彈窗直達正確臨時會話。
 - gateway 對 2881279183（利明微）另回企點短連結、451576571 回 459003，分類正確。
 - `npx tsc --noEmit` 通過；`/api/qq/wpa-url` 未登入回 307 導登入頁（權限閘生效）。
+
+## 21. 修正 90% 供應商無法一鍵開 QQ：簽章連結改在華強搜尋階段以 Playwright 預抓
+
+### 問題
+第 20 節的 `/api/qq/wpa-url` 以 server fetch 呼叫騰訊 getWpaUrl 一律回 `10001 parameter error`（該 API 驗瀏覽器指紋與前端 JS 產生的 client 狀態，curl/fetch 模擬不了）→ 所有點擊 fallback 成「請手動加」，QQ 從未被喚起。
+
+### 解法（實測定案）
+- 簽章跳轉連結改在 **華強搜尋階段** 由既有 Playwright 流程預抓，存進 supplier.jumpUrl：
+  1. 快路徑：`gateway.qidian.qq.com/v1/b2b/qq/wpa?uin=`（server fetch 可直呼）→ 部分企點號直接回 `wpa1.qq.com/<碼>?qidian=true` 簽章短連結（利明微 2881279183 屬此類）。
+  2. 慢路徑：Playwright 渲染官方 `wpa.qq.com/msgrd` 頁、攔截其自發的 getWpaUrl 回應 → `tencent://QQInterLive?...&kfuin=...&uid=...` 簽章深層連結（宝利士 3007316873 屬此類）。實測 uid 可重複使用、存活 40+ 分鐘，預抓安全。
+  3. 兩路都拿不到（個人 QQ 未開通臨時會話）→ jumpUrl null → 前端顯示手動加。
+- 前端 `openSupplierQq`：jumpUrl 為 `tencent://` 用隱藏 iframe 喚起、`https`（企點短連結）用 window.open；點擊手勢內同步執行（不經 async），避免瀏覽器擋自訂協議。刪除無效的 `/api/qq/wpa-url` route。
+
+### 驗證（DMP21D5UFB4-7B 實測，臨時 admin 已刪除含 login_logs）
+- 宝利士→QQInterLive 深層連結、圣禾堂→原企點 qqHref、利明微→wpa1 短連結：**3/3 全數可一鍵直達**。
+- `npx tsc --noEmit` 通過。
+- 注意：QQ 內宝利士、圣禾堂輸入框留有先前測試/點擊的未送出草稿，需人工檢查。
