@@ -302,6 +302,16 @@ function isQidianHref(href?: string) {
   return !!href && /qidian=true|wpa1\.qq\.com/i.test(href);
 }
 
+// QQ NT 只放行「騰訊簽章過」的深層連結（tencent://QQInterLive?...&kfuin=...&uid=...），
+// 裸號 tencent://message 一律被風險視窗擋下。簽章連結用隱藏 iframe 觸發即可喚起 QQ。
+function launchQqDeepLink(url: string, ttl = 2000) {
+  const launcher = document.createElement('iframe');
+  launcher.style.display = 'none';
+  launcher.src = url;
+  document.body.appendChild(launcher);
+  window.setTimeout(() => launcher.remove(), ttl);
+}
+
 // 只走 Hammerspoon 的本機 HTTP 端點觸發「切到 QQ + Cmd+V」。
 // 不再同時發 hammerspoon:// URL scheme：雙路會連按多次 Cmd+V 造成重複貼上，
 // 且瀏覽器每次都跳「要開啟 Hammerspoon？」確認框。
@@ -314,6 +324,7 @@ export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
   const [copied, setCopied] = useState(false);
   const [copiedInquiryQq, setCopiedInquiryQq] = useState<string | null>(null);
+  const [qqOpenOutcome, setQqOpenOutcome] = useState<'opening' | 'manual'>('opening');
   const [reply, setReply] = useState('單價：0.112 含稅，庫存 100000，MOQ 10000，今天可發貨，報價有效期 3 天。');
   const [bomRows, setBomRows] = useState<BomRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -478,9 +489,10 @@ export default function QqInquiryPage() {
     // 一律先複製完整詢價內容到剪貼簿（最有價值、且不會出錯的部分）
     void navigator.clipboard.writeText(buildMessage(row)).catch(() => undefined);
     setCopiedInquiryQq(row.rfqId);
-    window.setTimeout(() => setCopiedInquiryQq(null), 3200);
+    setQqOpenOutcome('opening');
+    window.setTimeout(() => setCopiedInquiryQq(null), 4000);
 
-    // 企點企業帳號：簽章連結會讓 QQ 直接開「正確供應商」的臨時會話，
+    // 華強已給企點簽章連結：QQ 直接開「正確供應商」的臨時會話，
     // 此時才觸發 Hammerspoon 自動貼上（貼進去的一定是剛開的那家）。
     if (isQidianHref(row.qqHref)) {
       window.open(row.qqHref!, '_blank');
@@ -488,9 +500,23 @@ export default function QqInquiryPage() {
       return;
     }
 
-    // 個人 QQ：msgrd/tencent:// 被 QQ 風險視窗擋下且「不會切換對話」，
-    // 若照樣觸發自動貼上，內容會貼進當下開著的錯誤對話——絕對不能做。
-    // 詢價內容已複製，依按鈕提示手動加好友後 Cmd+V。
+    // 其餘供應商：即時向騰訊企點 gateway 換簽章深層連結。
+    // 多數華強客服號（288/300/800 開頭）都有開通，可直達；
+    // 真的未開通（如個人 QQ）才提示手動加好友，且絕不觸發自動貼上（會貼進錯誤對話）。
+    if (row.qq) {
+      try {
+        const res = await fetch(`/api/qq/wpa-url?uin=${encodeURIComponent(row.qq)}`);
+        const data = (await res.json()) as { jumpUrl?: string | null };
+        if (data.jumpUrl) {
+          launchQqDeepLink(data.jumpUrl);
+          triggerLocalQqPasteHelper();
+          return;
+        }
+      } catch {
+        // gateway 失敗視同未開通，走手動提示
+      }
+    }
+    setQqOpenOutcome('manual');
   }
 
   async function handleBomUpload(file: File) {
@@ -882,16 +908,12 @@ export default function QqInquiryPage() {
                               e.stopPropagation();
                               void openSupplierQq(row);
                             }}
-                            title={
-                              isQidianHref(row.qqHref)
-                                ? '點擊：複製詢價內容，開啟 QQ 對話並自動貼上'
-                                : '個人 QQ 無法直接跳轉；點擊複製詢價內容，請手動加此 QQ 好友後貼上'
-                            }
+                            title="點擊：複製詢價內容並開啟 QQ 對話自動貼上；若對方未開通臨時會話會提示手動加好友"
                           >
                             {copiedInquiryQq === row.rfqId
-                              ? isQidianHref(row.qqHref)
-                                ? '✓ 已複製，正在開 QQ'
-                                : `✓ 已複製，請手動加 ${row.qq || '好友'}`
+                              ? qqOpenOutcome === 'manual'
+                                ? `✓ 已複製，請手動加 ${row.qq || '好友'}`
+                                : '✓ 已複製，正在開 QQ'
                               : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
@@ -929,7 +951,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  企點企業帳號：點 QQ 會複製詢價內容、開啟該供應商臨時會話，Hammerspoon 自動切到 QQ 貼上（不會自動送出，確認後再按 Enter）。個人 QQ：QQ 官方禁止跳轉，只會複製內容，請依按鈕提示手動加好友後 Cmd+V。
+                  點 QQ 會複製詢價內容，並向騰訊企點取得簽章跳轉連結直達該供應商臨時會話，Hammerspoon 自動切到 QQ 貼上（不會自動送出，確認後再按 Enter）。若對方未開通臨時會話（個人 QQ），只會複製內容並提示手動加好友後 Cmd+V。
                 </p>
               </div>
             </div>

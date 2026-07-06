@@ -1763,3 +1763,24 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 ### 驗證
 - `npx tsc --noEmit` 通過（exit 0）。
 - Hammerspoon 助手（port 5298）健在且 log 證實觸發、QQ 輸入框無誤貼殘留。
+
+## 20. QQ 一鍵詢價全面打通：點擊時即時取得騰訊企點簽章跳轉連結
+
+### 問題
+第 19 節修復後，只有華強列表頁直接給企點連結的供應商（約 1-2/8 家）能一鍵開 QQ，其餘約 90% 都顯示「請手動加」。但使用者實際在華強網站點這些供應商的 QQ 卻能跳——代表這些客服號其實可跳，是我們分類太保守。
+
+### 根因研究（Playwright 抓包騰訊官方 wpa 頁）
+- `wpa.qq.com/msgrd?uin=...` 是騰訊官方 SPA，內部呼叫 `gateway.qidian.qq.com/v1/b2b/wpa/getWpaUrl?terminal=1&uin=<號>`：
+  - 已開通臨時會話的企點客服號（288/300/800 開頭多屬此類）→ `code:0`，回傳**帶簽章的深層連結** `tencent://QQInterLive?cmd=2&uin=...&kfuin=...&uid=u_...`，QQ NT 對此完全放行（實測乾淨跳轉、無風險視窗、正確切換供應商）。
+  - 未開通（一般個人 QQ，如 451576571）→ `code:459003「未开通临时会话」`。
+- 被擋的是「裸號」`tencent://message/?uin=`；簽章過的 `tencent://QQInterLive` 不會被擋。簽章含一次性 uid，需點擊當下即時取得，不能搜尋時預抓。
+
+### 實作
+- 新增 `src/app/api/qq/wpa-url/route.ts`（admin 權限閘）：代理 getWpaUrl，回 `{ jumpUrl, reason }`。
+- `openSupplierQq` 三段式：華強已給企點連結 → 直接開；否則拿 `row.qq` 問 `/api/qq/wpa-url` → 有 jumpUrl → 隱藏 iframe 觸發深層連結＋Hammerspoon 自動貼上；未開通/失敗 → 按鈕顯示「請手動加 <號>」，不觸發貼上。
+- 新增 `qqOpenOutcome` state 讓按鈕在點擊後正確顯示「正在開 QQ」或「請手動加」。
+
+### 驗證
+- 實測 `tencent://QQInterLive`（宝利士 3007316873 簽章連結）：QQ 無彈窗直達正確臨時會話。
+- gateway 對 2881279183（利明微）另回企點短連結、451576571 回 459003，分類正確。
+- `npx tsc --noEmit` 通過；`/api/qq/wpa-url` 未登入回 307 導登入頁（權限閘生效）。
