@@ -298,23 +298,14 @@ function hqewSearchUrl(mpn: string) {
   return `https://s.hqew.com/${encodeURIComponent(mpn)}.html`;
 }
 
-function qqWpaUrl(qq?: string) {
-  const cleanQq = qq?.replace(/\D/g, '');
-  return cleanQq ? `http://wpa.qq.com/msgrd?v=3&uin=${cleanQq}&exe=qq&site=hqew&menu=no` : '';
-}
-
 function isQidianHref(href?: string) {
   return !!href && /qidian=true|wpa1\.qq\.com/i.test(href);
 }
 
+// 只走 Hammerspoon 的本機 HTTP 端點觸發「切到 QQ + Cmd+V」。
+// 不再同時發 hammerspoon:// URL scheme：雙路會連按多次 Cmd+V 造成重複貼上，
+// 且瀏覽器每次都跳「要開啟 Hammerspoon？」確認框。
 function triggerLocalQqPasteHelper() {
-  const link = document.createElement('a');
-  link.href = 'hammerspoon://speedpartPaste?delay=2600';
-  link.style.display = 'none';
-  document.body.appendChild(link);
-  link.click();
-  window.setTimeout(() => link.remove(), 2000);
-
   const img = new Image();
   img.src = `http://127.0.0.1:5298/paste?delay=2600&ts=${Date.now()}`;
 }
@@ -489,11 +480,17 @@ export default function QqInquiryPage() {
     setCopiedInquiryQq(row.rfqId);
     window.setTimeout(() => setCopiedInquiryQq(null), 3200);
 
-    const targetHref = row.qqHref || qqWpaUrl(row.qq);
-    if (targetHref) {
-      window.open(targetHref, '_blank');
+    // 企點企業帳號：簽章連結會讓 QQ 直接開「正確供應商」的臨時會話，
+    // 此時才觸發 Hammerspoon 自動貼上（貼進去的一定是剛開的那家）。
+    if (isQidianHref(row.qqHref)) {
+      window.open(row.qqHref!, '_blank');
       triggerLocalQqPasteHelper();
+      return;
     }
+
+    // 個人 QQ：msgrd/tencent:// 被 QQ 風險視窗擋下且「不會切換對話」，
+    // 若照樣觸發自動貼上，內容會貼進當下開著的錯誤對話——絕對不能做。
+    // 詢價內容已複製，依按鈕提示手動加好友後 Cmd+V。
   }
 
   async function handleBomUpload(file: File) {
@@ -885,10 +882,16 @@ export default function QqInquiryPage() {
                               e.stopPropagation();
                               void openSupplierQq(row);
                             }}
-                            title="點擊：複製詢價內容並開啟 QQ 對話"
+                            title={
+                              isQidianHref(row.qqHref)
+                                ? '點擊：複製詢價內容，開啟 QQ 對話並自動貼上'
+                                : '個人 QQ 無法直接跳轉；點擊複製詢價內容，請手動加此 QQ 好友後貼上'
+                            }
                           >
                             {copiedInquiryQq === row.rfqId
-                              ? '✓ 已複製，正在開 QQ'
+                              ? isQidianHref(row.qqHref)
+                                ? '✓ 已複製，正在開 QQ'
+                                : `✓ 已複製，請手動加 ${row.qq || '好友'}`
                               : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
@@ -926,7 +929,7 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  點 QQ 會先複製詢價內容並開啟華強解析出的 QQ 入口；Hammerspoon 啟動後會自動切到 QQ 並貼上，不會自動送出。
+                  企點企業帳號：點 QQ 會複製詢價內容、開啟該供應商臨時會話，Hammerspoon 自動切到 QQ 貼上（不會自動送出，確認後再按 Enter）。個人 QQ：QQ 官方禁止跳轉，只會複製內容，請依按鈕提示手動加好友後 Cmd+V。
                 </p>
               </div>
             </div>

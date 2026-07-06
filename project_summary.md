@@ -1748,3 +1748,18 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 
 ### 已知限制
 - 個人 QQ 供應商（非企點）仍無法自動跳轉——此為 QQ 官方封鎖裸號跳轉所致，華強頁面同樣不跳，只能手動加好友。
+
+## 19. 修復被外部工具（Antigravity）改壞的 QQ 一鍵詢價流程
+
+### 壞掉的原因（728c176）
+- 拆掉企點/個人 QQ 分流：個人 QQ 也直接 `window.open(wpa.qq.com/msgrd...)`，該路被 QQ 風險視窗擋下且「不會切換對話」，但 2.6 秒後 Hammerspoon 照樣切到 QQ 按 Cmd+V，詢價內容會貼進當下開著的「錯誤供應商」對話。
+- `triggerLocalQqPasteHelper` 同時發 `hammerspoon://` URL scheme 與本機 HTTP 兩路，Hammerspoon log 顯示連續多次 cmd-v（重複貼上），且瀏覽器每次跳「要開啟 Hammerspoon？」確認框。
+
+### 修復（保留 Hammerspoon 自動貼上，恢復安全分流）
+- `openSupplierQq`：企點簽章連結（`qidian=true`/`wpa1.qq.com`）→ 開啟正確供應商臨時會話並觸發自動貼上；個人 QQ → 只複製詢價內容＋按鈕提示手動加好友，**不觸發自動貼上**（避免貼錯對話）。
+- `triggerLocalQqPasteHelper` 改單一路徑：只打 `http://127.0.0.1:5298/paste`（實測 200、Hammerspoon log 確認觸發），移除 `hammerspoon://` anchor。
+- 移除不再使用的 `qqWpaUrl()`；按鈕 title/label 與 helper text 恢復企點/個人兩種文案。
+
+### 驗證
+- `npx tsc --noEmit` 通過（exit 0）。
+- Hammerspoon 助手（port 5298）健在且 log 證實觸發、QQ 輸入框無誤貼殘留。
