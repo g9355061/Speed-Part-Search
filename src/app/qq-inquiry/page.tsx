@@ -352,6 +352,115 @@ async function detectPasteHelper(): Promise<boolean> {
   }
 }
 
+interface QqChatCapture {
+  partner: string;
+  partnerQq: string;
+  rfqId: string | null;
+  rfqCount: number;
+  supplierText: string;
+  warning: string | null;
+}
+
+// 透過 Hammerspoon 讀取 QQ 目前對話的文字。
+// QQ NT（Electron）的輔助功能樹在第一次請求時才開始建構，讀到太少就稍候重讀一次。
+async function fetchQqChatTexts(): Promise<string[] | null> {
+  const read = async () => {
+    const res = await fetch(`http://127.0.0.1:5298/read-chat?ts=${Date.now()}`, {
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { ok?: boolean; texts?: string[] };
+    return data.ok ? data.texts ?? [] : null;
+  };
+  let texts = await read().catch(() => null);
+  if (texts && texts.length < 20) {
+    await new Promise((r) => setTimeout(r, 900));
+    texts = await read().catch(() => null);
+  }
+  return texts;
+}
+
+function rfqMpnSegment(rfqId: string) {
+  return rfqId.match(/^RFQ-BOM-\d{8}-\d{2}-(.+)-\d{2,}$/i)?.[1]?.toUpperCase() ?? null;
+}
+
+function rfqSupplierIndex(rfqId: string) {
+  const n = Number(rfqId.match(/-(\d{2,})$/)?.[1]);
+  return Number.isFinite(n) && n >= 1 ? n - 1 : null;
+}
+
+// 從 AX 文字流抽出「目前對話」的廠商回覆與 RFQ 錨點。
+// 版面結構（實測 QQ NT 6.9.96）：左側會話清單 →「消息列表」→ 訊息區
+// （時間 / 發話者暱稱 / 內容 交錯）→「会话」工具列 → 右側資料卡（昵称/QQ号...）。
+function extractQqReply(texts: string[]): QqChatCapture | null {
+  const start = texts.indexOf('消息列表');
+  if (start === -1) return null;
+  let end = texts.length;
+  for (let i = start + 1; i < texts.length; i++) {
+    if (texts[i] === '会话' || texts[i] === '表情') { end = i; break; }
+  }
+  const msgs: string[] = [];
+  for (let i = start + 1; i < end; i++) {
+    const t = texts[i].trim();
+    if (!t || t === msgs[msgs.length - 1]) continue; // 虛擬列表殘影去重
+    msgs.push(t);
+  }
+
+  // 對話身分：標題「<暱稱> 临时会话」＋右側資料卡「QQ号 <號碼>」
+  const partnerIdx = texts.indexOf('临时会话');
+  const partner = partnerIdx > 0 ? texts[partnerIdx - 1].trim() : '';
+  const qqIdx = texts.indexOf('QQ号');
+  const partnerQq = qqIdx !== -1 ? (texts[qqIdx + 1] ?? '').replace(/\D/g, '') : '';
+
+  // 我方詢價訊息 → RFQ 錨點
+  const rfqMarks: Array<{ idx: number; id: string }> = [];
+  msgs.forEach((m, idx) => {
+    const id = m.match(/詢價編號[:：]\s*(RFQ-[A-Z0-9-]+)/i)?.[1];
+    if (id) rfqMarks.push({ idx, id: id.toUpperCase() });
+  });
+
+  // 廠商訊息＝緊接在「廠商暱稱」後面的內容（排除我方詢價本文與暱稱本身）
+  const supplierMsgs: Array<{ idx: number; text: string }> = [];
+  for (let i = 0; i < msgs.length - 1; i++) {
+    if (!partner || msgs[i] !== partner) continue;
+    const body = msgs[i + 1];
+    if (!body || body === partner || /詢價編號[:：]/.test(body)) continue;
+    if (!supplierMsgs.some((s) => s.text === body)) supplierMsgs.push({ idx: i + 1, text: body });
+  }
+
+  // 歸屬：料號優先（廠商回覆含某 RFQ 的料號），否則取對話中最後一筆 RFQ
+  let chosen = rfqMarks[rfqMarks.length - 1] ?? null;
+  if (rfqMarks.length > 1) {
+    outer: for (let i = supplierMsgs.length - 1; i >= 0; i--) {
+      const body = supplierMsgs[i].text.toUpperCase();
+      for (let j = rfqMarks.length - 1; j >= 0; j--) {
+        const mpn = rfqMpnSegment(rfqMarks[j].id);
+        if (mpn && body.includes(mpn)) { chosen = rfqMarks[j]; break outer; }
+      }
+    }
+  }
+
+  let picked = chosen ? supplierMsgs.filter((s) => s.idx > chosen!.idx) : supplierMsgs;
+  let warning: string | null = null;
+  if (!picked.length && supplierMsgs.length) {
+    picked = supplierMsgs.slice(-3);
+    warning = '廠商訊息出現在詢價之前，請確認歸屬的 RFQ 是否正確';
+  }
+  if (rfqMarks.length > 1) {
+    warning = warning ?? `此對話含 ${rfqMarks.length} 筆詢價，已歸屬 ${chosen?.id ?? '最後一筆'}，請確認`;
+  }
+  if (!chosen && !picked.length) return null;
+
+  return {
+    partner,
+    partnerQq,
+    rfqId: chosen?.id ?? null,
+    rfqCount: rfqMarks.length,
+    supplierText: picked.map((s) => s.text).join('\n'),
+    warning,
+  };
+}
+
 export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -359,6 +468,8 @@ export default function QqInquiryPage() {
   const [qqOpenOutcome, setQqOpenOutcome] = useState<'opening' | 'manual'>('opening');
   const [pasteHelperOnline, setPasteHelperOnline] = useState<boolean | null>(null);
   const [copiedInstallCmd, setCopiedInstallCmd] = useState(false);
+  const [qqReading, setQqReading] = useState(false);
+  const [qqCaptureNote, setQqCaptureNote] = useState<{ kind: 'ok' | 'warn' | 'error'; text: string } | null>(null);
   const [reply, setReply] = useState('單價：0.112 含稅，庫存 100000，MOQ 10000，今天可發貨，報價有效期 3 天。');
   const [bomRows, setBomRows] = useState<BomRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -554,6 +665,66 @@ export default function QqInquiryPage() {
     // 未開通臨時會話（個人 QQ）：提示手動加好友，
     // 絕不觸發自動貼上（QQ 不會切換對話，會貼進錯誤對話）。
     setQqOpenOutcome('manual');
+  }
+
+  // 導讀式收割：讀取 QQ 目前開啟的對話 → 抽出廠商回覆與 RFQ 錨點 →
+  // 帶入回覆解析區（原文可修、解析結果並列），確認後才由「加入報價紀錄」寫入。
+  async function readReplyFromQq() {
+    setQqReading(true);
+    setQqCaptureNote(null);
+    try {
+      const texts = await fetchQqChatTexts();
+      if (!texts) {
+        setQqCaptureNote({ kind: 'error', text: '連不到自動貼上助手（Hammerspoon）——請先依上方指引安裝，或確認它在執行中' });
+        return;
+      }
+      const cap = extractQqReply(texts);
+      if (!cap) {
+        setQqCaptureNote({ kind: 'error', text: '讀不到對話內容：請先在 QQ 點開該廠商的對話視窗再按一次' });
+        return;
+      }
+      if (!cap.supplierText) {
+        setQqCaptureNote({ kind: 'warn', text: `已讀取「${cap.partner || '對話'}」，但目前還沒有廠商回覆訊息` });
+        return;
+      }
+
+      // 依 RFQ 自動切到對應料號，讓來源列正確配對到該供應商
+      if (cap.rfqId) {
+        const mpnSeg = rfqMpnSegment(cap.rfqId);
+        const idx = mpnSeg ? bomRows.findIndex((r) => sanitizeRfqSegment(r.mpn) === mpnSeg) : -1;
+        if (idx !== -1 && idx !== bomIndex) selectBomIndex(idx);
+      }
+      setReply(cap.rfqId ? `詢價編號：${cap.rfqId}\n${cap.supplierText}` : cap.supplierText);
+
+      // 身分核對：對話右側資料卡的 QQ 號 vs 該 RFQ 當初寄給的供應商 QQ
+      const parts: string[] = [`已讀取「${cap.partner}」${cap.partnerQq ? `（QQ ${cap.partnerQq}）` : ''}`];
+      let kind: 'ok' | 'warn' = 'ok';
+      if (cap.rfqId) {
+        parts.push(`自動配對 ${cap.rfqId}`);
+        const mpnSeg = rfqMpnSegment(cap.rfqId);
+        const supIdx = rfqSupplierIndex(cap.rfqId);
+        const bomMpn = mpnSeg ? bomRows.find((r) => sanitizeRfqSegment(r.mpn) === mpnSeg)?.mpn : undefined;
+        const expected = bomMpn && supIdx !== null ? hqewResultsByMpn[bomMpn]?.suppliers?.[supIdx] : undefined;
+        if (expected?.qq && cap.partnerQq) {
+          if (expected.qq.replace(/\D/g, '') === cap.partnerQq) {
+            parts.push('✓ QQ 號與該 RFQ 供應商相符');
+          } else {
+            kind = 'warn';
+            parts.push(`⚠ 對話 QQ（${cap.partnerQq}）與 RFQ 供應商 QQ（${expected.qq}）不符，請人工確認來源`);
+          }
+        }
+      } else {
+        kind = 'warn';
+        parts.push('⚠ 對話中找不到我們送出的詢價編號，請手動選擇回覆來源');
+      }
+      if (cap.warning) {
+        kind = 'warn';
+        parts.push(`⚠ ${cap.warning}`);
+      }
+      setQqCaptureNote({ kind, text: parts.join('；') });
+    } finally {
+      setQqReading(false);
+    }
   }
 
   async function handleBomUpload(file: File) {
@@ -1039,9 +1210,17 @@ export default function QqInquiryPage() {
             <div className="card">
               <div className="card-hd">
                 <h3><Icon name="zap" size={14} />回覆解析</h3>
-                <span className="sub">先貼回文字，後續再接自動擷取</span>
+                <span className="sub">從 QQ 一鍵讀取，或手動貼上回覆</span>
               </div>
               <div className="card-bd">
+                <div className="qq-actions">
+                  <button className="btn solid" onClick={() => void readReplyFromQq()} disabled={qqReading}>
+                    <Icon name="zap" size={13} />{qqReading ? '讀取 QQ 對話中...' : '讀取 QQ 回覆（導讀）'}
+                  </button>
+                </div>
+                {qqCaptureNote && (
+                  <div className={`qq-capture-note ${qqCaptureNote.kind}`}>{qqCaptureNote.text}</div>
+                )}
                 <div className="qq-reply-source">
                   <label htmlFor="reply-source">回覆來源</label>
                   <select

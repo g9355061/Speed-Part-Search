@@ -82,6 +82,45 @@ local function delayFromPath(path)
   return delayFromParams({ delay = rawDelay })
 end
 
+-- 讀取 QQ 目前對話視窗的文字（給網頁「讀取 QQ 回覆」導讀用）。
+-- QQ NT 是 Electron，需先設 AXManualAccessibility 打開輔助功能樹。
+local function readQqChat()
+  local app = findTargetApp()
+  if not app then
+    return { ok = false, error = "qq_not_running" }
+  end
+
+  local axApp = hs.axuielement.applicationElement(app)
+  pcall(function() axApp:setAttributeValue("AXManualAccessibility", true) end)
+  pcall(function() axApp:setAttributeValue("AXEnhancedUserInterface", true) end)
+
+  local win = app:mainWindow()
+  local title = win and win:title() or ""
+  local axWin = win and hs.axuielement.windowElement(win) or nil
+
+  local texts = {}
+  local visited = 0
+  local function walk(el, depth)
+    if not el or depth > 30 or visited > 8000 then return end
+    visited = visited + 1
+    local okv, value = pcall(function() return el:attributeValue("AXValue") end)
+    if okv and type(value) == "string" and #value > 0 then
+      texts[#texts + 1] = value
+    end
+    local okd, desc = pcall(function() return el:attributeValue("AXDescription") end)
+    if okd and type(desc) == "string" and #desc > 0 then
+      texts[#texts + 1] = desc
+    end
+    local okc, children = pcall(function() return el:attributeValue("AXChildren") end)
+    if okc and children then
+      for _, c in ipairs(children) do walk(c, depth + 1) end
+    end
+  end
+  if axWin then walk(axWin, 0) end
+
+  return { ok = true, title = title, texts = texts, nodes = visited }
+end
+
 speedpartQqPasteServer = speedpartQqPasteServer or hs.httpserver.new(false, false)
 speedpartQqPasteServer
   :setInterface("loopback")
@@ -108,6 +147,12 @@ speedpartQqPasteServer
     if string.match(path or "", "^/paste%-now") then
       performPaste(0, "http")
       return '{"ok":true}', 200, headers
+    end
+
+    if string.match(path or "", "^/read%-chat") then
+      log("read-chat requested")
+      local result = readQqChat()
+      return hs.json.encode(result), 200, headers
     end
 
     if string.match(path or "", "^/paste") then

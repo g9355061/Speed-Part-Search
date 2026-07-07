@@ -1831,3 +1831,21 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - `parseBomFile` 新增品牌欄擷取：關鍵字 manufacturer/mfr/maker/brand/vendor/品牌/廠牌/製造/原廠，並排除料號欄本身（「Manufacturer P/N」也含 manufacturer 字樣，以欄位 index 排除）。
 - `BomRow` 新增選填 `manufacturer`（localStorage 舊資料相容）；狀態列新增「品牌 Manufacturer」卡，grid 由 4 欄改 5 欄（窄幅斷點原樣 2 欄/1 欄）。
 - 驗證：以實際表頭（Manufacturer P/N / Description / Manufacturer / 缺料）模擬 mpnCol=0、mfrCol=2；中文「品牌」欄也可辨識；`npx tsc --noEmit` 通過、頁面 200。
+
+## 26. Phase 1 導讀式收割：一鍵讀取 QQ 回覆進回覆解析
+
+### 功能（半自動、人工確認制）
+- 「回覆解析」卡新增「讀取 QQ 回覆（導讀）」按鈕：QQ 開著廠商對話 → 按一下 → 廠商回覆原文帶入 textarea（可修改）、單價/庫存/MOQ/交期並列顯示 → 人工確認後按「加入報價紀錄」才寫入 → 既有 Excel 回填匯出。
+- Hammerspoon helper 新增 `/read-chat` 端點：以 macOS Accessibility 讀 QQ NT（Electron）視窗文字。關鍵：須先設 `AXManualAccessibility`/`AXEnhancedUserInterface` 打開 AX 樹（第一次呼叫樹還沒建好，讀太少會自動重讀一次）。
+- 版面解剖（實測 QQ NT 6.9.96）：「消息列表」之後是訊息區（時間/發話者/內容交錯）至「会话」工具列；標題「<暱稱> 临时会话」與右側資料卡「QQ号」提供對話身分。
+
+### 防貼錯設計（雙鑰匙）
+- RFQ 錨點：對話中「我們送出的」詢價訊息含 RFQ 編號；廠商回覆取「最後一筆 RFQ 之後」的訊息。多 RFQ 同對話 → 料號優先歸屬（回覆含某 RFQ 料號者勝），仍多筆則顯示警告請人工確認。
+- 身分核對：對話資料卡 QQ 號 vs 該 RFQ 當初寄送的供應商 QQ（由 rfqId 反查 hqewResultsByMpn），不符顯眼警告。
+- 讀取後自動切到該 RFQ 對應的 BOM 料號，讓來源列正確配對；找不到詢價編號/廠商訊息在詢價前等異常一律顯示警告。
+- 訊息去重：AX 虛擬列表殘影連續重複自動去除。
+
+### 驗證（真實對話資料）
+- 實測讀取「李泽佳-只有原装/新航业」對話：partner/QQ號/RFQ 全部正確，抽出的回覆正確排除詢價前的罐頭訊息、只取詢價後的「没」。
+- `npx tsc --noEmit` 通過；頁面 200；helper `/health`、`/read-chat` 正常。
+- lua 已同步至 `~/.hammerspoon`（已重載）與 `public/qq-paste/`（同事重跑安裝指令即可更新）。
