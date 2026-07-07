@@ -168,18 +168,53 @@ function extractRfqId(text: string) {
 }
 
 function parseReplyText(text: string) {
-  const price = text.match(/(?:單價|价格|價格|含稅|含税|RMB|￥)\s*[:：]?\s*(?:RMB|￥)?\s*([0-9]+(?:\.[0-9]+)?)/i)?.[1];
-  const stock = text.match(/(?:庫存|库存|現貨|现货)\s*[:：]?\s*([0-9,]+)/i)?.[1];
+  // 標籤式（單價：0.112 含稅）與華強報價行式（DMP21D5UFB4-7B 2649pcs 0.2含税 DIODES(美台) 21+）都支援
+  const price =
+    text.match(/(?:單價|价格|價格|含稅|含税|RMB|￥|¥)\s*[:：]?\s*(?:RMB|￥|¥)?\s*([0-9]+(?:\.[0-9]+)?)/i)?.[1] ??
+    text.match(/(?:^|[\s,，])([0-9]+(?:\.[0-9]+)?)\s*(?:元)?\s*含[税稅]/m)?.[1];
+  const stock =
+    text.match(/(?:庫存|库存|現貨|现货)\s*[:：]?\s*([0-9][0-9,]*)/i)?.[1] ??
+    text.match(/([0-9][0-9,]*)\s*(?:pcs|pc)\b/i)?.[1];
   const leadTime =
     text.match(/(?:交期|發貨|发货)\s*[:：]?\s*([^\n，,。]+)/i)?.[1] ??
     text.match(/(今天可[發发]貨|明天可[發发]貨|現貨|现货|[0-9]+\s*天)/i)?.[1];
   const moq = text.match(/(?:MOQ|起訂|起订)\s*[:：]?\s*([0-9,]+)/i)?.[1];
+  const batch =
+    text.match(/批[号號]\s*[:：]?\s*([^\s，,。]+)/)?.[1] ??
+    text.match(/(?:^|\s)([0-9]{2}\+)(?=\s|$)/m)?.[1];
+  const validity = text.match(/有效期?\s*[:：]?\s*([0-9]+\s*[天日周週月])/)?.[1];
+  const brand = text.match(/([A-Za-z][A-Za-z0-9]{1,15}\s*[（(][^（()）]{1,12}[)）])/)?.[1];
+  const taxIncluded = /含[税稅]/.test(text);
   return {
-    price: price ? `￥${price}` : '待確認',
+    price: price ? `￥${price}${taxIncluded ? '（含稅）' : ''}` : '待確認',
     stock: stock ?? '待確認',
     leadTime: leadTime ?? '待確認',
     moq: moq ?? '待確認',
+    batch: batch ?? '—',
+    validity: validity ?? '—',
+    brand: brand ?? '—',
   };
+}
+
+// 剔除廠商罐頭/促銷句（新客禮包、1片起售、自助服務…），保留任何帶報價訊號的片段。
+// 以「句」為單位過濾（同一則訊息常混促銷與報價），寧可保守：有報價訊號的句子一律保留。
+const PROMO_PATTERN = /[⭐🌟🎁💰🔥✨]|新客|注册|註冊|礼包|禮包|优惠|優惠|起售|了解我们|了解我們|了解更多|自助服务|自助服務|很高兴为您服务|请问有什么可以帮您|公众号|小程序|官网|實景|实景|VR|http|www\.|→|实名报价|請提供貴司|请提供贵司|电话联系|感谢理解|感謝理解|[0-9]️⃣/i;
+const QUOTE_SIGNAL_PATTERN = /[0-9][0-9,]*\s*(?:pcs|pc)\b|[0-9](?:\.[0-9]+)?\s*(?:元)?\s*含[税稅]|含[税稅]\s*[:：]?\s*[0-9]|[￥¥]\s*[0-9]|(?:單價|价格|價格|庫存|库存|MOQ|起訂|起订|交期|批[号號]|有效期)\s*[:：]?\s*[0-9a-zA-Z]/i;
+
+function cleanSupplierReply(text: string) {
+  const segments = text.split(/(?<=[。！？!?；;\n])/);
+  const kept: string[] = [];
+  let dropped = 0;
+  for (const seg of segments) {
+    const s = seg.trim();
+    if (!s) continue;
+    if (PROMO_PATTERN.test(s) && !QUOTE_SIGNAL_PATTERN.test(s)) {
+      dropped++;
+      continue;
+    }
+    kept.push(s);
+  }
+  return { text: kept.join('\n'), dropped };
 }
 
 function parseQuantityValue(value: unknown): number {
@@ -694,7 +729,9 @@ export default function QqInquiryPage() {
         const idx = mpnSeg ? bomRows.findIndex((r) => sanitizeRfqSegment(r.mpn) === mpnSeg) : -1;
         if (idx !== -1 && idx !== bomIndex) selectBomIndex(idx);
       }
-      setReply(cap.rfqId ? `詢價編號：${cap.rfqId}\n${cap.supplierText}` : cap.supplierText);
+      const cleaned = cleanSupplierReply(cap.supplierText);
+      const bodyText = cleaned.text || cap.supplierText;
+      setReply(cap.rfqId ? `詢價編號：${cap.rfqId}\n${bodyText}` : bodyText);
 
       // 身分核對：對話右側資料卡的 QQ 號 vs 該 RFQ 當初寄給的供應商 QQ
       const parts: string[] = [`已讀取「${cap.partner}」${cap.partnerQq ? `（QQ ${cap.partnerQq}）` : ''}`];
@@ -716,6 +753,9 @@ export default function QqInquiryPage() {
       } else {
         kind = 'warn';
         parts.push('⚠ 對話中找不到我們送出的詢價編號，請手動選擇回覆來源');
+      }
+      if (cleaned.dropped > 0) {
+        parts.push(`已剔除 ${cleaned.dropped} 句促銷/罐頭訊息`);
       }
       if (cap.warning) {
         kind = 'warn';
@@ -1252,6 +1292,17 @@ export default function QqInquiryPage() {
                   <div><span>庫存</span><strong>{parsed.stock}</strong></div>
                   <div><span>MOQ</span><strong>{parsed.moq}</strong></div>
                   <div><span>交期</span><strong>{parsed.leadTime}</strong></div>
+                  <div><span>批號</span><strong>{parsed.batch}</strong></div>
+                  <div><span>報價有效期</span><strong>{parsed.validity}</strong></div>
+                  <div><span>品牌（回覆）</span><strong>{parsed.brand}</strong></div>
+                  <div>
+                    <span>料號比對</span>
+                    <strong className={reply.toUpperCase().includes(quoteTarget.mpn.toUpperCase()) ? 'mpn-match' : 'mpn-miss'}>
+                      {reply.toUpperCase().includes(quoteTarget.mpn.toUpperCase())
+                        ? `✓ 回覆含 ${quoteTarget.mpn}`
+                        : `⚠ 回覆未提及 ${quoteTarget.mpn}`}
+                    </strong>
+                  </div>
                 </div>
                 <div className="qq-actions">
                   <button

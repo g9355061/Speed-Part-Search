@@ -1679,6 +1679,12 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   background: #fef3f2;
   color: #b42318;
 }
+.qq-parse-grid strong.mpn-match {
+  color: var(--accent);
+}
+.qq-parse-grid strong.mpn-miss {
+  color: #b54708;
+}
 .qq-reply-source {
   display: grid;
   grid-template-columns: auto minmax(180px, 1fr);
