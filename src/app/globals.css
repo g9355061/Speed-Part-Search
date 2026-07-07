@@ -1311,7 +1311,7 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 }
 .qq-bom-status {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 .qq-bom-status div {

@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon';
 interface BomRow {
   mpn: string;
   qty: number;
+  manufacturer?: string;
 }
 
 interface InquiryRow {
@@ -208,6 +209,10 @@ async function parseBomFile(file: File): Promise<BomRow[]> {
   const headers = (raw[headerIdx] as string[]).map((h) => String(h).toLowerCase().trim());
   const mpnCol = headers.findIndex((h) => MPN_HEADER.test(h));
   const qtyCol = headers.findIndex((h) => /qty|quantity|數量|数量|pcs|demand|shortage|需求|缺料|短缺/.test(h));
+  // 品牌欄要排除料號欄本身（「Manufacturer P/N」也含 manufacturer 字樣）
+  const mfrCol = headers.findIndex(
+    (h, i) => i !== mpnCol && /manufacturer|mfr|maker|brand|vendor|品牌|廠牌|厂牌|製造|制造|原廠|原厂/.test(h),
+  );
   if (mpnCol === -1) throw new Error('找不到料號欄位：請使用 Part Number / MPN / P/N / 料號');
 
   const rows: BomRow[] = [];
@@ -215,7 +220,11 @@ async function parseBomFile(file: File): Promise<BomRow[]> {
     const row = raw[r] as unknown[];
     const mpn = String(row[mpnCol] ?? '').trim();
     if (!mpn) continue;
-    rows.push({ mpn, qty: qtyCol !== -1 ? parseQuantityValue(row[qtyCol]) : 1 });
+    rows.push({
+      mpn,
+      qty: qtyCol !== -1 ? parseQuantityValue(row[qtyCol]) : 1,
+      manufacturer: mfrCol !== -1 ? String(row[mfrCol] ?? '').trim() || undefined : undefined,
+    });
   }
   return rows;
 }
@@ -840,6 +849,10 @@ export default function QqInquiryPage() {
               <div>
                 <span>目前料號</span>
                 <strong className="mono">{activeBom ? `${bomIndex + 1}. ${activeBom.mpn}` : '-'}</strong>
+              </div>
+              <div>
+                <span>品牌 Manufacturer</span>
+                <strong>{activeBom?.manufacturer || '-'}</strong>
               </div>
               <div>
                 <span>需求數量</span>

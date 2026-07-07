@@ -1825,3 +1825,9 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - 指令行為：下載 helper 模組成功「才」把 require 寫入 init.lua 並 reload；失敗跳 alert 不動 config。冪等（重跑不重複寫入）。
 - 步驟簡化為：裝 Hammerspoon（拖進應用程式）→ 鎚子圖示開 Console → 貼上按 Enter → 允許輔助使用 → 回頁面重新偵測。
 - 驗證：以假 HOME 實測指令鏈兩次（下載成功、require 恰一行）；`npx tsc --noEmit` 通過；頁面 200。
+
+## 25. BOM 狀態列顯示品牌（Manufacturer）
+
+- `parseBomFile` 新增品牌欄擷取：關鍵字 manufacturer/mfr/maker/brand/vendor/品牌/廠牌/製造/原廠，並排除料號欄本身（「Manufacturer P/N」也含 manufacturer 字樣，以欄位 index 排除）。
+- `BomRow` 新增選填 `manufacturer`（localStorage 舊資料相容）；狀態列新增「品牌 Manufacturer」卡，grid 由 4 欄改 5 欄（窄幅斷點原樣 2 欄/1 欄）。
+- 驗證：以實際表頭（Manufacturer P/N / Description / Manufacturer / 缺料）模擬 mpnCol=0、mfrCol=2；中文「品牌」欄也可辨識；`npx tsc --noEmit` 通過、頁面 200。
