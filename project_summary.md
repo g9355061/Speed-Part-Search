@@ -1801,3 +1801,13 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - 宝利士→QQInterLive 深層連結、圣禾堂→原企點 qqHref、利明微→wpa1 短連結：**3/3 全數可一鍵直達**。
 - `npx tsc --noEmit` 通過。
 - 注意：QQ 內宝利士、圣禾堂輸入框留有先前測試/點擊的未送出草稿，需人工檢查。
+
+## 22. 自動貼上助手偵測與安裝指引（同事的 Mac 無 Hammerspoon）
+
+- 問題：同事使用網站時因未裝 Hammerspoon，點 QQ 後不會自動貼上，網頁也沒有任何提示。
+- 頁面載入時 ping `http://127.0.0.1:5298/health` 偵測助手（lua 端已具 CORS 與 Access-Control-Allow-Private-Network，https 頁對 127.0.0.1 loopback 瀏覽器放行）：
+  - 在線 → 顯示綠色「✓ 自動貼上助手已連線」。
+  - 離線 → 琥珀色指引橫幅：說明仍會複製＋開對話但需手動 ⌘V，並列 4 步安裝（裝 Hammerspoon → 下載安裝腳本與 lua 模組 → Terminal 執行 → 允許輔助使用），附「重新偵測」按鈕。
+  - QQ 按鈕文案在助手離線時顯示「✓ 已複製，正在開 QQ（請手動 ⌘V）」。
+- helper 檔案發佈到 `public/qq-paste/`（`install-paste-to-qq.command`、`speedpart-qq-paste.lua`），網站可直接下載。
+- 驗證：`npx tsc --noEmit` 通過；`/qq-inquiry` 200；兩個下載檔 200；本機 `/health` 200。

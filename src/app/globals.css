@@ -1613,6 +1613,49 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   font-size: 11.5px;
   line-height: 1.55;
 }
+.qq-paste-status {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.qq-paste-status.online {
+  color: var(--accent);
+  font-weight: 600;
+}
+.qq-paste-status.offline {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #f0c987;
+  border-radius: var(--r-sm);
+  background: #fffaeb;
+  color: #7a5308;
+}
+.qq-paste-status.offline strong {
+  color: #b54708;
+}
+.qq-paste-status.offline ol {
+  margin: 0;
+  padding-left: 18px;
+}
+.qq-paste-status.offline li {
+  margin: 2px 0;
+}
+.qq-paste-status.offline code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #f5efdf;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.qq-paste-status.offline a {
+  color: var(--primary);
+  font-weight: 600;
+}
+.qq-paste-status.offline .btn {
+  justify-self: start;
+  margin-top: 2px;
+}
 .qq-reply-source {
   display: grid;
   grid-template-columns: auto minmax(180px, 1fr);

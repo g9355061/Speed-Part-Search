@@ -322,11 +322,25 @@ function triggerLocalQqPasteHelper() {
   img.src = `http://127.0.0.1:5298/paste?delay=2600&ts=${Date.now()}`;
 }
 
+// 偵測本機 Hammerspoon 自動貼上助手是否在線（lua 端已設 CORS 與
+// Access-Control-Allow-Private-Network，https 頁面對 127.0.0.1 的請求瀏覽器放行）
+async function detectPasteHelper(): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:5298/health?ts=${Date.now()}`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
   const [copied, setCopied] = useState(false);
   const [copiedInquiryQq, setCopiedInquiryQq] = useState<string | null>(null);
   const [qqOpenOutcome, setQqOpenOutcome] = useState<'opening' | 'manual'>('opening');
+  const [pasteHelperOnline, setPasteHelperOnline] = useState<boolean | null>(null);
   const [reply, setReply] = useState('單價：0.112 含稅，庫存 100000，MOQ 10000，今天可發貨，報價有效期 3 天。');
   const [bomRows, setBomRows] = useState<BomRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -396,6 +410,10 @@ export default function QqInquiryPage() {
     for (const mpn of quotedMpns) next.add(mpn);
     return next;
   }, [hqewResult?.partNumber, queriedMpns, quotedMpns]);
+
+  useEffect(() => {
+    void detectPasteHelper().then(setPasteHelperOnline);
+  }, []);
 
   useEffect(() => {
     try {
@@ -914,7 +932,9 @@ export default function QqInquiryPage() {
                             {copiedInquiryQq === row.rfqId
                               ? qqOpenOutcome === 'manual'
                                 ? `✓ 已複製，請手動加 ${row.qq || '好友'}`
-                                : '✓ 已複製，正在開 QQ'
+                                : pasteHelperOnline === false
+                                  ? '✓ 已複製，正在開 QQ（請手動 ⌘V）'
+                                  : '✓ 已複製，正在開 QQ'
                               : `QQ ${row.qq || '開啟'}`}
                           </button>
                         ) : (
@@ -952,8 +972,30 @@ export default function QqInquiryPage() {
                   </button>
                 </div>
                 <p className="qq-helper-text">
-                  點 QQ 會複製詢價內容，並向騰訊企點取得簽章跳轉連結直達該供應商臨時會話，Hammerspoon 自動切到 QQ 貼上（不會自動送出，確認後再按 Enter）。若對方未開通臨時會話（個人 QQ），只會複製內容並提示手動加好友後 Cmd+V。
+                  點 QQ 會複製詢價內容，並以企點簽章連結直達該供應商臨時會話；裝有自動貼上助手時會自動切到 QQ 貼上（不會自動送出，確認後再按 Enter）。若對方未開通臨時會話（個人 QQ），只會複製內容並提示手動加好友後 Cmd+V。
                 </p>
+                {pasteHelperOnline === true && (
+                  <p className="qq-paste-status online">✓ 自動貼上助手已連線（Hammerspoon）</p>
+                )}
+                {pasteHelperOnline === false && (
+                  <div className="qq-paste-status offline">
+                    <strong>未偵測到自動貼上助手</strong>
+                    <span>點 QQ 仍會複製內容並開啟對話，但需自行按 ⌘V 貼上。想要自動貼上，請安裝一次：</span>
+                    <ol>
+                      <li>安裝 <a href="https://www.hammerspoon.org/" target="_blank" rel="noreferrer">Hammerspoon</a>（免費，或 <code>brew install --cask hammerspoon</code>）</li>
+                      <li>下載 <a href="/qq-paste/install-paste-to-qq.command" download>安裝腳本</a> 與 <a href="/qq-paste/speedpart-qq-paste.lua" download>helper 模組</a>（放同一個資料夾，例如「下載項目」）</li>
+                      <li>開 Terminal 執行：<code>zsh ~/Downloads/install-paste-to-qq.command</code></li>
+                      <li>依提示到「系統設定 → 隱私權與安全性 → 輔助使用」允許 Hammerspoon</li>
+                    </ol>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => { setPasteHelperOnline(null); void detectPasteHelper().then(setPasteHelperOnline); }}
+                    >
+                      重新偵測
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
