@@ -196,18 +196,19 @@ async function parseBomFile(file: File): Promise<BomRow[]> {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
+  const MPN_HEADER = /part|mpn|p\/n\b|\bpn\b|料號|料号|型號|型号/;
   let headerIdx = 0;
   for (let r = 0; r < Math.min(8, raw.length); r++) {
-    if (raw[r].some((c) => /part|mpn|料號|料号/i.test(String(c)))) {
+    if (raw[r].some((c) => MPN_HEADER.test(String(c).toLowerCase()))) {
       headerIdx = r;
       break;
     }
   }
 
   const headers = (raw[headerIdx] as string[]).map((h) => String(h).toLowerCase().trim());
-  const mpnCol = headers.findIndex((h) => /part|mpn|料號|料号/.test(h));
-  const qtyCol = headers.findIndex((h) => /qty|quantity|數量|数量|pcs|demand|shortage|需求/.test(h));
-  if (mpnCol === -1) throw new Error('找不到料號欄位：請使用 Part Number / MPN / 料號');
+  const mpnCol = headers.findIndex((h) => MPN_HEADER.test(h));
+  const qtyCol = headers.findIndex((h) => /qty|quantity|數量|数量|pcs|demand|shortage|需求|缺料|短缺/.test(h));
+  if (mpnCol === -1) throw new Error('找不到料號欄位：請使用 Part Number / MPN / P/N / 料號');
 
   const rows: BomRow[] = [];
   for (let r = headerIdx + 1; r < raw.length; r++) {

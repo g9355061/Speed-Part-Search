@@ -1811,3 +1811,9 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
   - QQ 按鈕文案在助手離線時顯示「✓ 已複製，正在開 QQ（請手動 ⌘V）」。
 - helper 檔案發佈到 `public/qq-paste/`（`install-paste-to-qq.command`、`speedpart-qq-paste.lua`），網站可直接下載。
 - 驗證：`npx tsc --noEmit` 通過；`/qq-inquiry` 200；兩個下載檔 200；本機 `/health` 200。
+
+## 23. BOM 欄位辨識擴充：Manufacturer P/N 與缺料欄
+
+- 料號欄關鍵字新增 `P/N`、`PN`、`型號/型号`（原本只認 part/mpn/料號），「Manufacturer P/N」表頭可正確辨識，且品牌欄「Manufacturer」不會被誤認（料號欄以先匹配者優先）。
+- 數量欄關鍵字新增 `缺料`、`短缺`；括號負數格式（如 `(1,191)`）原本就會轉成正數需求量。
+- 驗證：node 模擬該 BOM 表頭 mpnCol=0/qtyCol=3、舊格式（Part Number/Quantity）不受影響、`npx tsc --noEmit` 通過。
