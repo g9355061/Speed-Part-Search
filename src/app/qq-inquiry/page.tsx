@@ -367,11 +367,33 @@ function triggerLocalQqPasteHelper() {
   img.src = `http://127.0.0.1:5298/paste?delay=2600&ts=${Date.now()}`;
 }
 
-// 貼進 Hammerspoon Console 的一行安裝指令（免 Terminal、免 Gatekeeper 放行）：
-// 下載 helper 模組 → 成功才把 require 寫進 init.lua → reload；失敗則跳提示不動 config。
-function buildConsoleInstallCommand() {
-  const luaUrl = `${window.location.origin}/qq-paste/speedpart-qq-paste.lua`;
-  return `local _,ok = hs.execute([[mkdir -p "$HOME/.hammerspoon" && curl -fsSL "${luaUrl}" -o "$HOME/.hammerspoon/speedpart-qq-paste.lua" && { grep -q "speedpart-qq-paste" "$HOME/.hammerspoon/init.lua" 2>/dev/null || printf '\\nrequire("speedpart-qq-paste")\\n' >> "$HOME/.hammerspoon/init.lua"; }]]) if ok then hs.reload() else hs.alert.show("安裝失敗：下載不到檔案，請檢查網路") end`;
+// 貼進 Hammerspoon Console 的一行安裝指令（免 Terminal、免 Gatekeeper 放行）。
+// helper 程式檔「整份內嵌」在指令裡，貼上時純寫檔、不需連網——
+// 大陸辦公室瀏覽器走代理但 curl 直連被擋的情境也能安裝。
+async function buildConsoleInstallCommand(): Promise<string | null> {
+  try {
+    const res = await fetch('/qq-paste/speedpart-qq-paste.lua', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const lua = await res.text();
+    if (!lua.includes('speedpartQqPasteServer')) return null;
+    // Console 輸入列是單行欄位：內容逸出成單行 lua 字串再寫檔
+    const escaped = lua
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\r/g, '')
+      .replace(/\n/g, '\\n');
+    return (
+      'local home=os.getenv("HOME") ' +
+      'os.execute(\'mkdir -p "\'..home..\'/.hammerspoon"\') ' +
+      'local f=io.open(home.."/.hammerspoon/speedpart-qq-paste.lua","w") ' +
+      'f:write("' + escaped + '") f:close() ' +
+      'local r=io.open(home.."/.hammerspoon/init.lua","r") local cur=r and r:read("*a") or "" if r then r:close() end ' +
+      'if not cur:find("speedpart-qq-paste",1,true) then local a=io.open(home.."/.hammerspoon/init.lua","a") a:write(\'\\nrequire("speedpart-qq-paste")\\n\') a:close() end ' +
+      'hs.reload()'
+    );
+  } catch {
+    return null;
+  }
 }
 
 // 偵測本機 Hammerspoon 自動貼上助手是否在線（lua 端已設 CORS 與
@@ -1217,7 +1239,7 @@ export default function QqInquiryPage() {
                     <ol>
                       <li>下載安裝 <a href="https://www.hammerspoon.org/" target="_blank" rel="noreferrer">Hammerspoon</a>（免費）：打開下載的 zip，把鎚子圖示拖進「應用程式」，然後打開它</li>
                       <li>點螢幕右上選單列的<strong>鎚子圖示</strong> → 選「<strong>Console</strong>」</li>
-                      <li>按下方「複製安裝指令」，在 Console 最下面的輸入列<strong>貼上（⌘V）→ 按 Enter</strong>，看到「helper loaded」提示即完成</li>
+                      <li>按下方「複製安裝指令」，在 Console 最下面的輸入列<strong>貼上（⌘V）→ 按 Enter</strong>，看到「helper loaded」提示即完成（指令已內含程式檔，執行時不需連網）</li>
                       <li>若跳出權限詢問請允許；或到「系統設定 → 隱私權與安全性 → 輔助使用」開啟 Hammerspoon</li>
                       <li>回到本頁按「重新偵測」，變綠色就可以用了</li>
                     </ol>
@@ -1226,10 +1248,16 @@ export default function QqInquiryPage() {
                         type="button"
                         className="btn solid"
                         onClick={() => {
-                          void navigator.clipboard.writeText(buildConsoleInstallCommand()).then(() => {
+                          void (async () => {
+                            const cmd = await buildConsoleInstallCommand();
+                            if (!cmd) {
+                              window.alert('產生安裝指令失敗，請重新整理頁面再試');
+                              return;
+                            }
+                            await navigator.clipboard.writeText(cmd);
                             setCopiedInstallCmd(true);
                             window.setTimeout(() => setCopiedInstallCmd(false), 2500);
-                          });
+                          })();
                         }}
                       >
                         {copiedInstallCmd ? '✓ 已複製，去 Hammerspoon Console 貼上' : '複製安裝指令'}

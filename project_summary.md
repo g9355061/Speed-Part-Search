@@ -1856,3 +1856,10 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - `parseReplyText` 支援華強無標籤報價行（`DMP21D5UFB4-7B 2649pcs 0.2含税 DIODES(美台) 21+`）：單價（前置數字＋含税）、庫存（NNNNpcs）、批號（21+ 或 批号:）、品牌（DIODES(美台) 括號式）、報價有效期；含稅自動標注。
 - 解讀 grid 由 4 格擴為 8 格：單價/庫存/MOQ/交期/批號/報價有效期/品牌(回覆)/**料號比對**（回覆含當前 RFQ 料號 → 綠✓，未提及 → 橙⚠）。
 - 驗證：以使用者實際圣禾堂回覆全文測試——剔除 5 句促銷、只留報價行，解析 單價￥0.2(含稅)/庫存2649/批號21+/品牌DIODES(美台) 全對；舊標籤格式（單價：0.112 含稅…）迴歸通過；tsc 通過。
+
+## 28. 安裝指令改為「程式檔內嵌」，解決大陸同事 curl 連不上 Railway 的安裝失敗
+
+- 問題：同事從 Railway 網站按「複製安裝指令」仍安裝失敗。根因：其瀏覽器走代理可開網站，但 Hammerspoon 執行的 `curl` 不吃瀏覽器/系統代理、直連 `*.up.railway.app` 被牆擋（已驗證 Railway 端檔案本身 200 正常）。
+- 解法：`buildConsoleInstallCommand` 改為在瀏覽器端 fetch 同源 lua 檔（走瀏覽器代理，必通），把內容逸出成單行 lua 字串「整份內嵌」進指令；貼進 Console 執行時**純寫檔、零連網**。Console 輸入列為單行欄位，故不用 long-bracket 多行內嵌而用 `\n` 逸出單行。
+- 驗證：fengari Lua VM 沙盒（記憶體 FS stub）實跑產生的指令兩次——語法通過、寫出檔案與原始檔 byte-identical、init.lua require 冪等恰一行、hs.reload 有被呼叫。`npx tsc --noEmit` 通過。
+- 附註：curl 版失敗不會留殘骸（&& 鏈在下載失敗即中止，config 未動），同事直接用新按鈕重來即可。
