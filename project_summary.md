@@ -1817,3 +1817,11 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - 料號欄關鍵字新增 `P/N`、`PN`、`型號/型号`（原本只認 part/mpn/料號），「Manufacturer P/N」表頭可正確辨識，且品牌欄「Manufacturer」不會被誤認（料號欄以先匹配者優先）。
 - 數量欄關鍵字新增 `缺料`、`短缺`；括號負數格式（如 `(1,191)`）原本就會轉成正數需求量。
 - 驗證：node 模擬該 BOM 表頭 mpnCol=0/qtyCol=3、舊格式（Part Number/Quantity）不受影響、`npx tsc --noEmit` 通過。
+
+## 24. 自動貼上助手安裝改為免 Terminal（Hammerspoon Console 一鍵指令）
+
+- 原第 22 節指引需開 Terminal 執行 .command，對不熟終端機的同事不友善，且下載的 .command 會被 Gatekeeper 擋（新版 macOS 需到系統設定放行）。
+- 改為「複製安裝指令」按鈕：產生一行 Lua（依 `window.location.origin` 組 URL，本機與 Railway 皆可用），貼進 Hammerspoon 選單列 → Console 按 Enter 即完成——curl 下載的檔案無 quarantine，完全避開 Gatekeeper。
+- 指令行為：下載 helper 模組成功「才」把 require 寫入 init.lua 並 reload；失敗跳 alert 不動 config。冪等（重跑不重複寫入）。
+- 步驟簡化為：裝 Hammerspoon（拖進應用程式）→ 鎚子圖示開 Console → 貼上按 Enter → 允許輔助使用 → 回頁面重新偵測。
+- 驗證：以假 HOME 實測指令鏈兩次（下載成功、require 恰一行）；`npx tsc --noEmit` 通過；頁面 200。

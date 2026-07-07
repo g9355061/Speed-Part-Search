@@ -1652,8 +1652,9 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   color: var(--primary);
   font-weight: 600;
 }
-.qq-paste-status.offline .btn {
-  justify-self: start;
+.qq-paste-status.offline .qq-paste-actions {
+  display: flex;
+  gap: 8px;
   margin-top: 2px;
 }
 .qq-reply-source {

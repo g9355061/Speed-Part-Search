@@ -323,6 +323,13 @@ function triggerLocalQqPasteHelper() {
   img.src = `http://127.0.0.1:5298/paste?delay=2600&ts=${Date.now()}`;
 }
 
+// 貼進 Hammerspoon Console 的一行安裝指令（免 Terminal、免 Gatekeeper 放行）：
+// 下載 helper 模組 → 成功才把 require 寫進 init.lua → reload；失敗則跳提示不動 config。
+function buildConsoleInstallCommand() {
+  const luaUrl = `${window.location.origin}/qq-paste/speedpart-qq-paste.lua`;
+  return `local _,ok = hs.execute([[mkdir -p "$HOME/.hammerspoon" && curl -fsSL "${luaUrl}" -o "$HOME/.hammerspoon/speedpart-qq-paste.lua" && { grep -q "speedpart-qq-paste" "$HOME/.hammerspoon/init.lua" 2>/dev/null || printf '\\nrequire("speedpart-qq-paste")\\n' >> "$HOME/.hammerspoon/init.lua"; }]]) if ok then hs.reload() else hs.alert.show("安裝失敗：下載不到檔案，請檢查網路") end`;
+}
+
 // 偵測本機 Hammerspoon 自動貼上助手是否在線（lua 端已設 CORS 與
 // Access-Control-Allow-Private-Network，https 頁面對 127.0.0.1 的請求瀏覽器放行）
 async function detectPasteHelper(): Promise<boolean> {
@@ -342,6 +349,7 @@ export default function QqInquiryPage() {
   const [copiedInquiryQq, setCopiedInquiryQq] = useState<string | null>(null);
   const [qqOpenOutcome, setQqOpenOutcome] = useState<'opening' | 'manual'>('opening');
   const [pasteHelperOnline, setPasteHelperOnline] = useState<boolean | null>(null);
+  const [copiedInstallCmd, setCopiedInstallCmd] = useState(false);
   const [reply, setReply] = useState('單價：0.112 含稅，庫存 100000，MOQ 10000，今天可發貨，報價有效期 3 天。');
   const [bomRows, setBomRows] = useState<BomRow[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -981,20 +989,35 @@ export default function QqInquiryPage() {
                 {pasteHelperOnline === false && (
                   <div className="qq-paste-status offline">
                     <strong>未偵測到自動貼上助手</strong>
-                    <span>點 QQ 仍會複製內容並開啟對話，但需自行按 ⌘V 貼上。想要自動貼上，請安裝一次：</span>
+                    <span>點 QQ 仍會複製內容並開啟對話，但需自行按 ⌘V 貼上。想要自動貼上，照以下步驟安裝一次（不用打指令、全程滑鼠）：</span>
                     <ol>
-                      <li>安裝 <a href="https://www.hammerspoon.org/" target="_blank" rel="noreferrer">Hammerspoon</a>（免費，或 <code>brew install --cask hammerspoon</code>）</li>
-                      <li>下載 <a href="/qq-paste/install-paste-to-qq.command" download>安裝腳本</a> 與 <a href="/qq-paste/speedpart-qq-paste.lua" download>helper 模組</a>（放同一個資料夾，例如「下載項目」）</li>
-                      <li>開 Terminal 執行：<code>zsh ~/Downloads/install-paste-to-qq.command</code></li>
-                      <li>依提示到「系統設定 → 隱私權與安全性 → 輔助使用」允許 Hammerspoon</li>
+                      <li>下載安裝 <a href="https://www.hammerspoon.org/" target="_blank" rel="noreferrer">Hammerspoon</a>（免費）：打開下載的 zip，把鎚子圖示拖進「應用程式」，然後打開它</li>
+                      <li>點螢幕右上選單列的<strong>鎚子圖示</strong> → 選「<strong>Console</strong>」</li>
+                      <li>按下方「複製安裝指令」，在 Console 最下面的輸入列<strong>貼上（⌘V）→ 按 Enter</strong>，看到「helper loaded」提示即完成</li>
+                      <li>若跳出權限詢問請允許；或到「系統設定 → 隱私權與安全性 → 輔助使用」開啟 Hammerspoon</li>
+                      <li>回到本頁按「重新偵測」，變綠色就可以用了</li>
                     </ol>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => { setPasteHelperOnline(null); void detectPasteHelper().then(setPasteHelperOnline); }}
-                    >
-                      重新偵測
-                    </button>
+                    <div className="qq-paste-actions">
+                      <button
+                        type="button"
+                        className="btn solid"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(buildConsoleInstallCommand()).then(() => {
+                            setCopiedInstallCmd(true);
+                            window.setTimeout(() => setCopiedInstallCmd(false), 2500);
+                          });
+                        }}
+                      >
+                        {copiedInstallCmd ? '✓ 已複製，去 Hammerspoon Console 貼上' : '複製安裝指令'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => { setPasteHelperOnline(null); void detectPasteHelper().then(setPasteHelperOnline); }}
+                      >
+                        重新偵測
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
