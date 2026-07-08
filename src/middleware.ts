@@ -1,5 +1,6 @@
 import { getToken } from 'next-auth/jwt';
 import { NextRequest, NextResponse } from 'next/server';
+import { canAccessQqInquiry } from './lib/permissions';
 
 const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password'];
 const PUBLIC_API_PREFIXES = ['/api/auth/'];
@@ -48,7 +49,7 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith('/admin/') && token.role !== 'admin') {
     return NextResponse.redirect(new URL('/', req.url));
   }
-  if (pathname.startsWith('/qq-inquiry') && token.role !== 'admin') {
+  if (pathname.startsWith('/qq-inquiry') && !canAccessQqInquiry(token)) {
     return NextResponse.redirect(new URL('/', req.url));
   }
 

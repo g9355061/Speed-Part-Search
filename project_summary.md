@@ -1,6 +1,32 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-04（修正 QQ 詢價連結被微信/維信覆蓋問題）
+> 最後更新：2026-07-08（移除 QQ 詢價測試回覆範例）
+
+---
+
+### 2026-07-08 — 移除 QQ 詢價測試回覆範例
+
+- [x] **刪除測試回覆案例區塊**：QQ 詢價頁回覆解析區不再顯示「測試回覆範例」與「複製測試回覆」按鈕，畫面只保留正式回覆貼上、讀取 QQ 回覆、加入報價紀錄與匯出 BOM。
+- [x] **清理相關程式與樣式**：移除範例回覆產生函式、複製狀態與 `.qq-sample-*` 樣式，避免留下不使用的前端程式碼。
+- **修改檔案**：
+  - `src/app/qq-inquiry/page.tsx`
+  - `src/app/globals.css`
+  - `project_summary.md`
+
+---
+
+### 2026-07-08 — 開通指定一般使用者 QQ 詢價權限
+
+- [x] **指定採購帳號可使用 QQ 詢價**：新增共用權限判斷，允許管理員與 `xiaomin@yangshin.com` 存取 QQ 詢價功能；此使用者仍維持一般使用者角色，不會取得使用者管理等管理員權限。
+- [x] **同步放行三個入口**：共用 Header、BOM Batch 自帶頁首、`/qq-inquiry` 路由 middleware 皆改用同一權限判斷，確保選單可見且直接輸入網址也能進入。
+- [x] **API 權限同步**：`/api/hqew/search` 華強查詢 API 改為允許 QQ 詢價授權使用者呼叫，避免頁面可進但查詢被 403 擋下。
+- **修改檔案**：
+  - `src/lib/permissions.ts`
+  - `src/middleware.ts`
+  - `src/components/Header.tsx`
+  - `src/app/batch/page.tsx`
+  - `src/app/api/hqew/search/route.ts`
+  - `project_summary.md`
 
 ---
 

@@ -135,19 +135,6 @@ function buildMessage(row: InquiryRow) {
   ].join('\n');
 }
 
-function buildSampleReply(row: InquiryRow, idx: number) {
-  const price = (0.108 + idx * 0.006).toFixed(3);
-  const stock = Math.max(row.stock || 50000, 50000 + idx * 25000);
-  const moq = idx === 0 ? 10000 : idx === 1 ? 5000 : 20000;
-  const leadTime = idx === 0 ? '今天可發貨' : idx === 1 ? '明天可發貨' : '2 天內發貨';
-  return [
-    `詢價編號：${row.rfqId}`,
-    `${row.supplier} 回覆：`,
-    `單價：${price} 含稅，庫存 ${stock.toLocaleString()}，MOQ ${moq.toLocaleString()}，${leadTime}，報價有效期 3 天。`,
-    `批號：${row.batch || '25+'}，原裝正品，可開票。`,
-  ].join('\n');
-}
-
 function sanitizeRfqSegment(value: string) {
   return value
     .normalize('NFKD')
@@ -539,7 +526,6 @@ export default function QqInquiryPage() {
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
   const [pendingDuplicate, setPendingDuplicate] = useState<PendingDuplicateUpload | null>(null);
   const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
-  const [copiedSampleIdx, setCopiedSampleIdx] = useState<number | null>(null);
   const [bomIndex, setBomIndex] = useState(0);
   const [queriedMpns, setQueriedMpns] = useState<string[]>([]);
 
@@ -581,7 +567,6 @@ export default function QqInquiryPage() {
 
   const current = hqewRows[selected] ?? hqewRows[0];
   const message = useMemo(() => buildMessage(current), [current]);
-  const sampleReplies = useMemo(() => hqewRows.map((row, idx) => buildSampleReply(row, idx)), [hqewRows]);
   const parsed = useMemo(() => parseReplyText(reply), [reply]);
   const detectedRfqId = useMemo(() => extractRfqId(reply), [reply]);
   const detectedRow = useMemo(
@@ -684,12 +669,6 @@ export default function QqInquiryPage() {
     await copyMessage();
     const mpn = activeBom?.mpn ?? current.mpn;
     window.open(hqewSearchUrl(mpn), '_blank', 'noopener,noreferrer');
-  }
-
-  async function copySampleReply(text: string, idx: number) {
-    await navigator.clipboard.writeText(text);
-    setCopiedSampleIdx(idx);
-    window.setTimeout(() => setCopiedSampleIdx(null), 1600);
   }
 
   async function openSupplierQq(row: InquiryRow) {
@@ -1343,28 +1322,6 @@ export default function QqInquiryPage() {
                   <button className="btn" onClick={exportBomWithQuotes} disabled={!quoteRecords.length}>
                     <Icon name="download" size={13} />匯出回填 BOM
                   </button>
-                </div>
-                <div className="qq-sample-replies">
-                  <div className="qq-sample-title">
-                    <strong>測試回覆範例</strong>
-                    <span>可複製任一段貼到上方正式回覆區測試 RFQ 自動配對</span>
-                  </div>
-                  {sampleReplies.map((sample, idx) => (
-                    <div key={`${hqewRows[idx]?.rfqId}-sample`} className="qq-sample-reply">
-                      <div>
-                        <strong>{hqewRows[idx]?.supplier}</strong>
-                        <span className="mono">{hqewRows[idx]?.rfqId}</span>
-                      </div>
-                      <pre>{sample}</pre>
-                      <button
-                        className={'btn' + (copiedSampleIdx === idx ? ' success' : '')}
-                        onClick={() => void copySampleReply(sample, idx)}
-                      >
-                        <Icon name={copiedSampleIdx === idx ? 'check' : 'copy'} size={13} />
-                        {copiedSampleIdx === idx ? '已複製' : '複製測試回覆'}
-                      </button>
-                    </div>
-                  ))}
                 </div>
                 {quoteRecords.length > 0 && (
                   <div className="qq-records">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { chromium } from 'playwright';
 import { authOptions } from '@/lib/auth-config';
+import { canAccessQqInquiry } from '@/lib/permissions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -81,7 +82,7 @@ function parseStock(text: string) {
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (session?.user?.role !== 'admin') {
+  if (!canAccessQqInquiry(session?.user)) {
     return NextResponse.json({ error: '無權限' }, { status: 403 });
   }
 

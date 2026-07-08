@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import * as XLSX from 'xlsx-js-style';
 import { Icon } from '@/components/Icon';
+import { canAccessQqInquiry } from '@/lib/permissions';
 
 /* ══════════════════════════════════════════
    Types
@@ -964,7 +965,7 @@ const SUPPLIER_LABELS: Record<string, string> = {
 
 export default function BatchPage() {
   const { data: session } = useSession();
-  const isAdmin = session?.user?.role === 'admin';
+  const canUseQqInquiry = canAccessQqInquiry(session?.user);
   const [results, setResults] = useState<ResultRow[]>([]);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -1059,7 +1060,7 @@ export default function BatchPage() {
         <nav className="hdr-nav">
 	          <Link href="/" className="hdr-nav-link"><Icon name="search" size={14} /><span className="lbl">Search</span></Link>
 	          <Link href="/batch" className="hdr-nav-link active"><Icon name="compare" size={14} /><span className="lbl">BOM Batch</span></Link>
-	          {isAdmin && (
+	          {canUseQqInquiry && (
 	            <Link href="/qq-inquiry" className="hdr-nav-link"><Icon name="message" size={14} /><span className="lbl">QQ詢價</span></Link>
 	          )}
 	          <Link href="/batch-manufacturer" className="hdr-nav-link"><Icon name="compare" size={14} /><span className="lbl">BOM Batch - MFR</span></Link>

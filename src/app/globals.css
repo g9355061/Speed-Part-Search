@@ -1725,63 +1725,6 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   color: var(--text-3);
   background: #f1f5f9;
 }
-.qq-sample-replies {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--r-sm);
-  background: #fbfcfe;
-  padding: 10px;
-}
-.qq-sample-title {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  flex-wrap: wrap;
-}
-.qq-sample-title strong {
-  color: var(--text);
-  font-size: 12px;
-}
-.qq-sample-title span {
-  color: var(--text-3);
-  font-size: 11.5px;
-}
-.qq-sample-reply {
-  display: grid;
-  gap: 8px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: #fff;
-  padding: 9px;
-}
-.qq-sample-reply > div {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-}
-.qq-sample-reply strong {
-  color: var(--text);
-  font-size: 12px;
-}
-.qq-sample-reply span {
-  color: var(--text-3);
-  font-size: 11px;
-}
-.qq-sample-reply pre {
-  margin: 0;
-  white-space: pre-wrap;
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 1.55;
-}
-.qq-sample-reply .btn {
-  width: fit-content;
-}
 .qq-parse-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

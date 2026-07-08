@@ -4,11 +4,13 @@ import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icon';
+import { canAccessQqInquiry } from '@/lib/permissions';
 
 export function Header() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'admin';
+  const canUseQqInquiry = canAccessQqInquiry(session?.user);
   const initials = session?.user?.name
     ? session.user.name.slice(0, 2).toUpperCase()
     : '??';
@@ -52,7 +54,7 @@ export function Header() {
         <Link href="/batch" className={'hdr-nav-link' + (pathname === '/batch' ? ' active' : '')}>
           <Icon name="compare" size={14} /><span className="lbl">BOM Batch</span>
         </Link>
-        {isAdmin && (
+        {canUseQqInquiry && (
           <Link href="/qq-inquiry" className={'hdr-nav-link' + (pathname === '/qq-inquiry' ? ' active' : '')}>
             <Icon name="message" size={14} /><span className="lbl">QQ詢價</span>
           </Link>
