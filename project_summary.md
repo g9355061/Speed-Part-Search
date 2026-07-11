@@ -1,8 +1,32 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-10（週報頁新增歷史週報）
+> 最後更新：2026-07-11（基準料名單重構為角色制）
 
 ---
+
+### 2026-07-11 — 缺料預測基準料重構：角色制 + 彈性配額（150 顆）
+
+**背景**：前一日 review 指出手挑 150 顆代表料的兩個結構性問題——(1) 挑選無客觀標準、EOL 手動換料維護成本高；(2) 所有料混當同一用途、訊號互相稀釋。經使用者同意改為「三角色 × 彈性配額」設計。
+
+- [x] **benchmark.ts 全面重構**（`role` 欄位 + 類別配額權重制，總數維持 150）：
+  - **溫度計料 69 顆**：大宗共用 jellybean（多源可替代），偵測「市場級」供需變化。
+  - **咽喉料 47 顆**：單一來源／無 pin-to-pin 替代／歷史配貨重災（FTDI、WIZnet、SiTime、Wolfspeed SiC、Marvell PHY、retimer、FRAM、車規 MCU…），偵測「單點斷供」。
+  - **實戰料 34 顆**：初始為常用料種子，待搜尋記錄累積後輪換成「使用者真實查過的料」。
+  - 配額改依類別重要性：記憶體 14、MLCC 13、PMIC/MOSFET/MCU 各 12…防護 6、散熱 6（原本每類死板 10 顆）。
+  - 去重 4 顆歷史重複（AO3400A/W25Q128JVSIQ/USBLC6-2SC6/SN65HVD230DR 各留一筆）。
+  - **16 顆新料全部先經 DigiKey/Mouser API 驗證「查得到+Active+有庫存」才入列**（四輪驗證共試 33 顆，淘汰 BSS138L/RP2040/GD25Q127 等 Obsolete/缺貨候選；沿用 6/6 EMPTY_RESULT 教訓）。
+- [x] **search_logs 搜尋記錄**（實戰料的資料來源）：db.ts 新增表（SQLite+Postgres 雙路徑，含索引）與 `logPartSearch`/`getTopSearchedMpns`；`/api/search` 與 QQ 詢價華強查詢（`source='qq-inquiry'`，即真實 BOM 料）非同步寫入、失敗靜默不影響主流程。
+- [x] **`/api/demand-forecast/field-suggestions`**：回傳 90 天最常搜尋料號、標示是否已在 benchmark、產出實戰料輪換候選清單（附「入列前須 API 驗證」提示）。
+- [x] **`/api/demand-forecast/benchmark-health`**（季度體檢，僅報告不自動改名單）：逐顆檢查 EOL/NRND、無資料（最近快照無代理商資料或從未有快照）、死訊號（連續 ≥8 次快照庫存與價格完全不動）、重複 MPN，並給汰換建議。
+- [x] **API 快取對齊**：新增 `alignPartsWithBenchmark`——mode=cached/summary 回傳時以現行名單為準（補 role、剔除已汰換料、新料顯示「尚未查詢」），避免改名單後 UI 殘留舊料。
+- [x] **前端**：料件明細表新增「角色」欄（溫度計=藍/咽喉=橘/實戰=綠 chip，hover 顯示角色說明）。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅；本機 SQLite 實測 search_logs 寫入/統計（測試資料已清）；臨時 CRON_SECRET 走 middleware 後門實測三端點——mode=cached 回 150 顆、角色 69/47/34 正確覆蓋、22 顆新料「尚未查詢」、field-suggestions 正確辨識名單外候選、benchmark-health 邏輯正確（本機無快照全報 no-data 屬預期，正式站有歷史）；Playwright 本機登入截圖確認角色欄三色 chip 渲染正常。臨時 secret 已移除。
+- [x] **部署**：commit+push main（Railway 自動部署）；`gh workflow run weekly-forecast.yml` 已觸發手動 full 查詢，讓 22 顆新料入快照（本 commit 一併帶入前次週報 session 已驗證未提交的改動）。
+- **注意**：換料的 22 顆新料第一週無週環比基準，趨勢訊號靜默一週屬預期；被移除的舊料歷史快照保留在 DB（無害）。實戰料輪換建議累積 4 週搜尋記錄後執行。
+- **修改檔案**：`src/lib/demand-forecast/benchmark.ts`、`src/lib/db.ts`、`src/app/api/search/route.ts`、`src/app/api/hqew/search/route.ts`、`src/app/api/demand-forecast/route.ts`、`src/app/api/demand-forecast/field-suggestions/route.ts`（新）、`src/app/api/demand-forecast/benchmark-health/route.ts`（新）、`src/app/demand-forecast/page.tsx`
+
+---
+
 
 ### 2026-07-10 — 週報頁新增歷史週報
 
