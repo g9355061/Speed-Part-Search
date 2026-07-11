@@ -1197,6 +1197,81 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 .qq-bom-card {
   margin-bottom: 16px;
 }
+.qq-board-card {
+  margin-bottom: 16px;
+}
+.qq-board-table tbody tr {
+  cursor: pointer;
+}
+.qq-board-closed td {
+  opacity: 0.55;
+}
+.qq-board-progress {
+  min-width: 140px;
+}
+.qq-board-progress .bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.qq-board-progress .bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.qq-board-progress em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.qq-board-status {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.qq-board-status.open { background: var(--primary-soft); color: var(--primary); }
+.qq-board-status.closed { background: var(--surface-2); color: var(--text-4); }
+.qq-board-detail-tr td {
+  padding: 0 !important;
+  background: var(--surface-2);
+}
+.qq-board-detail {
+  padding: 8px 12px;
+}
+.qq-board-detail-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.7fr 0.7fr 1.6fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 12px;
+}
+.qq-board-detail-row:last-child {
+  border-bottom: 0;
+}
+.qq-board-detail-row span {
+  color: var(--text-3);
+}
+.qq-board-best {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qq-quote-chip.none {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+@media (max-width: 640px) {
+  .qq-board-detail-row { grid-template-columns: 1fr 1fr; }
+}
 .qq-case-strip {
   display: grid;
   grid-template-columns: 1.6fr 0.7fr 0.9fr 0.7fr;

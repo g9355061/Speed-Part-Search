@@ -1,6 +1,21 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-11（QQ 詢價 Case 與報價入庫，團隊共享）
+> 最後更新：2026-07-11（QQ 詢價看板）
+
+---
+
+### 2026-07-11 — QQ 詢價看板（團隊採購進度總覽 + Case 結案）
+
+**背景**：報價入庫後的第一個呈現層應用。看板 = 所有 Case 的採購進度一目了然：誰建的、幾顆料已有報價、最新回覆時間；展開看每顆料的最佳報價與新鮮度，未詢的料一鍵跳去詢價。
+
+- [x] **看板區塊**（`/qq-inquiry` 頁首流程圖下方，有 Case 才顯示）：
+  - Case 列：編號 / 檔名 / 建立者 / 建立時間 / 報價進度條（n/m 料號已報價）/ 最新報價時間 / 狀態 pill。
+  - 點列展開料號明細：料號 / 需求量 / 報價數 / 最佳報價（供應商＋價格，沿用降權邏輯）/ 新鮮度 chip（效期至·有效·可能失效·僅供參考·已過期·待詢價）/「前往詢價」按鈕直接切 Case 並定位該料號。
+  - 狀態 pill 可點擊切換「詢價中 ⇄ 已結案」；已結案列淡化顯示。
+- [x] **後端**：db.ts 新增 `setQqCaseStatus`；`PATCH /api/qq/cases/[id]` 擴充——帶 `status` 走結案/重開（僅接受 詢價中/已結案），帶 `contentHash+bomRows` 維持原「新版本」語意。
+- [x] **前端重構**：`switchCase` 改為 `jumpToCaseMpn(caseId, index)` 的特例，供看板「前往詢價」跳轉定位（避免 setState 後讀到舊 bomRows 的閉包問題）。
+- [x] **驗證**：`npx tsc --noEmit` ✅；本機實測——看板兩 Case 渲染、進度條 2/3、展開明細三列（效期至 7/14 綠／待詢價琥珀／10 天前報價「可能失效」）全對；「前往詢價」正確切到目標 Case 第 2 筆料號；結案切換 UI 與 DB 同步（重開亦可）；無 Case 時看板隱藏。測試資料已清。
+- **修改檔案**：`src/lib/db.ts`、`src/app/api/qq/cases/[id]/route.ts`、`src/app/qq-inquiry/page.tsx`、`src/app/globals.css`
 
 ---
 

@@ -1282,6 +1282,16 @@ export async function createQqCase(input: {
   };
 }
 
+// 詢價看板的結案/重開切換
+export async function setQqCaseStatus(id: string, status: string): Promise<void> {
+  await ensureDb();
+  if (isPostgres) {
+    await getPool().query('UPDATE qq_bom_cases SET status = $1, updated_at = now() WHERE id = $2', [status, id]);
+    return;
+  }
+  getSqlite().prepare("UPDATE qq_bom_cases SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, id);
+}
+
 // 同名檔案的新版本：取代 BOM 內容但保留既有報價（報價跟著料號走，仍然有效）
 export async function updateQqCaseBom(id: string, contentHash: string, bomRows: QqBomRowRecord[]): Promise<void> {
   await ensureDb();

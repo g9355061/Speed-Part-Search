@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
@@ -462,6 +462,18 @@ function bestQuoteReason(quote: QuoteRecord | null, candidateCount: number, dema
   return `自動從 ${candidateCount} 筆報價挑選：${checks.join('、')}`;
 }
 
+// 看板列的進度統計：BOM 中已有報價的料號數與最新報價時間
+function caseBoardStats(bomCase: BomCase) {
+  const quoteMpns = new Set(bomCase.quoteRecords.map((q) => q.mpn));
+  const total = bomCase.bomRows.length;
+  const quoted = bomCase.bomRows.filter((row) => quoteMpns.has(row.mpn)).length;
+  const latest = bomCase.quoteRecords.reduce<string | null>(
+    (acc, q) => (!acc || q.quotedAt > acc ? q.quotedAt : acc),
+    null,
+  );
+  return { total, quoted, latest };
+}
+
 function hqewSearchUrl(mpn: string) {
   return `https://s.hqew.com/${encodeURIComponent(mpn)}.html`;
 }
@@ -665,6 +677,7 @@ export default function QqInquiryPage() {
   const [caseSyncError, setCaseSyncError] = useState<string | null>(null);
   const [casesLoading, setCasesLoading] = useState(true);
   const [mpnHistory, setMpnHistory] = useState<QuoteRecord[]>([]);
+  const [boardExpandedCaseId, setBoardExpandedCaseId] = useState<string | null>(null);
 
   const activeCase = cases.find((item) => item.id === activeCaseId) ?? null;
   const activeBom = bomRows[bomIndex] ?? bomRows[0];
@@ -854,7 +867,8 @@ export default function QqInquiryPage() {
     setCases((prev) => prev.map((item) => item.id === activeCaseId ? { ...item, ...update } : item));
   }
 
-  function switchCase(caseId: string) {
+  // 切換 Case 並定位到指定料號（看板「前往詢價」用；一般切換 Case 定位第一筆）
+  function jumpToCaseMpn(caseId: string, targetIndex: number) {
     const nextCase = cases.find((item) => item.id === caseId);
     if (!nextCase) return;
     setActiveCaseId(caseId);
@@ -864,8 +878,31 @@ export default function QqInquiryPage() {
     setHqewResultsByMpn({});
     setHqewError(null);
     setSelected(0);
-    setBomIndex(0);
+    setBomIndex(Math.min(Math.max(targetIndex, 0), Math.max(nextCase.bomRows.length - 1, 0)));
     setQueriedMpns([]);
+  }
+
+  function switchCase(caseId: string) {
+    jumpToCaseMpn(caseId, 0);
+  }
+
+  // 看板結案/重開
+  async function toggleCaseStatus(caseId: string) {
+    const target = cases.find((item) => item.id === caseId);
+    if (!target) return;
+    const nextStatus = target.status === '已結案' ? '詢價中' : '已結案';
+    try {
+      const res = await fetch(`/api/qq/cases/${encodeURIComponent(caseId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      window.alert(`狀態更新失敗：${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    setCases((prev) => prev.map((item) => item.id === caseId ? { ...item, status: nextStatus } : item));
   }
 
   async function deleteCase(caseId: string) {
@@ -1296,6 +1333,101 @@ export default function QqInquiryPage() {
             </div>
           ))}
         </section>
+
+        {cases.length > 0 && (
+          <section className="card qq-board-card">
+            <div className="card-hd">
+              <h3><Icon name="compare" size={14} />詢價看板（團隊共用）</h3>
+              <span className="sub">所有 Case 的採購進度；點列展開料號明細，完成後可標記結案</span>
+            </div>
+            <div className="card-bd flush">
+              <div className="qq-table-scroll">
+                <table className="qq-table qq-board-table">
+                  <thead>
+                    <tr>
+                      <th>Case</th>
+                      <th>BOM 檔案</th>
+                      <th>建立者</th>
+                      <th>建立時間</th>
+                      <th>報價進度</th>
+                      <th>最新報價</th>
+                      <th>狀態</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cases.map((item) => {
+                      const stats = caseBoardStats(item);
+                      const expanded = boardExpandedCaseId === item.id;
+                      const percent = stats.total ? Math.round((stats.quoted / stats.total) * 100) : 0;
+                      return (
+                        <Fragment key={item.id}>
+                          <tr
+                            className={(expanded ? 'selected' : '') + (item.status === '已結案' ? ' qq-board-closed' : '')}
+                            onClick={() => setBoardExpandedCaseId(expanded ? null : item.id)}
+                          >
+                            <td><span className="qq-rfq-badge">{item.id}</span></td>
+                            <td><strong>{item.fileName}</strong></td>
+                            <td>{item.createdBy || '-'}</td>
+                            <td>{item.createdAt}</td>
+                            <td>
+                              <div className="qq-board-progress">
+                                <div className="bar"><span style={{ width: `${percent}%` }} /></div>
+                                <em>{stats.quoted}/{stats.total} 已報價</em>
+                              </div>
+                            </td>
+                            <td>{stats.latest ? formatSavedAt(stats.latest) : '-'}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className={'qq-board-status ' + (item.status === '已結案' ? 'closed' : 'open')}
+                                title={item.status === '已結案' ? '點擊重開詢價' : '點擊標記結案'}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void toggleCaseStatus(item.id);
+                                }}
+                              >
+                                {item.status}
+                              </button>
+                            </td>
+                          </tr>
+                          {expanded && (
+                            <tr className="qq-board-detail-tr">
+                              <td colSpan={7}>
+                                <div className="qq-board-detail">
+                                  {item.bomRows.map((row, idx) => {
+                                    const quotes = item.quoteRecords.filter((q) => q.mpn === row.mpn);
+                                    const best = pickBestQuote(quotes, row.qty);
+                                    const freshness = best ? quoteFreshness(best) : null;
+                                    return (
+                                      <div key={`${row.mpn}-${idx}`} className="qq-board-detail-row">
+                                        <strong className="mono">{row.mpn}</strong>
+                                        <span>需求 {row.qty.toLocaleString()}</span>
+                                        <span>{quotes.length ? `${quotes.length} 筆報價` : '未報價'}</span>
+                                        <span className="qq-board-best">
+                                          {best ? `${best.supplier}：${best.unitPrice}` : '——'}
+                                        </span>
+                                        {freshness
+                                          ? <span className={`qq-quote-chip ${freshness.cls}`}>{freshness.label}</span>
+                                          : <span className="qq-quote-chip none">待詢價</span>}
+                                        <button className="btn" onClick={() => jumpToCaseMpn(item.id, idx)}>
+                                          前往詢價
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="qq-bom-card card">
           <div className="card-hd">
