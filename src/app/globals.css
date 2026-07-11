@@ -1199,7 +1199,7 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 }
 .qq-case-strip {
   display: grid;
-  grid-template-columns: 1.6fr 0.8fr 0.8fr;
+  grid-template-columns: 1.6fr 0.7fr 0.9fr 0.7fr;
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -1757,7 +1757,7 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 }
 .qq-record-row {
   display: grid;
-  grid-template-columns: 1fr 1.2fr 1.4fr auto;
+  grid-template-columns: 1fr 1.2fr 1.4fr auto auto;
   gap: 10px;
   align-items: center;
   padding: 9px 10px;
@@ -1774,6 +1774,39 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 }
 .qq-record-row span {
   color: var(--text-3);
+}
+
+/* 報價新鮮度：7 天內有效（綠）、7-14 天可能失效（琥珀）、14 天以上僅供參考（灰）、廠商效期已過（紅） */
+.qq-quote-chip {
+  justify-self: end;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.qq-quote-chip.fresh { background: var(--accent-soft); color: var(--accent); }
+.qq-quote-chip.aging { background: var(--warn-soft); color: var(--warn); }
+.qq-quote-chip.stale { background: var(--surface-2, #F2F4F7); color: var(--text-4); }
+.qq-quote-chip.expired { background: #fae5e5; color: var(--danger); }
+
+.qq-history-box {
+  margin-top: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.qq-history-box > strong {
+  display: block;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.qq-history-box .qq-record-row {
+  grid-template-columns: 1.2fr 1.4fr 1fr auto;
 }
 
 @media (max-width: 1120px) {

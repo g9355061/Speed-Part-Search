@@ -64,6 +64,9 @@ interface QuoteRecord {
   leadTime: string;
   rawReply: string;
   savedAt: string;
+  quotedAt: string;
+  validUntil: string | null;
+  createdBy: string;
 }
 
 interface BomCase {
@@ -73,16 +76,157 @@ interface BomCase {
   status: '詢價中' | '已結案';
   bomRows: BomRow[];
   quoteRecords: QuoteRecord[];
+  contentHash?: string;
+  createdBy?: string;
 }
 
 interface PendingDuplicateUpload {
+  kind: 'hash' | 'filename';
   fileName: string;
   caseId: string;
+  caseFileName: string;
+  quoteCount: number;
   rows: BomRow[];
+  hash: string;
+}
+
+// 伺服器回傳的 Case / 報價 DTO（/api/qq/cases、/api/qq/quotes）
+interface ServerQqCase {
+  id: string;
+  fileName: string;
+  contentHash: string;
+  status: string;
+  bomRows: BomRow[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ServerQqQuote {
+  id: string;
+  caseId: string;
+  rfqId: string | null;
+  mpn: string;
+  qty: number;
+  supplier: string;
+  qq: string | null;
+  manufacturer: string;
+  unitPrice: string;
+  stock: string;
+  moq: string;
+  leadTime: string;
+  rawReply: string;
+  quotedAt: string;
+  validUntil: string | null;
+  createdBy: string;
+}
+
+// 舊版 localStorage 資料（一次性搬遷進資料庫用）
+interface LegacyQuoteRecord {
+  id?: string;
+  rfqId?: string;
+  mpn: string;
+  qty?: number;
+  supplier: string;
+  qq?: string;
+  manufacturer?: string;
+  unitPrice?: string;
+  stock?: string;
+  moq?: string;
+  leadTime?: string;
+  rawReply?: string;
+  savedAt?: string;
+}
+
+interface LegacyBomCase {
+  id?: string;
+  fileName?: string;
+  createdAt?: string;
+  status?: string;
+  bomRows?: BomRow[];
+  quoteRecords?: LegacyQuoteRecord[];
 }
 
 const CASE_STORAGE_KEY = 'speedpart.qqInquiry.cases.v1';
 const ACTIVE_CASE_STORAGE_KEY = 'speedpart.qqInquiry.activeCaseId.v1';
+
+function formatSavedAt(iso: string) {
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString('zh-TW', { hour12: false });
+}
+
+function toQuoteRecord(q: ServerQqQuote): QuoteRecord {
+  return {
+    id: q.id,
+    rfqId: q.rfqId ?? undefined,
+    mpn: q.mpn,
+    qty: q.qty,
+    supplier: q.supplier,
+    qq: q.qq ?? undefined,
+    manufacturer: q.manufacturer,
+    unitPrice: q.unitPrice,
+    stock: q.stock,
+    moq: q.moq,
+    leadTime: q.leadTime,
+    rawReply: q.rawReply,
+    savedAt: formatSavedAt(q.quotedAt),
+    quotedAt: q.quotedAt,
+    validUntil: q.validUntil,
+    createdBy: q.createdBy,
+  };
+}
+
+function toBomCase(sc: ServerQqCase, quotes: QuoteRecord[]): BomCase {
+  return {
+    id: sc.id,
+    fileName: sc.fileName,
+    createdAt: formatSavedAt(sc.createdAt),
+    status: sc.status === '已結案' ? '已結案' : '詢價中',
+    bomRows: sc.bomRows,
+    quoteRecords: quotes,
+    contentHash: sc.contentHash,
+    createdBy: sc.createdBy,
+  };
+}
+
+// 檔案身分＝解析後內容的 SHA-256（料號×數量正規化排序後），檔名只是給人看的標籤。
+// xlsx 重新存檔位元組就全變，故不 hash 原始檔案。
+async function computeBomHash(rows: BomRow[]): Promise<string> {
+  const canonical = rows
+    .map((row) => `${row.mpn.trim().toUpperCase()}|${row.qty}`)
+    .sort()
+    .join('\n');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// 廠商明講的有效期（「報價有效期 3 天」）→ 硬期限 valid_until；沒講就 null，由前端用報價日推新鮮度
+function computeValidUntil(validityText: string, from: Date): string | null {
+  const m = validityText.match(/([0-9]+)\s*([天日周週月])/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const days = m[2] === '月' ? n * 30 : m[2] === '周' || m[2] === '週' ? n * 7 : n;
+  return new Date(from.getTime() + days * 86400000).toISOString();
+}
+
+const DAY_MS = 86400000;
+
+// 兩層有效期：廠商明講的 valid_until 過期＝硬過期；否則依報價日齡分級（7 天內有效、7-14 天可能失效、14 天以上僅供參考）
+function quoteFreshness(quote: Pick<QuoteRecord, 'quotedAt' | 'validUntil'>): { label: string; cls: 'fresh' | 'aging' | 'stale' | 'expired' } {
+  const now = Date.now();
+  if (quote.validUntil) {
+    const until = Date.parse(quote.validUntil);
+    if (!Number.isNaN(until)) {
+      if (now > until) return { label: '已過期', cls: 'expired' };
+      return { label: `效期至 ${new Date(until).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })}`, cls: 'fresh' };
+    }
+  }
+  const at = Date.parse(quote.quotedAt);
+  const ageDays = Number.isNaN(at) ? 0 : (now - at) / DAY_MS;
+  if (ageDays > 14) return { label: '僅供參考', cls: 'stale' };
+  if (ageDays > 7) return { label: '可能失效', cls: 'aging' };
+  return { label: '有效', cls: 'fresh' };
+}
 
 const SAMPLE_ROWS: InquiryRow[] = [
   {
@@ -276,7 +420,10 @@ function quoteScore(quote: QuoteRecord, demandQty: number) {
   const hasPrice = price !== null;
   const stockOk = stock !== null && stock >= demandQty;
   const moqOk = moq === null || moq <= demandQty;
+  const freshness = quoteFreshness(quote);
   return [
+    freshness.cls === 'expired' ? 1 : 0,
+    freshness.cls === 'stale' ? 1 : 0,
     hasPrice ? 0 : 1,
     stockOk ? 0 : 1,
     moqOk ? 0 : 1,
@@ -308,24 +455,11 @@ function bestQuoteReason(quote: QuoteRecord | null, candidateCount: number, dema
     stock !== null && stock >= demandQty ? '庫存足夠' : '庫存需確認',
     moq === null || moq <= demandQty ? 'MOQ符合' : 'MOQ高於需求',
   ];
-  return `自動從 ${candidateCount} 筆報價挑選：${checks.join('、')}`;
-}
-
-function formatCaseDate(date = new Date()) {
-  const yyyy = String(date.getFullYear());
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  return `${yyyy}${mm}${dd}`;
-}
-
-function makeCaseId(existingCases: BomCase[]) {
-  const base = `BOM-${formatCaseDate()}`;
-  const used = new Set(existingCases.map((item) => item.id));
-  for (let idx = 1; idx <= 99; idx++) {
-    const candidate = `${base}-${String(idx).padStart(2, '0')}`;
-    if (!used.has(candidate)) return candidate;
+  const freshness = quoteFreshness(quote);
+  if (freshness.cls === 'expired' || freshness.cls === 'stale') {
+    checks.push(freshness.cls === 'expired' ? '⚠ 報價已過期' : '⚠ 報價超過14天僅供參考');
   }
-  return `${base}-${Date.now().toString().slice(-4)}`;
+  return `自動從 ${candidateCount} 筆報價挑選：${checks.join('、')}`;
 }
 
 function hqewSearchUrl(mpn: string) {
@@ -528,6 +662,9 @@ export default function QqInquiryPage() {
   const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
   const [bomIndex, setBomIndex] = useState(0);
   const [queriedMpns, setQueriedMpns] = useState<string[]>([]);
+  const [caseSyncError, setCaseSyncError] = useState<string | null>(null);
+  const [casesLoading, setCasesLoading] = useState(true);
+  const [mpnHistory, setMpnHistory] = useState<QuoteRecord[]>([]);
 
   const activeCase = cases.find((item) => item.id === activeCaseId) ?? null;
   const activeBom = bomRows[bomIndex] ?? bomRows[0];
@@ -586,31 +723,131 @@ export default function QqInquiryPage() {
     void detectPasteHelper().then(setPasteHelperOnline);
   }, []);
 
+  // Case 與報價已入庫（團隊共享）；localStorage 只留「上次開啟的 Case」這種個人 UI 狀態
   useEffect(() => {
-    try {
-      const rawCases = localStorage.getItem(CASE_STORAGE_KEY);
-      const loadedCases: BomCase[] = rawCases ? JSON.parse(rawCases) : [];
-      const storedActiveId = localStorage.getItem(ACTIVE_CASE_STORAGE_KEY);
-      if (loadedCases.length) {
-        const nextActive = loadedCases.find((item) => item.id === storedActiveId) ?? loadedCases[0];
-        setCases(loadedCases);
-        setActiveCaseId(nextActive.id);
-        setBomRows(nextActive.bomRows);
-        setQuoteRecords(nextActive.quoteRecords);
-      }
-    } catch {
-      localStorage.removeItem(CASE_STORAGE_KEY);
-      localStorage.removeItem(ACTIVE_CASE_STORAGE_KEY);
-    }
+    void initCasesFromServer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(CASE_STORAGE_KEY, JSON.stringify(cases));
-  }, [cases]);
 
   useEffect(() => {
     if (activeCaseId) localStorage.setItem(ACTIVE_CASE_STORAGE_KEY, activeCaseId);
   }, [activeCaseId]);
+
+  // 跨 Case 歷史報價：切換料號時查同料號在其他 Case 談到的價
+  useEffect(() => {
+    const mpn = activeBom?.mpn;
+    if (!mpn) {
+      setMpnHistory([]);
+      return;
+    }
+    let alive = true;
+    const params = new URLSearchParams({ mpn });
+    if (activeCaseId) params.set('excludeCase', activeCaseId);
+    fetch(`/api/qq/quotes?${params.toString()}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { quotes?: ServerQqQuote[] } | null) => {
+        if (alive) setMpnHistory((json?.quotes ?? []).map(toQuoteRecord));
+      })
+      .catch(() => {
+        if (alive) setMpnHistory([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeBom?.mpn, activeCaseId]);
+
+  async function fetchCasesFromServer(): Promise<BomCase[]> {
+    const res = await fetch('/api/qq/cases', { cache: 'no-store' });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    const serverCases = (json.cases ?? []) as ServerQqCase[];
+    const serverQuotes = (json.quotes ?? []) as ServerQqQuote[];
+    const quotesByCase = new Map<string, QuoteRecord[]>();
+    for (const quote of serverQuotes) {
+      const list = quotesByCase.get(quote.caseId) ?? [];
+      list.push(toQuoteRecord(quote));
+      quotesByCase.set(quote.caseId, list);
+    }
+    return serverCases.map((sc) => toBomCase(sc, quotesByCase.get(sc.id) ?? []));
+  }
+
+  // 舊版 localStorage Case 一次性搬遷進資料庫（全部成功才清掉，失敗下次載入重試）
+  async function migrateLegacyLocalCases(serverIds: Set<string>): Promise<boolean> {
+    const raw = localStorage.getItem(CASE_STORAGE_KEY);
+    if (!raw) return false;
+    let legacyCases: LegacyBomCase[];
+    try {
+      legacyCases = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem(CASE_STORAGE_KEY);
+      return false;
+    }
+    if (!Array.isArray(legacyCases) || !legacyCases.length) {
+      localStorage.removeItem(CASE_STORAGE_KEY);
+      return false;
+    }
+
+    const toIso = (value?: string) => {
+      const parsed = value ? new Date(value) : null;
+      return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : undefined;
+    };
+
+    let migratedAny = false;
+    let allOk = true;
+    for (const legacy of legacyCases) {
+      if (!legacy?.id || !legacy.fileName || !legacy.bomRows?.length || serverIds.has(legacy.id)) continue;
+      try {
+        const hash = await computeBomHash(legacy.bomRows);
+        const res = await fetch('/api/qq/cases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: legacy.id,
+            fileName: legacy.fileName,
+            contentHash: hash,
+            bomRows: legacy.bomRows,
+            status: legacy.status,
+            createdAt: toIso(legacy.createdAt),
+            quotes: (legacy.quoteRecords ?? []).map((q) => ({
+              ...q,
+              quotedAt: toIso(q.savedAt),
+            })),
+          }),
+        });
+        if (!res.ok) {
+          allOk = false;
+          continue;
+        }
+        migratedAny = true;
+      } catch {
+        allOk = false;
+      }
+    }
+    if (allOk) localStorage.removeItem(CASE_STORAGE_KEY);
+    return migratedAny;
+  }
+
+  async function initCasesFromServer() {
+    setCasesLoading(true);
+    try {
+      let nextCases = await fetchCasesFromServer();
+      const migrated = await migrateLegacyLocalCases(new Set(nextCases.map((item) => item.id)));
+      if (migrated) nextCases = await fetchCasesFromServer();
+      setCases(nextCases);
+      const storedActiveId = localStorage.getItem(ACTIVE_CASE_STORAGE_KEY);
+      const nextActive = nextCases.find((item) => item.id === storedActiveId) ?? nextCases[0] ?? null;
+      if (nextActive) {
+        setActiveCaseId(nextActive.id);
+        setBomRows(nextActive.bomRows);
+        setQuoteRecords(nextActive.quoteRecords);
+      }
+      setCaseSyncError(null);
+    } catch (e) {
+      setCaseSyncError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCasesLoading(false);
+    }
+  }
 
   function syncActiveCase(update: Partial<Pick<BomCase, 'bomRows' | 'quoteRecords' | 'status'>>) {
     if (!activeCaseId) return;
@@ -631,11 +868,19 @@ export default function QqInquiryPage() {
     setQueriedMpns([]);
   }
 
-  function deleteCase(caseId: string) {
+  async function deleteCase(caseId: string) {
     const targetCase = cases.find((item) => item.id === caseId);
     if (!targetCase) return;
-    const confirmed = window.confirm(`確定要刪除 ${targetCase.id}？\nBOM 檔案：${targetCase.fileName}\n此 Case 的報價紀錄也會一起移除。`);
+    const confirmed = window.confirm(`確定要刪除 ${targetCase.id}？\nBOM 檔案：${targetCase.fileName}\n此 Case 的報價紀錄也會一起移除（團隊共用，其他人也會看不到）。`);
     if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/qq/cases/${encodeURIComponent(caseId)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      window.alert(`刪除失敗：${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
 
     const remainingCases = cases.filter((item) => item.id !== caseId);
     setCases(remainingCases);
@@ -768,6 +1013,36 @@ export default function QqInquiryPage() {
     }
   }
 
+  // 建立 Case（force=true 略過伺服器端 hash / 檔名去重）
+  async function createCaseOnServer(fileName: string, hash: string, rows: BomRow[], force: boolean) {
+    const res = await fetch('/api/qq/cases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName, contentHash: hash, bomRows: rows, force }),
+    });
+    const json = await res.json();
+    if (res.status === 409 && json.duplicate && json.case) {
+      const dup = json.case as ServerQqCase & { quoteCount?: number };
+      setPendingDuplicate({
+        kind: json.duplicate as 'hash' | 'filename',
+        fileName,
+        caseId: dup.id,
+        caseFileName: dup.fileName,
+        quoteCount: dup.quoteCount ?? 0,
+        rows,
+        hash,
+      });
+      return;
+    }
+    if (!res.ok || !json.case) throw new Error(json.error || `HTTP ${res.status}`);
+    const nextCase = toBomCase(json.case as ServerQqCase, []);
+    setCases((prev) => [nextCase, ...prev]);
+    setActiveCaseId(nextCase.id);
+    setBomRows(nextCase.bomRows);
+    setQuoteRecords([]);
+    setPendingDuplicate(null);
+  }
+
   async function handleBomUpload(file: File) {
     setParseError(null);
     setHqewError(null);
@@ -784,43 +1059,52 @@ export default function QqInquiryPage() {
         setBomRows([]);
         return;
       }
-      const duplicateCase = cases.find((item) => item.fileName === file.name);
-      if (duplicateCase) {
-        setPendingDuplicate({ fileName: file.name, caseId: duplicateCase.id, rows });
-        return;
-      }
-      const nextCase: BomCase = {
-        id: makeCaseId(cases),
-        fileName: file.name,
-        createdAt: new Date().toLocaleString('zh-TW', { hour12: false }),
-        status: '詢價中',
-        bomRows: rows,
-        quoteRecords: [],
-      };
-      setCases((prev) => [nextCase, ...prev]);
-      setActiveCaseId(nextCase.id);
-      setBomRows(rows);
-      setQuoteRecords([]);
+      const hash = await computeBomHash(rows);
+      await createCaseOnServer(file.name, hash, rows, false);
     } catch (e) {
       setParseError(e instanceof Error ? e.message : String(e));
       setBomRows([]);
     }
   }
 
-  function replaceDuplicateCase() {
+  // 內容 hash 相同＝同一份需求，但使用者仍想另開 → force 建新 Case
+  async function forceCreateDuplicateCase() {
     if (!pendingDuplicate) return;
-    const nextCase: BomCase = {
-      id: pendingDuplicate.caseId,
-      fileName: pendingDuplicate.fileName,
-      createdAt: new Date().toLocaleString('zh-TW', { hour12: false }),
-      status: '詢價中',
-      bomRows: pendingDuplicate.rows,
-      quoteRecords: [],
-    };
-    setCases((prev) => [nextCase, ...prev.filter((item) => item.id !== pendingDuplicate.caseId)]);
-    setActiveCaseId(nextCase.id);
-    setBomRows(nextCase.bomRows);
-    setQuoteRecords([]);
+    try {
+      await createCaseOnServer(pendingDuplicate.fileName, pendingDuplicate.hash, pendingDuplicate.rows, true);
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // 同名檔案內容有變 → 更新為新版本：取代 BOM 內容、保留既有報價（報價跟著料號走）
+  async function updateCaseToNewVersion() {
+    if (!pendingDuplicate) return;
+    const { caseId, rows, hash, fileName } = pendingDuplicate;
+    try {
+      const res = await fetch(`/api/qq/cases/${encodeURIComponent(caseId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentHash: hash, bomRows: rows }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const existing = cases.find((item) => item.id === caseId);
+    const keptQuotes = existing?.quoteRecords ?? [];
+    setCases((prev) => prev.map((item) =>
+      item.id === caseId
+        ? { ...item, fileName, bomRows: rows, contentHash: hash, status: '詢價中' as const }
+        : item
+    ));
+    setActiveCaseId(caseId);
+    setBomRows(rows);
+    setQuoteRecords(keptQuotes);
     setHqewResult(null);
     setHqewResultsByMpn({});
     setHqewError(null);
@@ -830,10 +1114,17 @@ export default function QqInquiryPage() {
     setPendingDuplicate(null);
   }
 
-  function continueExistingCase() {
+  async function continueExistingCase() {
     if (!pendingDuplicate) return;
-    switchCase(pendingDuplicate.caseId);
+    const targetId = pendingDuplicate.caseId;
     setPendingDuplicate(null);
+    if (cases.some((item) => item.id === targetId)) {
+      switchCase(targetId);
+      return;
+    }
+    // 既有 Case 是同事在本頁載入後才建立的：重新從伺服器同步再切換
+    localStorage.setItem(ACTIVE_CASE_STORAGE_KEY, targetId);
+    await initCasesFromServer();
   }
 
   function selectBomIndex(nextIndex: number) {
@@ -867,10 +1158,16 @@ export default function QqInquiryPage() {
     }
   }
 
-  function addQuoteRecord() {
+  async function addQuoteRecord() {
+    if (!activeCaseId) {
+      setQqCaptureNote({ kind: 'error', text: '請先上傳 BOM 建立 Case，報價紀錄才有歸屬' });
+      return;
+    }
     const target = quoteTarget;
-    const record: QuoteRecord = {
+    const now = new Date();
+    const payload = {
       id: `${target.rfqId}-${Date.now()}`,
+      caseId: activeCaseId,
       rfqId: target.rfqId,
       mpn: target.mpn,
       qty: target.qty,
@@ -882,18 +1179,33 @@ export default function QqInquiryPage() {
       moq: parsed.moq,
       leadTime: parsed.leadTime,
       rawReply: reply,
-      savedAt: new Date().toLocaleString('zh-TW', { hour12: false }),
+      quotedAt: now.toISOString(),
+      validUntil: computeValidUntil(parsed.validity, now),
     };
+    let saved: QuoteRecord;
+    try {
+      const res = await fetch('/api/qq/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.quote) throw new Error(json.error || `HTTP ${res.status}`);
+      saved = toQuoteRecord(json.quote as ServerQqQuote);
+    } catch (e) {
+      setQqCaptureNote({ kind: 'error', text: `報價儲存失敗：${e instanceof Error ? e.message : String(e)}` });
+      return;
+    }
     const nextRecords = [
-      record,
+      saved,
       ...quoteRecords.filter((r) => {
-        if (r.rfqId && record.rfqId) return r.rfqId !== record.rfqId;
-        return !(r.mpn === record.mpn && r.supplier === record.supplier);
+        if (r.rfqId && saved.rfqId) return r.rfqId !== saved.rfqId;
+        return !(r.mpn === saved.mpn && r.supplier === saved.supplier);
       }),
     ];
     setQuoteRecords(nextRecords);
     syncActiveCase({ quoteRecords: nextRecords });
-    setSavedQuoteId(record.rfqId ?? record.id);
+    setSavedQuoteId(saved.rfqId ?? saved.id);
     window.setTimeout(() => setSavedQuoteId(null), 1800);
   }
 
@@ -906,7 +1218,7 @@ export default function QqInquiryPage() {
 
     const sourceRows = bomRows.length ? bomRows : [{ mpn: current.mpn, qty: current.qty }];
     const bomSheetRows = [
-      ['Part Number (MPN)', 'Quantity', '候選報價數', '最佳RFQ ID', '推薦供應商', 'QQ', '品牌', '含稅單價(RMB)', '可供庫存', 'MOQ', '交期', '挑選原因', '回覆時間', 'QQ原始回覆'],
+      ['Part Number (MPN)', 'Quantity', '候選報價數', '最佳RFQ ID', '推薦供應商', 'QQ', '品牌', '含稅單價(RMB)', '可供庫存', 'MOQ', '交期', '報價狀態', '挑選原因', '回覆時間', 'QQ原始回覆'],
       ...sourceRows.map((row) => {
         const quotes = quotesByMpn.get(row.mpn) ?? [];
         const quote = pickBestQuote(quotes, row.qty);
@@ -922,6 +1234,7 @@ export default function QqInquiryPage() {
           quote ? quoteValueNumber(quote.stock) : '',
           quote ? quoteValueNumber(quote.moq) : '',
           quote?.leadTime === '待確認' ? '' : quote?.leadTime ?? '',
+          quote ? quoteFreshness(quote).label : '',
           bestQuoteReason(quote, quotes.length, row.qty),
           quote?.savedAt ?? '',
           quote?.rawReply ?? '',
@@ -930,7 +1243,7 @@ export default function QqInquiryPage() {
     ];
 
     const quoteSheetRows = [
-      ['RFQ ID', '料號', '需求數量', '供應商', 'QQ', '品牌', '含稅單價(RMB)', '可供庫存', 'MOQ', '交期', '回覆時間', 'QQ原始回覆'],
+      ['RFQ ID', '料號', '需求數量', '供應商', 'QQ', '品牌', '含稅單價(RMB)', '可供庫存', 'MOQ', '交期', '有效期至', '報價狀態', '回覆時間', '經手人', 'QQ原始回覆'],
       ...quoteRecords.map((quote) => [
         quote.rfqId ?? '',
         quote.mpn,
@@ -942,16 +1255,19 @@ export default function QqInquiryPage() {
         quoteValueNumber(quote.stock),
         quoteValueNumber(quote.moq),
         quote.leadTime === '待確認' ? '' : quote.leadTime,
+        quote.validUntil ? formatSavedAt(quote.validUntil) : '',
+        quoteFreshness(quote).label,
         quote.savedAt,
+        quote.createdBy,
         quote.rawReply,
       ]),
     ];
 
     const wb = XLSX.utils.book_new();
     const bomWs = XLSX.utils.aoa_to_sheet(bomSheetRows);
-    bomWs['!cols'] = [22, 12, 12, 34, 30, 16, 18, 16, 14, 12, 14, 36, 20, 48].map((wch) => ({ wch }));
+    bomWs['!cols'] = [22, 12, 12, 34, 30, 16, 18, 16, 14, 12, 14, 14, 36, 20, 48].map((wch) => ({ wch }));
     const quoteWs = XLSX.utils.aoa_to_sheet(quoteSheetRows);
-    quoteWs['!cols'] = [34, 22, 12, 30, 16, 18, 16, 14, 12, 14, 20, 48].map((wch) => ({ wch }));
+    quoteWs['!cols'] = [34, 22, 12, 30, 16, 18, 16, 14, 12, 14, 18, 12, 20, 14, 48].map((wch) => ({ wch }));
     XLSX.utils.book_append_sheet(wb, bomWs, 'BOM 回填');
     XLSX.utils.book_append_sheet(wb, quoteWs, '報價紀錄');
     XLSX.writeFile(wb, `SpeedPart_${activeCase?.id ?? 'QQ_Quote'}_Backfill.xlsx`);
@@ -990,17 +1306,27 @@ export default function QqInquiryPage() {
             <div className="qq-case-strip">
               <div>
                 <span>BOM 檔案</span>
-                <strong>{activeCase?.fileName ?? '-'}</strong>
+                <strong>{casesLoading ? '載入中...' : activeCase?.fileName ?? '-'}</strong>
               </div>
               <div>
                 <span>狀態</span>
                 <strong>{activeCase?.status ?? '-'}</strong>
               </div>
               <div>
+                <span>建立者</span>
+                <strong>{activeCase?.createdBy || '-'}</strong>
+              </div>
+              <div>
                 <span>本 Case 報價</span>
                 <strong>{quoteRecords.length.toLocaleString()}</strong>
               </div>
             </div>
+            {caseSyncError && (
+              <div className="qq-inline-error">
+                無法載入團隊共用的 Case 資料：{caseSyncError}
+                <button className="btn" onClick={() => void initCasesFromServer()} style={{ marginLeft: 8 }}>重試</button>
+              </div>
+            )}
             {cases.length > 0 && (
               <div className="qq-case-switch">
                 <span>切換 Case</span>
@@ -1014,7 +1340,7 @@ export default function QqInquiryPage() {
                       className="qq-case-delete"
                       aria-label={`刪除 ${item.id}`}
                       title={`刪除 ${item.id}`}
-                      onClick={() => deleteCase(item.id)}
+                      onClick={() => void deleteCase(item.id)}
                     >
                       ×
                     </button>
@@ -1099,17 +1425,35 @@ export default function QqInquiryPage() {
 
             {parseError && <div className="qq-inline-error">{parseError}</div>}
             {hqewError && <div className="qq-inline-error">華強查詢失敗：{hqewError}</div>}
-            {pendingDuplicate && (
+            {pendingDuplicate && pendingDuplicate.kind === 'hash' && (
               <div className="qq-duplicate-box">
                 <div>
-                  <strong>這個 BOM 已上傳過</strong>
-                  <span>{pendingDuplicate.fileName} 已有 Case：{pendingDuplicate.caseId}</span>
+                  <strong>這份 BOM 內容已上傳過（內容完全相同）</strong>
+                  <span>
+                    既有 Case：{pendingDuplicate.caseId}（{pendingDuplicate.caseFileName}），已有 {pendingDuplicate.quoteCount} 筆報價
+                  </span>
                 </div>
-                <button className="btn solid" onClick={replaceDuplicateCase}>
-                  重新上傳
+                <button className="btn solid" onClick={() => void continueExistingCase()}>
+                  開啟既有 Case 繼續詢價
                 </button>
-                <button className="btn" onClick={continueExistingCase}>
-                  用舊檔案繼續查詢
+                <button className="btn" onClick={() => void forceCreateDuplicateCase()}>
+                  仍要建立新 Case
+                </button>
+              </div>
+            )}
+            {pendingDuplicate && pendingDuplicate.kind === 'filename' && (
+              <div className="qq-duplicate-box">
+                <div>
+                  <strong>同名檔案已存在，但內容不同</strong>
+                  <span>
+                    {pendingDuplicate.caseFileName} 已有 Case：{pendingDuplicate.caseId}（{pendingDuplicate.quoteCount} 筆報價）——要當作它的更新版嗎？
+                  </span>
+                </div>
+                <button className="btn solid" onClick={() => void updateCaseToNewVersion()}>
+                  更新為新版本（保留既有報價）
+                </button>
+                <button className="btn" onClick={() => void forceCreateDuplicateCase()}>
+                  建立新 Case
                 </button>
               </div>
             )}
@@ -1314,7 +1658,7 @@ export default function QqInquiryPage() {
                 <div className="qq-actions">
                   <button
                     className={'btn solid' + (savedQuoteId === quoteTarget.rfqId ? ' success' : '')}
-                    onClick={addQuoteRecord}
+                    onClick={() => void addQuoteRecord()}
                   >
                     <Icon name="check" size={13} />
                     {savedQuoteId === quoteTarget.rfqId ? '已加入報價' : '加入報價紀錄'}
@@ -1323,16 +1667,36 @@ export default function QqInquiryPage() {
                     <Icon name="download" size={13} />匯出回填 BOM
                   </button>
                 </div>
+                {activeBom && mpnHistory.length > 0 && (
+                  <div className="qq-history-box">
+                    <strong>此料號在其他 Case 的歷史報價（行情參考）</strong>
+                    {mpnHistory.slice(0, 3).map((record) => {
+                      const freshness = quoteFreshness(record);
+                      return (
+                        <div key={record.id} className="qq-record-row">
+                          <strong>{record.supplier}</strong>
+                          <span>{record.unitPrice} / 庫存 {record.stock} / MOQ {record.moq}</span>
+                          <span>{record.savedAt}{record.createdBy ? ` · ${record.createdBy}` : ''}</span>
+                          <span className={`qq-quote-chip ${freshness.cls}`}>{freshness.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {quoteRecords.length > 0 && (
                   <div className="qq-records">
-                    {quoteRecords.map((record) => (
-                      <div key={record.id} className="qq-record-row">
-                        <strong>{record.rfqId ?? record.mpn}</strong>
-                        <span>{record.supplier}</span>
-                        <span>{record.unitPrice} / 庫存 {record.stock} / MOQ {record.moq}</span>
-                        <span>{record.savedAt}</span>
-                      </div>
-                    ))}
+                    {quoteRecords.map((record) => {
+                      const freshness = quoteFreshness(record);
+                      return (
+                        <div key={record.id} className="qq-record-row">
+                          <strong>{record.rfqId ?? record.mpn}</strong>
+                          <span>{record.supplier}</span>
+                          <span>{record.unitPrice} / 庫存 {record.stock} / MOQ {record.moq}</span>
+                          <span>{record.savedAt}{record.createdBy ? ` · ${record.createdBy}` : ''}</span>
+                          <span className={`qq-quote-chip ${freshness.cls}`}>{freshness.label}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -111,6 +111,37 @@ async function initPostgres() {
     );
     CREATE INDEX IF NOT EXISTS idx_search_logs_mpn ON search_logs (mpn);
     CREATE INDEX IF NOT EXISTS idx_search_logs_created ON search_logs (created_at);
+    CREATE TABLE IF NOT EXISTS qq_bom_cases (
+      id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT '詢價中',
+      bom_rows TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_qq_bom_cases_hash ON qq_bom_cases (content_hash);
+    CREATE TABLE IF NOT EXISTS qq_quotes (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      rfq_id TEXT,
+      mpn TEXT NOT NULL,
+      qty INTEGER NOT NULL DEFAULT 1,
+      supplier TEXT NOT NULL,
+      qq TEXT,
+      manufacturer TEXT NOT NULL DEFAULT '',
+      unit_price TEXT NOT NULL DEFAULT '',
+      stock TEXT NOT NULL DEFAULT '',
+      moq TEXT NOT NULL DEFAULT '',
+      lead_time TEXT NOT NULL DEFAULT '',
+      raw_reply TEXT NOT NULL DEFAULT '',
+      quoted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      valid_until TIMESTAMPTZ,
+      created_by TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_qq_quotes_case ON qq_quotes (case_id);
+    CREATE INDEX IF NOT EXISTS idx_qq_quotes_mpn ON qq_quotes (mpn);
   `);
   await pg.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -209,6 +240,38 @@ function initSqlite() {
     );
     CREATE INDEX IF NOT EXISTS idx_search_logs_mpn ON search_logs (mpn);
     CREATE INDEX IF NOT EXISTS idx_search_logs_created ON search_logs (created_at);
+
+    CREATE TABLE IF NOT EXISTS qq_bom_cases (
+      id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT '詢價中',
+      bom_rows TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_qq_bom_cases_hash ON qq_bom_cases (content_hash);
+    CREATE TABLE IF NOT EXISTS qq_quotes (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      rfq_id TEXT,
+      mpn TEXT NOT NULL,
+      qty INTEGER NOT NULL DEFAULT 1,
+      supplier TEXT NOT NULL,
+      qq TEXT,
+      manufacturer TEXT NOT NULL DEFAULT '',
+      unit_price TEXT NOT NULL DEFAULT '',
+      stock TEXT NOT NULL DEFAULT '',
+      moq TEXT NOT NULL DEFAULT '',
+      lead_time TEXT NOT NULL DEFAULT '',
+      raw_reply TEXT NOT NULL DEFAULT '',
+      quoted_at TEXT NOT NULL DEFAULT (datetime('now')),
+      valid_until TEXT,
+      created_by TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_qq_quotes_case ON qq_quotes (case_id);
+    CREATE INDEX IF NOT EXISTS idx_qq_quotes_mpn ON qq_quotes (mpn);
   `);
 
   const cols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name);
@@ -1030,6 +1093,284 @@ export async function logPartSearch(mpn: string, source: string = 'search'): Pro
   } catch (err) {
     console.error('[DB-SEARCH-LOG] Failed to log search:', err);
   }
+}
+
+// ── QQ 詢價 Case 與報價紀錄（團隊共享；報價跟著料號走，不跟著檔案走）──────────────
+
+export interface QqBomRowRecord {
+  mpn: string;
+  qty: number;
+  manufacturer?: string;
+}
+
+export interface QqBomCaseRecord {
+  id: string;
+  fileName: string;
+  contentHash: string;
+  status: string;
+  bomRows: QqBomRowRecord[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QqQuoteRecord {
+  id: string;
+  caseId: string;
+  rfqId: string | null;
+  mpn: string;
+  qty: number;
+  supplier: string;
+  qq: string | null;
+  manufacturer: string;
+  unitPrice: string;
+  stock: string;
+  moq: string;
+  leadTime: string;
+  rawReply: string;
+  quotedAt: string;
+  validUntil: string | null;
+  createdBy: string;
+}
+
+function mapQqCaseRow(row: any): QqBomCaseRecord {
+  let bomRows: QqBomRowRecord[] = [];
+  try {
+    bomRows = JSON.parse(row.bom_rows);
+  } catch {
+    bomRows = [];
+  }
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    contentHash: row.content_hash,
+    status: row.status,
+    bomRows,
+    createdBy: row.created_by,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapQqQuoteRow(row: any): QqQuoteRecord {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    rfqId: row.rfq_id ?? null,
+    mpn: row.mpn,
+    qty: Number(row.qty),
+    supplier: row.supplier,
+    qq: row.qq ?? null,
+    manufacturer: row.manufacturer,
+    unitPrice: row.unit_price,
+    stock: row.stock,
+    moq: row.moq,
+    leadTime: row.lead_time,
+    rawReply: row.raw_reply,
+    quotedAt: new Date(row.quoted_at).toISOString(),
+    validUntil: row.valid_until ? new Date(row.valid_until).toISOString() : null,
+    createdBy: row.created_by,
+  };
+}
+
+export async function listQqCases(): Promise<{ cases: QqBomCaseRecord[]; quotes: QqQuoteRecord[] }> {
+  await ensureDb();
+  if (isPostgres) {
+    const pg = getPool();
+    const [caseRes, quoteRes] = await Promise.all([
+      pg.query('SELECT * FROM qq_bom_cases ORDER BY created_at DESC'),
+      pg.query('SELECT * FROM qq_quotes ORDER BY quoted_at DESC'),
+    ]);
+    return { cases: caseRes.rows.map(mapQqCaseRow), quotes: quoteRes.rows.map(mapQqQuoteRow) };
+  }
+  const db = getSqlite();
+  return {
+    cases: (db.prepare('SELECT * FROM qq_bom_cases ORDER BY created_at DESC').all() as any[]).map(mapQqCaseRow),
+    quotes: (db.prepare('SELECT * FROM qq_quotes ORDER BY quoted_at DESC').all() as any[]).map(mapQqQuoteRow),
+  };
+}
+
+export type QqCaseWithQuoteCount = QqBomCaseRecord & { quoteCount: number };
+
+async function findQqCase(where: 'content_hash' | 'file_name', value: string): Promise<QqCaseWithQuoteCount | null> {
+  await ensureDb();
+  const sqlPg = `
+    SELECT c.*, (SELECT COUNT(*) FROM qq_quotes q WHERE q.case_id = c.id) AS quote_count
+    FROM qq_bom_cases c WHERE c.${where} = $1 ORDER BY c.created_at DESC LIMIT 1
+  `;
+  const sqlLite = `
+    SELECT c.*, (SELECT COUNT(*) FROM qq_quotes q WHERE q.case_id = c.id) AS quote_count
+    FROM qq_bom_cases c WHERE c.${where} = ? ORDER BY c.created_at DESC LIMIT 1
+  `;
+  const row = isPostgres
+    ? (await getPool().query(sqlPg, [value])).rows[0]
+    : getSqlite().prepare(sqlLite).get(value);
+  if (!row) return null;
+  return { ...mapQqCaseRow(row), quoteCount: Number((row as any).quote_count) };
+}
+
+export function findQqCaseByHash(contentHash: string) {
+  return findQqCase('content_hash', contentHash);
+}
+
+export function findQqCaseByFileName(fileName: string) {
+  return findQqCase('file_name', fileName);
+}
+
+// Case 編號沿用前端既有的 BOM-YYYYMMDD-NN 格式（以台北時區取日期）
+async function nextQqCaseId(): Promise<string> {
+  const dateSeg = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }).replace(/-/g, '');
+  const prefix = `BOM-${dateSeg}-`;
+  const ids = isPostgres
+    ? (await getPool().query('SELECT id FROM qq_bom_cases WHERE id LIKE $1', [`${prefix}%`])).rows.map((r: any) => r.id as string)
+    : (getSqlite().prepare('SELECT id FROM qq_bom_cases WHERE id LIKE ?').all(`${prefix}%`) as any[]).map((r) => r.id as string);
+  let max = 0;
+  for (const id of ids) {
+    const n = Number(id.slice(prefix.length));
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${prefix}${String(max + 1).padStart(2, '0')}`;
+}
+
+export async function createQqCase(input: {
+  id?: string;
+  fileName: string;
+  contentHash: string;
+  bomRows: QqBomRowRecord[];
+  createdBy: string;
+  status?: string;
+  createdAt?: string;
+  quotes?: Omit<QqQuoteRecord, 'caseId'>[];
+}): Promise<QqBomCaseRecord | null> {
+  await ensureDb();
+  const id = input.id ?? await nextQqCaseId();
+  const status = input.status || '詢價中';
+  const bomRowsStr = JSON.stringify(input.bomRows);
+  const createdAt = input.createdAt ?? new Date().toISOString();
+
+  if (isPostgres) {
+    const res = await getPool().query(
+      `INSERT INTO qq_bom_cases (id, file_name, content_hash, status, bom_rows, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+       ON CONFLICT (id) DO NOTHING`,
+      [id, input.fileName, input.contentHash, status, bomRowsStr, input.createdBy, createdAt]
+    );
+    if (res.rowCount === 0) return null;
+  } else {
+    const res = getSqlite()
+      .prepare(
+        `INSERT OR IGNORE INTO qq_bom_cases (id, file_name, content_hash, status, bom_rows, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, input.fileName, input.contentHash, status, bomRowsStr, input.createdBy, createdAt);
+    if (res.changes === 0) return null;
+  }
+
+  for (const quote of input.quotes ?? []) {
+    await saveQqQuote({ ...quote, caseId: id });
+  }
+
+  return {
+    id,
+    fileName: input.fileName,
+    contentHash: input.contentHash,
+    status,
+    bomRows: input.bomRows,
+    createdBy: input.createdBy,
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+// 同名檔案的新版本：取代 BOM 內容但保留既有報價（報價跟著料號走，仍然有效）
+export async function updateQqCaseBom(id: string, contentHash: string, bomRows: QqBomRowRecord[]): Promise<void> {
+  await ensureDb();
+  const bomRowsStr = JSON.stringify(bomRows);
+  if (isPostgres) {
+    await getPool().query(
+      "UPDATE qq_bom_cases SET content_hash = $1, bom_rows = $2, status = '詢價中', updated_at = now() WHERE id = $3",
+      [contentHash, bomRowsStr, id]
+    );
+    return;
+  }
+  getSqlite()
+    .prepare("UPDATE qq_bom_cases SET content_hash = ?, bom_rows = ?, status = '詢價中', updated_at = datetime('now') WHERE id = ?")
+    .run(contentHash, bomRowsStr, id);
+}
+
+export async function deleteQqCase(id: string): Promise<void> {
+  await ensureDb();
+  if (isPostgres) {
+    const pg = getPool();
+    await pg.query('DELETE FROM qq_quotes WHERE case_id = $1', [id]);
+    await pg.query('DELETE FROM qq_bom_cases WHERE id = $1', [id]);
+    return;
+  }
+  const db = getSqlite();
+  db.prepare('DELETE FROM qq_quotes WHERE case_id = ?').run(id);
+  db.prepare('DELETE FROM qq_bom_cases WHERE id = ?').run(id);
+}
+
+// 同 Case 內同一 RFQ（或無 RFQ 時同料號×供應商）的舊報價以新報價取代；
+// 跨 Case 的歷史報價一律保留（歷史報價是資產：談判依據與行情曲線）。
+export async function saveQqQuote(quote: QqQuoteRecord): Promise<void> {
+  await ensureDb();
+  if (isPostgres) {
+    const pg = getPool();
+    await pg.query(
+      `DELETE FROM qq_quotes WHERE case_id = $1 AND (
+         (rfq_id IS NOT NULL AND $2::text IS NOT NULL AND rfq_id = $2)
+         OR ((rfq_id IS NULL OR $2::text IS NULL) AND mpn = $3 AND supplier = $4)
+       )`,
+      [quote.caseId, quote.rfqId, quote.mpn, quote.supplier]
+    );
+    await pg.query(
+      `INSERT INTO qq_quotes (id, case_id, rfq_id, mpn, qty, supplier, qq, manufacturer, unit_price, stock, moq, lead_time, raw_reply, quoted_at, valid_until, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+      [
+        quote.id, quote.caseId, quote.rfqId, quote.mpn, quote.qty, quote.supplier, quote.qq,
+        quote.manufacturer, quote.unitPrice, quote.stock, quote.moq, quote.leadTime, quote.rawReply,
+        quote.quotedAt, quote.validUntil, quote.createdBy,
+      ]
+    );
+    return;
+  }
+  const db = getSqlite();
+  db.prepare(
+    `DELETE FROM qq_quotes WHERE case_id = ? AND (
+       (rfq_id IS NOT NULL AND ? IS NOT NULL AND rfq_id = ?)
+       OR ((rfq_id IS NULL OR ? IS NULL) AND mpn = ? AND supplier = ?)
+     )`
+  ).run(quote.caseId, quote.rfqId, quote.rfqId, quote.rfqId, quote.mpn, quote.supplier);
+  db.prepare(
+    `INSERT INTO qq_quotes (id, case_id, rfq_id, mpn, qty, supplier, qq, manufacturer, unit_price, stock, moq, lead_time, raw_reply, quoted_at, valid_until, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    quote.id, quote.caseId, quote.rfqId, quote.mpn, quote.qty, quote.supplier, quote.qq,
+    quote.manufacturer, quote.unitPrice, quote.stock, quote.moq, quote.leadTime, quote.rawReply,
+    quote.quotedAt, quote.validUntil, quote.createdBy,
+  );
+}
+
+// 跨 Case 歷史報價（同料號在其他 Case 談到的價），供詢價前參考行情
+export async function getQqQuotesByMpn(mpn: string, excludeCaseId?: string, limit = 6): Promise<QqQuoteRecord[]> {
+  await ensureDb();
+  const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+  if (isPostgres) {
+    const res = await getPool().query(
+      `SELECT * FROM qq_quotes WHERE mpn = $1 AND ($2::text IS NULL OR case_id <> $2)
+       ORDER BY quoted_at DESC LIMIT $3`,
+      [mpn, excludeCaseId ?? null, safeLimit]
+    );
+    return res.rows.map(mapQqQuoteRow);
+  }
+  const rows = getSqlite()
+    .prepare(
+      `SELECT * FROM qq_quotes WHERE mpn = ? AND (? IS NULL OR case_id <> ?)
+       ORDER BY quoted_at DESC LIMIT ?`
+    )
+    .all(mpn, excludeCaseId ?? null, excludeCaseId ?? null, safeLimit) as any[];
+  return rows.map(mapQqQuoteRow);
 }
 
 // 最近 N 天最常被搜尋的料號（供 field-suggestions 建議實戰料輪換）

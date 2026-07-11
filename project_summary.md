@@ -1,6 +1,26 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-11（基準料名單重構為角色制）
+> 最後更新：2026-07-11（QQ 詢價 Case 與報價入庫，團隊共享）
+
+---
+
+### 2026-07-11 — QQ 詢價 Case 與報價紀錄入庫（localStorage → DB，團隊共享）
+
+**背景**：BOM 列表、報價紀錄原本存瀏覽器 localStorage——同事詢的價彼此看不到、清快取就消失。依討論定案三原則：(1) 檔案身分用「解析後內容 hash」而非檔名；(2) 報價跟著料號×供應商走、不跟著檔案走；(3) 報價有效期兩層制（廠商明講的硬期限＋報價日齡軟分級），過期不刪不藏（歷史報價是談判依據與行情曲線）。
+
+- [x] **DB 新表**（SQLite+Postgres 雙路徑，Postgres 部署後首次請求自動建表）：
+  - `qq_bom_cases`：id（沿用 BOM-YYYYMMDD-NN，改由伺服器以台北時區產生）、file_name、content_hash（料號×數量正規化排序後 SHA-256）、status、bom_rows(JSON)、created_by。
+  - `qq_quotes`：料號×供應商為業務主鍵，含 quoted_at、valid_until（廠商明講才有）、created_by；同 Case 同 RFQ（或同料號×供應商）新報價取代舊報價，跨 Case 一律保留。
+- [x] **API**（皆走 `canAccessQqInquiry` 權限閘）：`GET/POST /api/qq/cases`（POST 去重：hash 相同回 409 duplicate=hash 引導開既有 Case；同名不同內容回 409 duplicate=filename 引導更新為新版本；force 略過）、`PATCH/DELETE /api/qq/cases/[id]`（PATCH=新版本：換 BOM 內容保留報價）、`GET/POST /api/qq/quotes`（GET ?mpn= 跨 Case 歷史報價）。
+- [x] **前端**（`/qq-inquiry`）：
+  - 載入改抓伺服器；localStorage 舊 Case **一次性自動搬遷**進 DB（全部成功才清 key，失敗下次重試），localStorage 只留「上次開啟的 Case」。
+  - 上傳 BOM 前端算 hash → 內容相同提示開既有 Case／仍建新 Case；同名不同內容提示「更新為新版本（保留報價）」／建新 Case。
+  - 報價新鮮度 chip：廠商效期內綠「效期至 M/D」、過期紅「已過期」；未明講效期則 7 天內綠「有效」、7-14 天琥珀「可能失效」、>14 天灰「僅供參考」。廠商明講的「報價有效期 N 天」自動換算 valid_until。
+  - 新增「此料號在其他 Case 的歷史報價（行情參考）」區塊（顯示供應商/價格/日期/經手人/新鮮度）；報價列與 Case 資訊列顯示經手人（建立者）。
+  - 最佳報價挑選：已過期/僅供參考的報價自動降權；匯出 Excel 新增「報價狀態」「有效期至」「經手人」欄。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅；本機 SQLite 實測全流程——建 Case（id 正確產生 BOM-20260711-01、createdBy 帶入）、hash 去重 409、同名 409、force 建新、同 RFQ 報價取代（0.2→0.19 只留一筆）、valid_until=+3 天、跨 Case 歷史查詢 excludeCase 正確、PATCH 版本更新、DELETE 連動刪報價；模擬 localStorage 舊 Case 重載後自動搬遷入 DB 且 key 清空；瀏覽器頁面實測 Case 切換、已報價標記、「有效」「可能失效」chip、歷史報價區塊渲染正常（測試資料已清）。
+- **注意**：正式站部署後，各同事瀏覽器裡的舊 localStorage Case 會在他們下次開啟 `/qq-inquiry` 時自動搬遷合併進 DB。
+- **修改檔案**：`src/lib/db.ts`、`src/app/api/qq/session.ts`（新）、`src/app/api/qq/cases/route.ts`（新）、`src/app/api/qq/cases/[id]/route.ts`（新）、`src/app/api/qq/quotes/route.ts`（新）、`src/app/qq-inquiry/page.tsx`、`src/app/globals.css`
 
 ---
 
