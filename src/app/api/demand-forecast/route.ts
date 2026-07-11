@@ -424,6 +424,21 @@ function bestResult(results: PartResult[]): PartResult | null {
   })[0] ?? null;
 }
 
+// 快取內可能是「舊名單」的料件：以現行 benchmark 為準——補 role/subCategory、
+// 剔除已汰換的料、名單新料補「尚未查詢」佔位（等下一次 mode=full 查到真資料）。
+function alignPartsWithBenchmark(cachedParts: any[] | undefined) {
+  const emptyPart = (part: BenchmarkPart) => ({
+    ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null,
+    summary: '尚未查詢', riskReasons: [],
+  });
+  if (!cachedParts || cachedParts.length === 0) return BENCHMARK_PARTS.map(emptyPart);
+  const byKey = new Map(cachedParts.map((p: any) => [`${p.categoryId}-${String(p.mpn).toUpperCase()}`, p]));
+  return BENCHMARK_PARTS.map((part) => {
+    const hit = byKey.get(`${part.categoryId}-${part.mpn.toUpperCase()}`);
+    return hit ? { ...hit, role: part.role, subCategory: part.subCategory } : emptyPart(part);
+  });
+}
+
 // 將供應商名稱正規化為「公司」：Mouser HK / Mouser VN / Mouser → Mouser，避免重複計算
 function supplierCompany(supplier: string): string {
   const s = supplier.toLowerCase();
@@ -712,10 +727,7 @@ export async function GET(req: NextRequest) {
     const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
       ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
     }));
-    const emptyParts = BENCHMARK_PARTS.map((part) => ({
-      ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null, summary: '尚未查詢', riskReasons: [],
-    }));
-    const cachedParts = partsCache?.parts ?? emptyParts;
+    const cachedParts = alignPartsWithBenchmark(partsCache?.parts);
     return NextResponse.json({
       updatedAt: newsCache?.updatedAt ?? partsCache?.updatedAt ?? new Date().toISOString(),
       mode,
@@ -738,9 +750,7 @@ export async function GET(req: NextRequest) {
     const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
       ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
     }));
-    const summaryParts = partsCache?.parts ?? BENCHMARK_PARTS.map((part) => ({
-      ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null, summary: '尚未查詢', riskReasons: [],
-    }));
+    const summaryParts = alignPartsWithBenchmark(partsCache?.parts);
     return NextResponse.json({
       updatedAt: newsData.updatedAt,
       mode,

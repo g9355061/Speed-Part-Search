@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
+import { logPartSearch } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,9 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  // 記錄實際被查詢的料號（實戰料 field parts 的資料來源），不等待、失敗不影響搜尋
+  void logPartSearch(partNumber, 'search');
 
   const requested = requestedSupplierNames(req);
   const suppliers = requested

@@ -103,6 +103,14 @@ async function initPostgres() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (mpn, date)
     );
+    CREATE TABLE IF NOT EXISTS search_logs (
+      id SERIAL PRIMARY KEY,
+      mpn TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'search',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_logs_mpn ON search_logs (mpn);
+    CREATE INDEX IF NOT EXISTS idx_search_logs_created ON search_logs (created_at);
   `);
   await pg.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -193,6 +201,14 @@ function initSqlite() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (mpn, date)
     );
+    CREATE TABLE IF NOT EXISTS search_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mpn TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'search',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_logs_mpn ON search_logs (mpn);
+    CREATE INDEX IF NOT EXISTS idx_search_logs_created ON search_logs (created_at);
   `);
 
   const cols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name);
@@ -582,6 +598,39 @@ export async function getGenericCache(key: string): Promise<any | null> {
   }
 }
 
+export interface GenericCacheEntry<T = any> {
+  key: string;
+  data: T;
+  updatedAt: string;
+}
+
+export async function listGenericCacheByPrefix<T = any>(prefix: string, limit = 52): Promise<GenericCacheEntry<T>[]> {
+  await ensureDb();
+  const safeLimit = Math.max(1, Math.min(260, Math.floor(limit)));
+  try {
+    const rows = isPostgres
+      ? (await getPool().query(
+          "SELECT key, data, updated_at FROM demand_forecast_cache WHERE key LIKE $1 ORDER BY updated_at DESC LIMIT $2",
+          [`${prefix}%`, safeLimit]
+        )).rows
+      : getSqlite()
+          .prepare("SELECT key, data, updated_at FROM demand_forecast_cache WHERE key LIKE ? ORDER BY updated_at DESC LIMIT ?")
+          .all(`${prefix}%`, safeLimit) as any[];
+
+    return rows.flatMap((row: any) => {
+      try {
+        return [{ key: row.key, data: JSON.parse(row.data) as T, updatedAt: new Date(row.updated_at).toISOString() }];
+      } catch (err) {
+        console.warn(`[DB-CACHE] Skipping invalid JSON for key ${row.key}:`, err);
+        return [];
+      }
+    });
+  } catch (err) {
+    console.error(`[DB-CACHE] Failed to list cache keys with prefix ${prefix}:`, err);
+    return [];
+  }
+}
+
 export async function setGenericCache(key: string, data: any): Promise<void> {
   await ensureDb();
   const dataStr = JSON.stringify(data);
@@ -963,5 +1012,50 @@ export async function saveCustomThresholds(thresholds: Record<string, { minStock
     } catch (err) {
       console.error("[DB] Failed to save custom thresholds (sqlite):", err);
     }
+  }
+}
+
+// ── 搜尋記錄（實戰料 field parts 的資料來源）──────────────
+// 記錄使用者在料件搜尋/BOM 查詢實際查過的料號；失敗靜默（記錄不能影響搜尋主流程）。
+export async function logPartSearch(mpn: string, source: string = 'search'): Promise<void> {
+  const clean = (mpn || '').trim().toUpperCase().slice(0, 64);
+  if (!clean) return;
+  try {
+    await ensureDb();
+    if (isPostgres) {
+      await getPool().query('INSERT INTO search_logs (mpn, source) VALUES ($1, $2)', [clean, source]);
+    } else {
+      getSqlite().prepare('INSERT INTO search_logs (mpn, source) VALUES (?, ?)').run(clean, source);
+    }
+  } catch (err) {
+    console.error('[DB-SEARCH-LOG] Failed to log search:', err);
+  }
+}
+
+// 最近 N 天最常被搜尋的料號（供 field-suggestions 建議實戰料輪換）
+export async function getTopSearchedMpns(days: number = 90, limit: number = 30): Promise<{ mpn: string; count: number; lastSearched: string }[]> {
+  try {
+    await ensureDb();
+    if (isPostgres) {
+      const result = await getPool().query(
+        `SELECT mpn, COUNT(*)::int AS count, MAX(created_at)::text AS last_searched
+         FROM search_logs
+         WHERE created_at >= now() - ($1 || ' days')::interval
+         GROUP BY mpn ORDER BY count DESC, last_searched DESC LIMIT $2`,
+        [String(days), limit]
+      );
+      return result.rows.map((r: any) => ({ mpn: r.mpn, count: r.count, lastSearched: r.last_searched }));
+    } else {
+      const rows = getSqlite().prepare(
+        `SELECT mpn, COUNT(*) AS count, MAX(created_at) AS last_searched
+         FROM search_logs
+         WHERE created_at >= datetime('now', '-' || ? || ' days')
+         GROUP BY mpn ORDER BY count DESC, last_searched DESC LIMIT ?`
+      ).all(days, limit) as any[];
+      return rows.map((r) => ({ mpn: r.mpn, count: r.count, lastSearched: r.last_searched }));
+    }
+  } catch (err) {
+    console.error('[DB-SEARCH-LOG] Failed to get top searched:', err);
+    return [];
   }
 }

@@ -194,6 +194,7 @@ interface ForecastPart {
   mpn: string;
   manufacturer: string;
   family: string;
+  role?: 'thermometer' | 'chokepoint' | 'field';
   description?: string;
   apiManufacturer?: string;
   supplierCount: number | null;
@@ -1034,6 +1035,7 @@ export default function DemandForecastPage() {
               <thead>
                 <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
                   <Th>類別</Th>
+                  <Th>角色</Th>
                   <Th>料號</Th>
                   <Th>廠商</Th>
                   <Th>基本資料</Th>
@@ -1049,6 +1051,7 @@ export default function DemandForecastPage() {
                 {filteredParts.map((part, idx) => (
                   <tr key={`${part.categoryId}-${part.mpn}-${idx}`} style={{ borderTop: '1px solid var(--hairline)' }}>
                     <Td>{categoryName(part.categoryId, part.category)}</Td>
+                    <Td><RoleBadge role={part.role} /></Td>
                     <Td mono>{part.mpn}</Td>
                     <Td>{part.apiManufacturer || part.manufacturer}</Td>
                     <Td>
@@ -1806,6 +1809,21 @@ function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查
     >
       <span style={{ width: 10, height: 10, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
       {value}
+    </span>
+  );
+}
+
+// 基準料角色標示：溫度計=偵測市場級變化、咽喉=單點斷供風險、實戰=使用者真實用料
+function RoleBadge({ role }: { role?: 'thermometer' | 'chokepoint' | 'field' }) {
+  if (!role) return <span style={{ color: 'var(--text-3)' }}>-</span>;
+  const spec = {
+    thermometer: { label: '溫度計', bg: '#EFF8FF', color: '#175CD3', border: '#B2DDFF', title: '大宗共用料：偵測市場級供需變化' },
+    chokepoint: { label: '咽喉', bg: '#FFF6ED', color: '#B93815', border: '#F9DBAF', title: '單一來源/無替代：偵測單點斷供風險' },
+    field: { label: '實戰', bg: '#ECFDF3', color: '#067647', border: '#ABEFC6', title: '自家實際搜尋/使用的料：警報直接可行動' },
+  }[role];
+  return (
+    <span title={spec.title} style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 700, background: spec.bg, color: spec.color, border: `1px solid ${spec.border}`, whiteSpace: 'nowrap' }}>
+      {spec.label}
     </span>
   );
 }

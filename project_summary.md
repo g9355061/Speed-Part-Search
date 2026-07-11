@@ -1,6 +1,20 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-08（移除 QQ 詢價測試回覆範例）
+> 最後更新：2026-07-10（週報頁新增歷史週報）
+
+---
+
+### 2026-07-10 — 週報頁新增歷史週報
+
+- [x] **週報清單顯示全部歷史資料**：週報 API 不再只回傳本週一份，現在會從資料庫讀取既有週報快取，依週次由新到舊排列。
+- [x] **舊週報網址可正常開啟**：詳情頁改為依網址中的週報 ID 讀取對應內容，不再固定讀取本週報告或讓舊網址回傳 404。
+- [x] **正式資料驗證**：Railway 資料庫現有 5 份週報，日期為 2026/07/06、06/29、06/22、06/15、06/08；逐份確認 ID、標題及封面故事內容均正確配對。
+- [x] **品質檢查**：`npx tsc --noEmit` 與 `npm test` 通過。
+- **修改檔案**：
+  - `src/lib/db.ts`
+  - `src/lib/demand-forecast/weekly-report.ts`
+  - `src/app/demand-forecast/weekly-reports/[id]/page.tsx`
+  - `project_summary.md`
 
 ---
 

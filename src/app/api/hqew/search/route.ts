@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { chromium } from 'playwright';
 import { authOptions } from '@/lib/auth-config';
 import { canAccessQqInquiry } from '@/lib/permissions';
+import { logPartSearch } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -90,6 +91,9 @@ export async function GET(req: NextRequest) {
   if (!partNumber) {
     return NextResponse.json({ error: 'partNumber query parameter is required' }, { status: 400 });
   }
+
+  // QQ 詢價查的是真實 BOM 料號——實戰料最有價值的來源
+  void logPartSearch(partNumber, 'qq-inquiry');
 
   const url = `https://s.hqew.com/${encodeURIComponent(partNumber)}.html`;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;

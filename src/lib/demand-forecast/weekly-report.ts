@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { getMarketReportsCache, getGenericCache, setGenericCache, getDemandForecastSnapshotHistory, type SnapshotPoint } from '@/lib/db';
+import { getMarketReportsCache, getGenericCache, listGenericCacheByPrefix, setGenericCache, getDemandForecastSnapshotHistory, type SnapshotPoint } from '@/lib/db';
 import { DEMAND_CATEGORIES, BENCHMARK_PARTS } from '@/lib/demand-forecast/benchmark';
 import crypto from 'crypto';
 
@@ -932,6 +932,19 @@ export async function getCachedWeeklyReport(): Promise<WeeklyReportDetail> {
   return report;
 }
 
+export async function getWeeklyReportById(id: string): Promise<WeeklyReportDetail | null> {
+  if (!/^weekly-\d{4}-\d{2}-\d{2}$/.test(id)) return null;
+  if (id === currentWeeklyReportId()) return getCachedWeeklyReport();
+
+  try {
+    const cached: any = await getGenericCache(`weekly-report-built-${id}`);
+    return cached?.report?.id === id ? cached.report as WeeklyReportDetail : null;
+  } catch (err) {
+    console.warn(`[WeeklyReport] historical cache read failed for ${id}:`, err);
+    return null;
+  }
+}
+
 export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const now = new Date();
   const start = weekStart(now);
@@ -1154,11 +1167,16 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
 }
 
 export async function listWeeklyReports(): Promise<WeeklyReportListItem[]> {
-  const report = await getCachedWeeklyReport();
-  return [{
-    id: report.id,
-    title: report.title,
-    href: report.href,
-    date: report.date,
-  }];
+  const current = await getCachedWeeklyReport();
+  const cached = await listGenericCacheByPrefix<{ report?: WeeklyReportDetail }>('weekly-report-built-weekly-', 104);
+  const reports = new Map<string, WeeklyReportDetail>();
+  reports.set(current.id, current);
+  for (const entry of cached) {
+    const report = entry.data?.report;
+    if (report?.id && /^weekly-\d{4}-\d{2}-\d{2}$/.test(report.id)) reports.set(report.id, report);
+  }
+
+  return [...reports.values()]
+    .sort((a, b) => b.id.localeCompare(a.id))
+    .map((report) => ({ id: report.id, title: report.title, href: report.href, date: report.date }));
 }
