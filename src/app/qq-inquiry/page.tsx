@@ -263,20 +263,38 @@ const SAMPLE_ROWS: InquiryRow[] = [
     qq: '2881492917',
   },
 ];
+interface InquiryTemplate {
+  id: string;
+  name: string;
+  content: string;
+}
 
-function buildMessage(row: InquiryRow) {
-  return [
-    `詢價編號：${row.rfqId}`,
-    '',
-    '您好，麻煩幫忙報價，謝謝。',
-    '',
-    `料號：${row.mpn}`,
-    `品牌：${row.manufacturer}`,
-    `需求數量：${row.qty.toLocaleString()} pcs`,
-    '需求：原裝正品，請提供含稅單價、庫存數量、MOQ/MPQ、批號、交期與報價有效期。',
-    '',
-    '如果有現貨，請一併提供可出貨時間與付款/物流條件。',
-  ].join('\n');
+const DEFAULT_TEMPLATES: InquiryTemplate[] = [
+  {
+    id: 'default',
+    name: '預設模板 (Default)',
+    content: [
+      '詢價編號：{rfqId}',
+      '',
+      '您好，麻煩幫忙報價，謝謝。',
+      '',
+      '料號：{mpn}',
+      '品牌：{manufacturer}',
+      '需求數量：{qty} pcs',
+      '需求：原裝正品，請提供含稅單價、庫存數量、MOQ/MPQ、批號、交期與報價有效期。',
+      '',
+      '如果有現貨，請一併提供可出貨時間與付款/物流條件。',
+    ].join('\n'),
+  },
+];
+
+function buildMessage(row: InquiryRow, templateContent: string = DEFAULT_TEMPLATES[0].content) {
+  if (!row) return '';
+  return templateContent
+    .replace(/{rfqId}/g, row.rfqId || '')
+    .replace(/{mpn}/g, row.mpn || '')
+    .replace(/{manufacturer}/g, row.manufacturer || '')
+    .replace(/{qty}/g, row.qty !== undefined && row.qty !== null ? row.qty.toLocaleString() : '');
 }
 
 function sanitizeRfqSegment(value: string) {
@@ -679,6 +697,19 @@ export default function QqInquiryPage() {
   const [mpnHistory, setMpnHistory] = useState<QuoteRecord[]>([]);
   const [boardExpandedCaseId, setBoardExpandedCaseId] = useState<string | null>(null);
 
+  const [templates, setTemplates] = useState<InquiryTemplate[]>(DEFAULT_TEMPLATES);
+  const [activeTemplateId, setActiveTemplateId] = useState<string>('default');
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
+  const [newTemplateName, setNewTemplateName] = useState<string>('');
+  const [newTemplateContent, setNewTemplateContent] = useState<string>('');
+
+  const saveTemplates = (newTemplates: InquiryTemplate[]) => {
+    setTemplates(newTemplates);
+    localStorage.setItem('speedpart.inquiryTemplates.v1', JSON.stringify(newTemplates));
+  };
+
+
   const activeCase = cases.find((item) => item.id === activeCaseId) ?? null;
   const activeBom = bomRows[bomIndex] ?? bomRows[0];
   const hasPrevBom = bomIndex > 0;
@@ -716,7 +747,10 @@ export default function QqInquiryPage() {
   }, [activeBom, activeCaseId, hqewResult]);
 
   const current = hqewRows[selected] ?? hqewRows[0];
-  const message = useMemo(() => buildMessage(current), [current]);
+  const activeTemplate = useMemo(() => {
+    return templates.find((t) => t.id === activeTemplateId) ?? templates[0] ?? DEFAULT_TEMPLATES[0];
+  }, [templates, activeTemplateId]);
+  const message = useMemo(() => buildMessage(current, activeTemplate.content), [current, activeTemplate]);
   const parsed = useMemo(() => parseReplyText(reply), [reply]);
   const detectedRfqId = useMemo(() => extractRfqId(reply), [reply]);
   const detectedRow = useMemo(
@@ -734,6 +768,19 @@ export default function QqInquiryPage() {
 
   useEffect(() => {
     void detectPasteHelper().then(setPasteHelperOnline);
+
+    const savedTemplates = localStorage.getItem('speedpart.inquiryTemplates.v1');
+    if (savedTemplates) {
+      try {
+        setTemplates(JSON.parse(savedTemplates));
+      } catch (e) {
+        console.error('Failed to parse templates from localStorage', e);
+      }
+    }
+    const savedActiveId = localStorage.getItem('speedpart.activeTemplateId.v1');
+    if (savedActiveId) {
+      setActiveTemplateId(savedActiveId);
+    }
   }, []);
 
   // Case 與報價已入庫（團隊共享）；localStorage 只留「上次開啟的 Case」這種個人 UI 狀態
@@ -955,7 +1002,7 @@ export default function QqInquiryPage() {
 
   async function openSupplierQq(row: InquiryRow) {
     // 一律先複製完整詢價內容到剪貼簿（最有價值、且不會出錯的部分）
-    void navigator.clipboard.writeText(buildMessage(row)).catch(() => undefined);
+    void navigator.clipboard.writeText(buildMessage(row, activeTemplate.content)).catch(() => undefined);
     setCopiedInquiryQq(row.rfqId);
     setQqOpenOutcome('opening');
     window.setTimeout(() => setCopiedInquiryQq(null), 4000);
@@ -1664,6 +1711,45 @@ export default function QqInquiryPage() {
               <div className="card-hd">
                 <h3><Icon name="message" size={14} />人工確認詢價內容</h3>
                 <span className="sub">送出前可人工微調</span>
+                <div className="actions">
+                  <select
+                    value={activeTemplateId}
+                    onChange={(e) => {
+                      setActiveTemplateId(e.target.value);
+                      localStorage.setItem('speedpart.activeTemplateId.v1', e.target.value);
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: '12px',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface-2)',
+                      color: 'var(--text)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setShowSettingsModal(true)}
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: '12px',
+                      height: '26px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <Icon name="settings" size={12} />設定
+                  </button>
+                </div>
               </div>
               <div className="card-bd">
                 <textarea className="qq-textarea mono" value={message} readOnly />
@@ -1671,12 +1757,6 @@ export default function QqInquiryPage() {
                   <button className="btn solid" onClick={copyMessage}>
                     <Icon name="copy" size={13} />複製到 QQ / 微信
                   </button>
-                  <a className="btn" href={`mailto:?subject=${encodeURIComponent(`詢價 ${current.mpn}`)}&body=${encodeURIComponent(message)}`}>
-                    <Icon name="message" size={13} />Email
-                  </a>
-                  <a className="btn" href={hqewSearchUrl(current.mpn)} target="_blank" rel="noreferrer">
-                    <Icon name="external" size={13} />華強頁面
-                  </a>
                   <button className="btn" onClick={copyAndOpenHqew}>
                     <Icon name="copy" size={13} />複製並開華強
                   </button>
@@ -1835,6 +1915,356 @@ export default function QqInquiryPage() {
             </div>
           </div>
         </section>
+
+        {showSettingsModal && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(15, 23, 42, 0.45)',
+              backdropFilter: 'blur(16px)',
+              zIndex: 9999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 20,
+            }}
+            onClick={() => {
+              setShowSettingsModal(false);
+              setEditingTemplate(null);
+              setNewTemplateName('');
+              setNewTemplateContent('');
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--surface)',
+                borderRadius: 16,
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+                width: '90%',
+                maxWidth: 640,
+                maxHeight: '85vh',
+                display: 'flex',
+                flexDirection: 'column',
+                border: '1px solid var(--border)',
+                overflow: 'hidden',
+                animation: 'modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '18px 24px',
+                  borderBottom: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                }}
+              >
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="settings" size={18} />
+                  詢價/報價模板設定
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    setEditingTemplate(null);
+                    setNewTemplateName('');
+                    setNewTemplateContent('');
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-3)',
+                    cursor: 'pointer',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Icon name="x" size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div
+                style={{
+                  padding: '24px',
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 20,
+                }}
+              >
+                {/* Template Selection */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>
+                    當前選用模板
+                  </label>
+                  <select
+                    value={activeTemplateId}
+                    onChange={(e) => {
+                      setActiveTemplateId(e.target.value);
+                      localStorage.setItem('speedpart.activeTemplateId.v1', e.target.value);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+
+                {/* Template List */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>
+                    現有模板清單
+                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {templates.map((t) => (
+                      <div
+                        key={t.id}
+                        style={{
+                          padding: 12,
+                          borderRadius: 8,
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                            {t.name} {t.id === 'default' && <span style={{ fontSize: 10, background: 'var(--border)', color: 'var(--text-3)', padding: '2px 6px', borderRadius: 4, marginLeft: 6 }}>系統預設</span>}
+                          </span>
+                          {t.id !== 'default' && (
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button
+                                type="button"
+                                className="btn"
+                                style={{ padding: '2px 8px', fontSize: 11, height: 'auto' }}
+                                onClick={() => {
+                                  setEditingTemplate(t.id);
+                                  setNewTemplateName(t.name);
+                                  setNewTemplateContent(t.content);
+                                }}
+                              >
+                                編輯
+                              </button>
+                              <button
+                                type="button"
+                                className="btn"
+                                style={{ padding: '2px 8px', fontSize: 11, height: 'auto', color: '#d92d20' }}
+                                onClick={() => {
+                                  if (window.confirm(`確定要刪除「${t.name}」嗎？`)) {
+                                    const updated = templates.filter((x) => x.id !== t.id);
+                                    saveTemplates(updated);
+                                    if (activeTemplateId === t.id) {
+                                      setActiveTemplateId('default');
+                                      localStorage.setItem('speedpart.activeTemplateId.v1', 'default');
+                                    }
+                                  }
+                                }}
+                              >
+                                刪除
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <pre
+                          style={{
+                            margin: 0,
+                            fontSize: 11,
+                            color: 'var(--text-3)',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all',
+                            background: 'var(--surface)',
+                            padding: 8,
+                            borderRadius: 4,
+                            border: '1px solid var(--border)',
+                            maxHeight: 100,
+                            overflowY: 'auto',
+                          }}
+                        >
+                          {t.content}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+
+                {/* Add / Edit Form */}
+                <div
+                  style={{
+                    background: 'var(--surface-2)',
+                    padding: 16,
+                    borderRadius: 8,
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                    {editingTemplate ? '編輯自訂模板' : '新增自訂模板'}
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 4, color: 'var(--text-2)' }}>
+                        模板名稱
+                      </label>
+                      <input
+                        type="text"
+                        value={newTemplateName}
+                        onChange={(e) => setNewTemplateName(e.target.value)}
+                        placeholder="例如：報價模板二"
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          fontSize: '12px',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface)',
+                          color: 'var(--text)',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 4, color: 'var(--text-2)' }}>
+                        模板內容
+                      </label>
+                      <textarea
+                        value={newTemplateContent}
+                        onChange={(e) => setNewTemplateContent(e.target.value)}
+                        placeholder={`請輸入模板內容，可使用以下變數：\n{rfqId} - 詢價編號\n{mpn} - 料號\n{manufacturer} - 品牌\n{qty} - 需求數量`}
+                        rows={6}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          fontSize: '12px',
+                          fontFamily: 'monospace',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface)',
+                          color: 'var(--text)',
+                          resize: 'vertical',
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', fontSize: 10, color: 'var(--text-4)', gap: 10, flexWrap: 'wrap' }}>
+                      <span>支援變數：</span>
+                      <code>{`{rfqId}`}</code>
+                      <code>{`{mpn}`}</code>
+                      <code>{`{manufacturer}`}</code>
+                      <code>{`{qty}`}</code>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+                      {editingTemplate && (
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => {
+                            setEditingTemplate(null);
+                            setNewTemplateName('');
+                            setNewTemplateContent('');
+                          }}
+                        >
+                          取消編輯
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn solid"
+                        onClick={() => {
+                          if (!newTemplateName.trim()) {
+                            window.alert('請輸入模板名稱');
+                            return;
+                          }
+                          if (!newTemplateContent.trim()) {
+                            window.alert('請輸入模板內容');
+                            return;
+                          }
+
+                          if (editingTemplate) {
+                            // Update existing
+                            const updated = templates.map((t) =>
+                              t.id === editingTemplate
+                                ? { ...t, name: newTemplateName, content: newTemplateContent }
+                                : t
+                            );
+                            saveTemplates(updated);
+                            setEditingTemplate(null);
+                          } else {
+                            // Create new
+                            const newId = `custom-${Date.now()}`;
+                            const newT: InquiryTemplate = {
+                              id: newId,
+                              name: newTemplateName,
+                              content: newTemplateContent,
+                            };
+                            const updated = [...templates, newT];
+                            saveTemplates(updated);
+                            setActiveTemplateId(newId);
+                            localStorage.setItem('speedpart.activeTemplateId.v1', newId);
+                          }
+
+                          setNewTemplateName('');
+                          setNewTemplateContent('');
+                        }}
+                      >
+                        {editingTemplate ? '儲存修改' : '新增模板'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  padding: '12px 24px',
+                  borderTop: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn solid"
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    setEditingTemplate(null);
+                    setNewTemplateName('');
+                    setNewTemplateContent('');
+                  }}
+                >
+                  關閉
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
