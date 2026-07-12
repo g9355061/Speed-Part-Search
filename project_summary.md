@@ -1,14 +1,37 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-12（SMTP 結論：Railway 不可行）
+> 最後更新：2026-07-12（SMTP 結論：Railway 不可行；新增詢價模板管理）
 
 ---
+
+### 2026-07-12 — 詢價內容模板切換與設定管理 + 按鈕功能簡化
+
+**背景**：依使用者需求調整詢價卡片中的操作按鈕，取消 `Email` 與 `華強頁面` 選項；此外，新增詢價內容模板切換功能，預設為原先的 `Default` 內容，並允許使用者直接在此頁面新增、編輯與刪除自訂報價/詢價模板（如「報價模板二」）。
+
+- [x] **簡化操作按鈕**：
+  - 從人工確認詢價內容卡片中，正式移除 `Email` 和 `華強頁面` 兩個選項，使操作介面更聚焦。
+- [x] **新增模板管理與切換**：
+  - **切換下拉選單**：在「人工確認詢價內容」卡片 header 中加入選擇器，可動態切換當前選用的詢價模板。
+  - **設定按鈕與 Modal**：加入一個「設定」按鈕，點擊彈出「詢價/報價模板設定」Modal：
+    - 可在 Modal 中新增自訂模板（如「報價模板二」），輸入模板名稱與模板內容。
+    - 模板內容支援動態變數：`{rfqId}`（詢價編號）、`{mpn}`（料號）、`{manufacturer}`（品牌）、`{qty}`（需求數量）。
+    - 支援編輯與刪除自訂模板（系統預設模板不可編輯與刪除）。
+    - 模板清單與當前選用 ID 皆會自動儲存於 `localStorage`，確保跨頁面重整能持續留存。
+  - **變數動態解析**：當使用者選擇不同的模板或更新模板內容時，卡片中的詢價內容與複製到 QQ 時的內容都會動態依據該模板與當前料號變數進行解析取代。
+- [x] **驗證**：
+  - `npm run build` ✅（編譯成功，無 TypeScript 錯誤，靜態頁面產生與預先渲染完成）。
+- **修改檔案**：
+  - `src/app/qq-inquiry/page.tsx`
+  - `project_summary.md`
+
+---
+
 
 ### 2026-07-12 — SMTP 清查結論（與 Tracklane 專案共同調查）
 
 - 發現本專案的信件功能（忘記密碼等）自始未寄出過信：本機與 Railway 都沒有 `SMTP_PASS`（Gmail 應用程式密碼從未產生），`lib/email.ts` 一直走 graceful skip。
-- Danny 產生 Gmail App Password 後：本機 SMTP 認證通過，`.env` 已補上 `SMTP_PASS`/`SMTP_USER`（**本機開發寄信現在可用**）。
-- 但 **Railway 封鎖對外 SMTP 連接埠（25/465/587）**——Tracklane 實測 nodemailer 卡 2 分鐘連線逾時。Railway 上的 `SMTP_PASS` 已移除（掛著只會讓請求空等），正式站要寄信需改走 HTTP API 郵件服務（候選 Brevo，待 Danny 決定）。
+- Danny 產生 Gmail App Password 後本機 SMTP 認證通過；但 **Railway 封鎖對外 SMTP 連接埠（25/465/587）**——Tracklane 實測 nodemailer 卡 2 分鐘連線逾時，正式站寄信需改走 HTTP API 郵件服務。
+- **Danny 決定：寄信功能只應用到 Issue Tracking System（Tracklane），本專案不用。** 本機 `.env` 的 `SMTP_PASS` 已還原為空、Railway 亦無 `SMTP_PASS`——本專案維持原狀（email graceful skip）。
 - 本專案程式碼無改動。
 
 ---
