@@ -1677,53 +1677,26 @@ export default function QqInquiryPage() {
                       <td className="mono">{row.stock.toLocaleString()}</td>
                       <td>{row.location}</td>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          {row.qqHref || row.qq ? (
-                            <button
-                              className={`qq-link-btn qidian-link-btn ${copiedInquiryQq === row.rfqId ? 'copied-success' : ''}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void openSupplierQq(row);
-                              }}
-                              title="點擊：複製詢價內容並開啟 QQ 對話自動貼上；若對方未開通臨時會話會提示手動加好友"
-                              style={{ flex: 1 }}
-                            >
-                              {copiedInquiryQq === row.rfqId
-                                ? qqOpenOutcome === 'manual'
-                                  ? `✓ 已複製，請手動加 ${row.qq || '好友'}`
-                                  : pasteHelperOnline === false
-                                    ? '✓ 已複製，正在開 QQ（請手動 ⌘V）'
-                                    : '✓ 已複製，正在開 QQ'
-                                : `QQ ${row.qq || '開啟'}`}
-                            </button>
-                          ) : (
-                            <span className="qq-muted" style={{ flex: 1, textAlign: 'center' }}>-</span>
-                          )}
-                          {(row.jumpUrl || hqewSearchUrl(row.mpn)) && (
-                            <a
-                              href={row.jumpUrl || hqewSearchUrl(row.mpn)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="btn"
-                              title="開啟此供應商的華強電子網頁面"
-                              onClick={(e) => e.stopPropagation()}
-                              style={{
-                                padding: '4px 6px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                height: 26,
-                                width: 26,
-                                minWidth: 26,
-                                borderRadius: 4,
-                                border: '1px solid var(--border)',
-                                background: 'var(--surface-2)',
-                              }}
-                            >
-                              <Icon name="external" size={12} />
-                            </a>
-                          )}
-                        </div>
+                        {row.qqHref || row.qq ? (
+                          <button
+                            className={`qq-link-btn qidian-link-btn ${copiedInquiryQq === row.rfqId ? 'copied-success' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void openSupplierQq(row);
+                            }}
+                            title="點擊：複製詢價內容並開啟 QQ 對話自動貼上；若對方未開通臨時會話會提示手動加好友"
+                          >
+                            {copiedInquiryQq === row.rfqId
+                              ? qqOpenOutcome === 'manual'
+                                ? `✓ 已複製，請手動加 ${row.qq || '好友'}`
+                                : pasteHelperOnline === false
+                                  ? '✓ 已複製，正在開 QQ（請手動 ⌘V）'
+                                  : '✓ 已複製，正在開 QQ'
+                              : `QQ ${row.qq || '開啟'}`}
+                          </button>
+                        ) : (
+                          <span className="qq-muted">-</span>
+                        )}
                       </td>
                     </tr>
                   ))}
