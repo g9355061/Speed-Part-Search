@@ -1534,22 +1534,22 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 }
 .qq-table {
   width: 100%;
-  min-width: 860px;
+  min-width: 500px;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 /* 固定各欄寬，供應商欄（第 2 欄）取剩餘空間，避免庫存出現超長數字時把供應商擠成單字直排 */
 .qq-table th:nth-child(1),
-.qq-table td:nth-child(1) { width: 200px; }
+.qq-table td:nth-child(1) { width: 115px; }
 .qq-table th:nth-child(3),
-.qq-table td:nth-child(3) { width: 130px; }
+.qq-table td:nth-child(3) { width: 100px; }
 .qq-table th:nth-child(4),
-.qq-table td:nth-child(4) { width: 140px; }
+.qq-table td:nth-child(4) { width: 75px; }
 .qq-table th:nth-child(5),
-.qq-table td:nth-child(5) { width: 54px; }
+.qq-table td:nth-child(5) { width: 50px; }
 .qq-table th:nth-child(6),
-.qq-table td:nth-child(6) { width: 150px; }
+.qq-table td:nth-child(6) { width: 110px; }
 .qq-table td:nth-child(2) strong {
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1559,7 +1559,7 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   overflow-wrap: normal;
 }
 .qq-table th {
-  padding: 10px 14px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text-3);
@@ -1569,7 +1569,7 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   text-transform: uppercase;
 }
 .qq-table td {
-  padding: 14px;
+  padding: 12px 8px;
   border-bottom: 1px solid var(--hairline);
   vertical-align: top;
 }
@@ -1589,11 +1589,11 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   display: block;
   margin-top: 4px;
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: 11px;
 }
 .qq-table td .qq-rfq-badge {
   display: inline-block;
-  max-width: 190px;
+  max-width: 95px;
   margin-top: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1604,7 +1604,7 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   color: var(--primary);
   padding: 4px 7px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -1614,13 +1614,13 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   border-radius: var(--r-sm);
   background: var(--accent-soft);
   color: var(--accent);
-  padding: 5px 9px;
+  padding: 5px 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
-  min-width: 132px;
+  min-width: 94px;
   text-align: center;
 }
 .qq-link-btn:hover {
