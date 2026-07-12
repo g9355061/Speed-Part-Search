@@ -1,6 +1,15 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-11（QQ 詢價看板）
+> 最後更新：2026-07-12（SMTP 結論：Railway 不可行）
+
+---
+
+### 2026-07-12 — SMTP 清查結論（與 Tracklane 專案共同調查）
+
+- 發現本專案的信件功能（忘記密碼等）自始未寄出過信：本機與 Railway 都沒有 `SMTP_PASS`（Gmail 應用程式密碼從未產生），`lib/email.ts` 一直走 graceful skip。
+- Danny 產生 Gmail App Password 後：本機 SMTP 認證通過，`.env` 已補上 `SMTP_PASS`/`SMTP_USER`（**本機開發寄信現在可用**）。
+- 但 **Railway 封鎖對外 SMTP 連接埠（25/465/587）**——Tracklane 實測 nodemailer 卡 2 分鐘連線逾時。Railway 上的 `SMTP_PASS` 已移除（掛著只會讓請求空等），正式站要寄信需改走 HTTP API 郵件服務（候選 Brevo，待 Danny 決定）。
+- 本專案程式碼無改動。
 
 ---
 
