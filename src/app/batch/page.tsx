@@ -1,10 +1,9 @@
 'use client';
 import { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
 import * as XLSX from 'xlsx-js-style';
 import { Icon } from '@/components/Icon';
-import { canAccessQqInquiry } from '@/lib/permissions';
+import { Header } from '@/components/Header';
 
 /* ══════════════════════════════════════════
    Types
@@ -964,8 +963,6 @@ const SUPPLIER_LABELS: Record<string, string> = {
 };
 
 export default function BatchPage() {
-  const { data: session } = useSession();
-  const canUseQqInquiry = canAccessQqInquiry(session?.user);
   const [results, setResults] = useState<ResultRow[]>([]);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -1037,37 +1034,7 @@ export default function BatchPage() {
 
   return (
     <div className="app">
-      <header className="hdr">
-        <Link href="/" className="hdr-brand" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <div className="mark">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="6" y="6" width="12" height="12" rx="1" />
-              <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
-            </svg>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <svg width="22" height="18" viewBox="0 0 56 46" fill="none">
-              <circle cx="13" cy="10" r="10" fill="#CC2200" />
-              <circle cx="38" cy="19" r="7" fill="#CC2200" />
-              <line x1="13" y1="10" x2="38" y2="19" stroke="#CC2200" strokeWidth="4" strokeLinecap="round" />
-              <line x1="13" y1="10" x2="20" y2="36" stroke="#CC2200" strokeWidth="4" strokeLinecap="round" />
-              <circle cx="20" cy="38" r="5" fill="#CC2200" />
-            </svg>
-            <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: '0.06em', color: '#1a1a1a' }}>YAS</span>
-          </div>
-          <div className="name">SpeedPart<span className="dot">.</span></div>
-        </Link>
-        <nav className="hdr-nav">
-	          <Link href="/" className="hdr-nav-link"><Icon name="search" size={14} /><span className="lbl">Search</span></Link>
-	          <Link href="/batch" className="hdr-nav-link active"><Icon name="compare" size={14} /><span className="lbl">BOM Batch</span></Link>
-	          {canUseQqInquiry && (
-	            <Link href="/qq-inquiry" className="hdr-nav-link"><Icon name="message" size={14} /><span className="lbl">QQ詢價</span></Link>
-	          )}
-	          <Link href="/batch-manufacturer" className="hdr-nav-link"><Icon name="compare" size={14} /><span className="lbl">BOM Batch - MFR</span></Link>
-	          <Link href="/manufacturer-mapping" className="hdr-nav-link"><Icon name="compare" size={14} /><span className="lbl">廠商對照表</span></Link>
-	          <Link href="/demand-forecast" className="hdr-nav-link"><Icon name="trend" size={14} /><span className="lbl">缺料預測</span></Link>
-	        </nav>
-      </header>
+      <Header />
 
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '40px 24px', width: '100%' }}>
         <div style={{ marginBottom: 28 }}>

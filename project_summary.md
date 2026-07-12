@@ -24,10 +24,17 @@
   - 將料號欄寬縮減至 100px、庫存欄寬縮減至 75px、倉庫欄寬縮減至 50px。
   - 將 QQ 按鈕欄寬從 150px 縮減至 110px，並縮小 `.qq-link-btn` 的內邊距與最小寬度（`min-width: 94px`），保證按鈕與狀態文字完美適配不溢出。
   - 縮減表格單元格 of 左右 Padding（14px -> 8px），節省了大量的橫向空間。
+- [x] **全域頁首導覽列整合 (消除頁面選單不一致問題)**：
+  - 發現 `BOM Batch` (`/batch`)、`BOM Batch - MFR` (`/batch-manufacturer`) 與 `廠商對照表` (`/manufacturer-mapping`) 頁面原本硬編碼了自訂的 `<header>` 元素，導致各分頁中的選單內容不一致（例如缺少 QQ 詢價連結、單料查詢譯名不統一），且缺少了右上角的使用者帳戶選單（變更密碼/登出）與快速搜尋框。
+  - 將上述三個分頁硬編碼的 `<header>` 區塊全面替換為共用的 `<Header />` 元件，實現全站導覽列樣式與邏輯一致。
+  - 清理了 `batch/page.tsx` 中僅供舊版 header 使用的 `canUseQqInquiry` 與 `session` 狀態及 imports 依賴。
 - [x] **驗證**：
   - `npm run build` ✅（編譯成功，無 TypeScript 錯誤，靜態頁面產生與預先渲染完成）。
 - **修改檔案**：
   - `src/app/qq-inquiry/page.tsx`
+  - `src/app/batch/page.tsx`
+  - `src/app/batch-manufacturer/page.tsx`
+  - `src/app/manufacturer-mapping/page.tsx`
   - `src/app/globals.css`
   - `project_summary.md`
 
