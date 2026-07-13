@@ -1,6 +1,19 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-13（預設報價模板改為精簡格式）
+> 最後更新：2026-07-13（預設報價模板改為精簡格式 + 修正 localStorage 覆蓋致新版不生效）
+
+---
+
+### 2026-07-13 — 修正預設模板被 localStorage 舊版覆蓋（新格式不生效）
+
+**背景**：上一版改了 `DEFAULT_TEMPLATES` 內容後，使用者反映在頁面上看不到變更。根因：載入時 `useEffect` 直接把 `localStorage` 的 `speedpart.inquiryTemplates.v1` **整包覆蓋** `templates` state，凡是操作過模板管理的瀏覽器都存過舊的 `default` 內容，導致程式碼新版被舊版蓋掉。
+
+- [x] **系統預設模板永遠以程式碼為準**（`src/app/qq-inquiry/page.tsx` 載入邏輯）：
+  - 載入 `localStorage` 模板時，先 `filter` 掉 id 在 `DEFAULT_TEMPLATES` 中的系統預設模板，只保留使用者自訂模板，再與最新 `DEFAULT_TEMPLATES` 合併：`setTemplates([...DEFAULT_TEMPLATES, ...custom])`。
+  - 效果：系統預設模板（`default`，本就不可編輯）每次載入都用最新程式碼版本；使用者自訂模板（如「報價模板二」）照常從 `localStorage` 保留。
+  - 使用者端只要重新整理頁面即可看到新格式，無須清快取。
+- [x] **驗證**：`npx tsc --noEmit` ✅。
+- **修改檔案**：`src/app/qq-inquiry/page.tsx`、`project_summary.md`
 
 ---
 

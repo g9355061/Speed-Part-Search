@@ -768,7 +768,10 @@ export default function QqInquiryPage() {
     const savedTemplates = localStorage.getItem('speedpart.inquiryTemplates.v1');
     if (savedTemplates) {
       try {
-        setTemplates(JSON.parse(savedTemplates));
+        const parsed: InquiryTemplate[] = JSON.parse(savedTemplates);
+        // 系統預設模板不可編輯，永遠以程式碼最新版為準；localStorage 只保留使用者自訂模板
+        const custom = parsed.filter((t) => !DEFAULT_TEMPLATES.some((d) => d.id === t.id));
+        setTemplates([...DEFAULT_TEMPLATES, ...custom]);
       } catch (e) {
         console.error('Failed to parse templates from localStorage', e);
       }
