@@ -1,6 +1,18 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-13（預設報價模板改為精簡格式 + 修正 localStorage 覆蓋致新版不生效）
+> 最後更新：2026-07-13（詢價內容框改為可人工微調）
+
+---
+
+### 2026-07-13 — 詢價內容框改為可人工微調（自動生成 + 手動編輯並存）
+
+**背景**：卡片標示「送出前可人工微調」，但詢價內容 textarea 實為 `readOnly` 無法編輯。使用者需求＝維持模板+變數自動生成（1），同時允許送出前針對個別供應商手動改字/加備註（2）。此外釐清一個使用者誤解：同一顆料的三家供應商詢價文字僅 RFQ 編號尾碼（-01/-02/-03）不同，料號/品牌/需求數量相同屬正常，點第一列因本就選中故看不出切換。
+
+- [x] **新增 `draftMessage` state**（`src/app/qq-inquiry/page.tsx`）：右側詢價框改綁 `draftMessage`，移除 `readOnly`，`onChange` 即時更新。
+- [x] **自動生成仍為預設**：新增 `useEffect([message])` → 每當自動生成內容 `message` 變動（切換供應商列 `selected`、切換 BOM 料號、切換模板）就 `setDraftMessage(message)` 重新生成，覆蓋前一筆的人工微調（避免把 A 供應商的備註殘留到 B）。同一筆生成後允許自由編輯。
+- [x] **複製一致性**：`copyMessage`（複製到 QQ/微信、複製並開華強）改用 `draftMessage`；`openSupplierQq` 點列上 QQ 按鈕時，若該列 = 目前選中列則帶人工微調（`draftMessage`），其餘列仍用該列自動生成內容 `buildMessage(row)`。
+- [x] **驗證**：`npx tsc --noEmit` ✅。
+- **修改檔案**：`src/app/qq-inquiry/page.tsx`、`project_summary.md`
 
 ---
 

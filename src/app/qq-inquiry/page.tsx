@@ -667,6 +667,7 @@ function extractQqReply(texts: string[]): QqChatCapture | null {
 
 export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
+  const [draftMessage, setDraftMessage] = useState('');
   const [copied, setCopied] = useState(false);
   const [copiedInquiryQq, setCopiedInquiryQq] = useState<string | null>(null);
   const [qqOpenOutcome, setQqOpenOutcome] = useState<'opening' | 'manual'>('opening');
@@ -747,6 +748,11 @@ export default function QqInquiryPage() {
     return templates.find((t) => t.id === activeTemplateId) ?? templates[0] ?? DEFAULT_TEMPLATES[0];
   }, [templates, activeTemplateId]);
   const message = useMemo(() => buildMessage(current, activeTemplate.content), [current, activeTemplate]);
+  // 詢價內容框：預設用模板+變數自動生成；切換供應商/料號/模板時重新生成（覆蓋前一筆的人工微調），
+  // 但同一筆生成後允許使用者手動微調（draftMessage），複製時以微調後內容為準。
+  useEffect(() => {
+    setDraftMessage(message);
+  }, [message]);
   const parsed = useMemo(() => parseReplyText(reply), [reply]);
   const detectedRfqId = useMemo(() => extractRfqId(reply), [reply]);
   const detectedRow = useMemo(
@@ -988,7 +994,7 @@ export default function QqInquiryPage() {
   }
 
   async function copyMessage() {
-    await navigator.clipboard.writeText(message);
+    await navigator.clipboard.writeText(draftMessage);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   }
@@ -1001,7 +1007,10 @@ export default function QqInquiryPage() {
 
   async function openSupplierQq(row: InquiryRow) {
     // 一律先複製完整詢價內容到剪貼簿（最有價值、且不會出錯的部分）
-    void navigator.clipboard.writeText(buildMessage(row, activeTemplate.content)).catch(() => undefined);
+    // 若點的是目前選中的供應商列，帶上使用者在右側框的人工微調；其餘列用該列自動生成內容。
+    const clipboardText =
+      row.rfqId === current.rfqId ? draftMessage : buildMessage(row, activeTemplate.content);
+    void navigator.clipboard.writeText(clipboardText).catch(() => undefined);
     setCopiedInquiryQq(row.rfqId);
     setQqOpenOutcome('opening');
     window.setTimeout(() => setCopiedInquiryQq(null), 4000);
@@ -1751,7 +1760,11 @@ export default function QqInquiryPage() {
                 </div>
               </div>
               <div className="card-bd">
-                <textarea className="qq-textarea mono" value={message} readOnly />
+                <textarea
+                  className="qq-textarea mono"
+                  value={draftMessage}
+                  onChange={(e) => setDraftMessage(e.target.value)}
+                />
                 <div className="qq-actions">
                   <button className="btn solid" onClick={copyMessage}>
                     <Icon name="copy" size={13} />複製到 QQ / 微信
