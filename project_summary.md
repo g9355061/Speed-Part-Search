@@ -1,6 +1,22 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-13（詢價內容框改為可人工微調）
+> 最後更新：2026-07-13（詢價內容框改為每家供應商各自保存人工微調）
+
+---
+
+### 2026-07-13 — 詢價內容框改為每家供應商各自獨立保存編輯（修正上一版覆蓋方向錯誤）
+
+**背景**：上一版把「切換供應商就 setDraftMessage(message) 重新生成、覆蓋人工微調」當成正確行為，導致使用者換一家供應商，右側內容就變回預設模板、手改消失——使用者回報「換第二家也是預設的內容」。使用者要的是「按每個（供應商）修改內容」＝每家各自保留自己的編輯、切換不互相覆蓋。
+
+- [x] **改用 per-rfqId 的 draft map**（`src/app/qq-inquiry/page.tsx`）：
+  - 移除單一 `draftMessage` state 與 `useEffect([message]) → setDraftMessage`（切換即覆蓋的根源）。
+  - 新增 `draftByRfq: Record<rfqId, string>`；顯示值 `displayMessage = draftByRfq[current.rfqId] ?? message`（該家有手改用手改，否則模板自動生成）。
+  - textarea `onChange` 只寫入 `draftByRfq[current.rfqId]`，各家獨立；切換供應商列不再互相覆蓋，切回原供應商手改仍在。
+  - 複製一致性：`copyMessage`（複製到 QQ/華強）用 `displayMessage`；`openSupplierQq(row)` 用 `draftByRfq[row.rfqId] ?? buildMessage(row)`（每列帶自己的手改）。
+- [x] **清空時機**：換模板（兩個模板選單 onChange）清空 `draftByRfq`（全部重套新模板）；6 處換批次點（上傳 BOM、切料號 `selectBomIndex`、切/跳 Case `jumpToCaseMpn`、更新版本、重新查華強、清空）一併清空，避免跨批次殘留。共 8 處清空。
+- [x] **同時澄清一項使用者誤解**：同一顆料的三家供應商，詢價文字料號/品牌/需求數量本就相同，僅 RFQ 編號尾碼 -01/-02/-03 不同（`makeRfqId` 以 `idx+1` padStart 生成，經確認正確）；切換確實生效，只是同料差異僅在編號那一行。要看料號/品牌/數量不同需在左側 BOM 切換到別顆料號。
+- [x] **驗證**：`npx tsc --noEmit` ✅。**限制**：qq-inquiry 在登入牆後且需真實 BOM＋華強爬蟲資料，本機沙盒無帳號無法完整跑通互動畫面；本次僅驗證 typecheck 與邏輯，未做登入後端到端點擊驗證。
+- **修改檔案**：`src/app/qq-inquiry/page.tsx`、`project_summary.md`
 
 ---
 

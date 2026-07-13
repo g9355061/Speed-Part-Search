@@ -667,7 +667,8 @@ function extractQqReply(texts: string[]): QqChatCapture | null {
 
 export default function QqInquiryPage() {
   const [selected, setSelected] = useState(0);
-  const [draftMessage, setDraftMessage] = useState('');
+  // 每家供應商（以 rfqId 為 key）各自保存人工微調；未編輯者回退到模板自動生成內容
+  const [draftByRfq, setDraftByRfq] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
   const [copiedInquiryQq, setCopiedInquiryQq] = useState<string | null>(null);
   const [qqOpenOutcome, setQqOpenOutcome] = useState<'opening' | 'manual'>('opening');
@@ -748,11 +749,11 @@ export default function QqInquiryPage() {
     return templates.find((t) => t.id === activeTemplateId) ?? templates[0] ?? DEFAULT_TEMPLATES[0];
   }, [templates, activeTemplateId]);
   const message = useMemo(() => buildMessage(current, activeTemplate.content), [current, activeTemplate]);
-  // 詢價內容框：預設用模板+變數自動生成；切換供應商/料號/模板時重新生成（覆蓋前一筆的人工微調），
-  // 但同一筆生成後允許使用者手動微調（draftMessage），複製時以微調後內容為準。
-  useEffect(() => {
-    setDraftMessage(message);
-  }, [message]);
+  // 詢價內容框顯示值：該供應商若有人工微調則用微調內容，否則用模板自動生成；
+  // 切換供應商不會互相覆蓋，各家編輯獨立保存於 draftByRfq。
+  const displayMessage = (current && draftByRfq[current.rfqId] !== undefined)
+    ? draftByRfq[current.rfqId]
+    : message;
   const parsed = useMemo(() => parseReplyText(reply), [reply]);
   const detectedRfqId = useMemo(() => extractRfqId(reply), [reply]);
   const detectedRow = useMemo(
@@ -930,6 +931,7 @@ export default function QqInquiryPage() {
     setHqewResultsByMpn({});
     setHqewError(null);
     setSelected(0);
+    setDraftByRfq({});
     setBomIndex(Math.min(Math.max(targetIndex, 0), Math.max(nextCase.bomRows.length - 1, 0)));
     setQueriedMpns([]);
   }
@@ -989,12 +991,13 @@ export default function QqInquiryPage() {
     setHqewResultsByMpn({});
     setHqewError(null);
     setSelected(0);
+    setDraftByRfq({});
     setBomIndex(0);
     setQueriedMpns([]);
   }
 
   async function copyMessage() {
-    await navigator.clipboard.writeText(draftMessage);
+    await navigator.clipboard.writeText(displayMessage);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   }
@@ -1007,9 +1010,10 @@ export default function QqInquiryPage() {
 
   async function openSupplierQq(row: InquiryRow) {
     // 一律先複製完整詢價內容到剪貼簿（最有價值、且不會出錯的部分）
-    // 若點的是目前選中的供應商列，帶上使用者在右側框的人工微調；其餘列用該列自動生成內容。
-    const clipboardText =
-      row.rfqId === current.rfqId ? draftMessage : buildMessage(row, activeTemplate.content);
+    // 該供應商若有人工微調就帶微調內容，否則用該列模板自動生成內容。
+    const clipboardText = draftByRfq[row.rfqId] !== undefined
+      ? draftByRfq[row.rfqId]
+      : buildMessage(row, activeTemplate.content);
     void navigator.clipboard.writeText(clipboardText).catch(() => undefined);
     setCopiedInquiryQq(row.rfqId);
     setQqOpenOutcome('opening');
@@ -1141,6 +1145,7 @@ export default function QqInquiryPage() {
     setHqewResult(null);
     setHqewResultsByMpn({});
     setSelected(0);
+    setDraftByRfq({});
     setBomIndex(0);
     setQueriedMpns([]);
     setPendingDuplicate(null);
@@ -1201,6 +1206,7 @@ export default function QqInquiryPage() {
     setHqewResultsByMpn({});
     setHqewError(null);
     setSelected(0);
+    setDraftByRfq({});
     setBomIndex(0);
     setQueriedMpns([]);
     setPendingDuplicate(null);
@@ -1227,6 +1233,7 @@ export default function QqInquiryPage() {
     setHqewResult(nextMpn ? hqewResultsByMpn[nextMpn] ?? null : null);
     setHqewError(null);
     setSelected(0);
+    setDraftByRfq({});
   }
 
   async function searchActiveBomOnHqew() {
@@ -1235,6 +1242,7 @@ export default function QqInquiryPage() {
     setHqewError(null);
     setHqewResult(null);
     setSelected(0);
+    setDraftByRfq({});
     try {
       const params = new URLSearchParams({ partNumber: activeBom.mpn });
       const resp = await fetch(`/api/hqew/search?${params.toString()}`, { cache: 'no-store' });
@@ -1725,6 +1733,7 @@ export default function QqInquiryPage() {
                     onChange={(e) => {
                       setActiveTemplateId(e.target.value);
                       localStorage.setItem('speedpart.activeTemplateId.v1', e.target.value);
+                      setDraftByRfq({});
                     }}
                     style={{
                       padding: '4px 8px',
@@ -1762,8 +1771,12 @@ export default function QqInquiryPage() {
               <div className="card-bd">
                 <textarea
                   className="qq-textarea mono"
-                  value={draftMessage}
-                  onChange={(e) => setDraftMessage(e.target.value)}
+                  value={displayMessage}
+                  onChange={(e) => {
+                    if (!current) return;
+                    const rfqId = current.rfqId;
+                    setDraftByRfq((prev) => ({ ...prev, [rfqId]: e.target.value }));
+                  }}
                 />
                 <div className="qq-actions">
                   <button className="btn solid" onClick={copyMessage}>
@@ -2025,6 +2038,7 @@ export default function QqInquiryPage() {
                     onChange={(e) => {
                       setActiveTemplateId(e.target.value);
                       localStorage.setItem('speedpart.activeTemplateId.v1', e.target.value);
+                      setDraftByRfq({});
                     }}
                     style={{
                       width: '100%',
