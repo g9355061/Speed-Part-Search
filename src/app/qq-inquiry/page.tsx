@@ -277,13 +277,9 @@ const DEFAULT_TEMPLATES: InquiryTemplate[] = [
       '詢價編號：{rfqId}',
       '',
       '您好，麻煩幫忙報價，謝謝。',
-      '',
       '料號：{mpn}',
       '品牌：{manufacturer}',
       '需求數量：{qty} pcs',
-      '需求：原裝正品，請提供含稅單價、庫存數量、MOQ/MPQ、批號、交期與報價有效期。',
-      '',
-      '如果有現貨，請一併提供可出貨時間與付款/物流條件。',
     ].join('\n'),
   },
 ];
