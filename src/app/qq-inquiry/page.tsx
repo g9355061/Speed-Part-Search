@@ -314,9 +314,21 @@ function extractRfqId(text: string) {
 
 function parseReplyText(text: string) {
   // 標籤式（單價：0.112 含稅）與華強報價行式（DMP21D5UFB4-7B 2649pcs 0.2含税 DIODES(美台) 21+）都支援
+  // QQ 精簡回覆「40 25+」：第一個數字=單價、YY+=年份批號。只認「數字 空白 兩位數+」這個精確組合，
+  // 且收緊兩道防線避免誤判：(1) 該數字前若被 庫存/現貨/MOQ/數量 標籤帶出，視為庫存量不當單價；
+  // (2) 單價需「有小數點，或整數 < 1000」，大額整數多為庫存量，寧可顯示待確認也不報錯價。
+  const terseQqPrice = (() => {
+    const m = text.match(/(?:^|[\s，,])([0-9]+(?:\.[0-9]+)?)\s+[0-9]{2}\+(?=\s|$)/m);
+    if (!m || m.index == null) return undefined;
+    const before = text.slice(0, m.index);
+    if (/(?:庫存|库存|現貨|现货|MOQ|起訂|起订|數量|数量)\D*$/i.test(before)) return undefined;
+    if (!m[1].includes('.') && Number(m[1]) >= 1000) return undefined;
+    return m[1];
+  })();
   const price =
     text.match(/(?:單價|价格|價格|含稅|含税|RMB|￥|¥)\s*[:：]?\s*(?:RMB|￥|¥)?\s*([0-9]+(?:\.[0-9]+)?)/i)?.[1] ??
-    text.match(/(?:^|[\s,，])([0-9]+(?:\.[0-9]+)?)\s*(?:元)?\s*含[税稅]/m)?.[1];
+    text.match(/(?:^|[\s,，])([0-9]+(?:\.[0-9]+)?)\s*(?:元)?\s*含[税稅]/m)?.[1] ??
+    terseQqPrice;
   const stock =
     text.match(/(?:庫存|库存|現貨|现货)\s*[:：]?\s*([0-9][0-9,]*)/i)?.[1] ??
     text.match(/([0-9][0-9,]*)\s*(?:pcs|pc)\b/i)?.[1];
