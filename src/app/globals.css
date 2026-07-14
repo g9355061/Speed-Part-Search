@@ -1238,6 +1238,20 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 }
 .qq-board-status.open { background: var(--primary-soft); color: var(--primary); }
 .qq-board-status.closed { background: var(--surface-2); color: var(--text-4); }
+/* 看板表格欄位（Case/檔案/建立者/建立時間/報價進度/最新報價/狀態）與「詢價任務清單」不同，
+   覆寫共用的 .qq-table 固定欄寬，避免日期時間被擠成兩行、進度條被壓爆。 */
+.qq-table.qq-board-table th:nth-child(1),
+.qq-table.qq-board-table td:nth-child(1) { width: 132px; white-space: nowrap; }
+.qq-table.qq-board-table th:nth-child(3),
+.qq-table.qq-board-table td:nth-child(3) { width: 96px; white-space: nowrap; }
+.qq-table.qq-board-table th:nth-child(4),
+.qq-table.qq-board-table td:nth-child(4) { width: auto; white-space: nowrap; }
+.qq-table.qq-board-table th:nth-child(5),
+.qq-table.qq-board-table td:nth-child(5) { width: 172px; }
+.qq-table.qq-board-table th:nth-child(6),
+.qq-table.qq-board-table td:nth-child(6) { width: auto; white-space: nowrap; }
+.qq-table.qq-board-table th:nth-child(7),
+.qq-table.qq-board-table td:nth-child(7) { width: 96px; white-space: nowrap; }
 .qq-board-detail-tr td {
   padding: 0 !important;
   background: var(--surface-2);
