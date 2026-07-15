@@ -1,5 +1,5 @@
-// 臨時診斷端點：確認 Railway 機房 IP 從華強電子網拿到什麼頁面。
-// 以 x-cron-secret 放行（middleware 後門），診斷完畢後移除。
+// 臨時診斷端點：以修正後的判斷邏輯確認 Railway 上被 403 封鎖時會正確回報錯誤。
+// 以 x-cron-secret 放行（middleware 後門），驗證完畢後移除。
 import { NextRequest, NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 
@@ -13,12 +13,10 @@ export async function GET(req: NextRequest) {
 
   const partNumber = req.nextUrl.searchParams.get('partNumber')?.trim() || 'TXB0104YZTR';
   const url = `https://s.hqew.com/${encodeURIComponent(partNumber)}.html`;
-  const startedAt = Date.now();
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 
   try {
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-    const launchedMs = Date.now() - startedAt;
     const page = await browser.newPage({
       userAgent:
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36',
@@ -26,60 +24,35 @@ export async function GET(req: NextRequest) {
     });
 
     const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    const gotoMs = Date.now() - startedAt;
-    await page.waitForTimeout(2500);
 
-    const probe = await page.evaluate(() => {
-      const shadowHosts: { tag: string; id: string; cls: string; mode: string; trCount: number }[] = [];
-      const walk = (root: Document | ShadowRoot) => {
-        root.querySelectorAll('*').forEach((el) => {
-          const sr = (el as Element & { shadowRoot: ShadowRoot | null }).shadowRoot;
-          if (sr) {
-            shadowHosts.push({
-              tag: el.tagName,
-              id: el.id,
-              cls: String(el.className).slice(0, 60),
-              mode: 'open',
-              trCount: sr.querySelectorAll('tr').length,
-            });
-            walk(sr);
-          }
-        });
-      };
-      walk(document);
-      return {
-        title: document.title,
-        ecData: document.querySelectorAll('tr.ec-data').length,
-        anyTr: document.querySelectorAll('tr').length,
-        tables: document.querySelectorAll('table').length,
-        htmlLength: document.documentElement.outerHTML.length,
-        iframes: document.querySelectorAll('iframe').length,
-        bodyChildTags: Array.from(document.body.children).map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
-        shadowHosts,
-        fullHtml: document.documentElement.outerHTML.slice(0, 6000),
-      };
-    });
-    const bodyText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+    const status = resp?.status() ?? 0;
+    if (status >= 400) {
+      const blockText = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
+      if (status === 403 && /请求过于频繁|拦截|解封/.test(blockText)) {
+        throw new Error('華強電子網暫時封鎖了本站 IP（請求過於頻繁），請稍後再試');
+      }
+      throw new Error(`華強電子網回應 HTTP ${status}`);
+    }
 
-    return NextResponse.json({
-      ok: true,
-      url,
-      httpStatus: resp?.status() ?? null,
-      finalUrl: page.url(),
-      launchedMs,
-      gotoMs,
-      totalMs: Date.now() - startedAt,
-      probe,
-      bodyTextSnippet: bodyText.slice(0, 800),
-    });
+    let rowsAppeared = true;
+    try {
+      await page.waitForSelector('tr.ec-data', { timeout: 20000 });
+    } catch {
+      rowsAppeared = false;
+    }
+
+    const bodyText = await page.locator('body').innerText({ timeout: 5000 });
+    const totalCount = Number(bodyText.match(/共\s*([0-9]+)\s*条/)?.[1] ?? 0);
+
+    if (!rowsAppeared && totalCount !== 0 && !/无结果|無結果/.test(bodyText)) {
+      throw new Error('華強電子網未回傳供應商列表（可能被防爬阻擋或頁面改版），請稍後再試');
+    }
+
+    const supplierCount = await page.locator('tr.ec-data').count();
+    return NextResponse.json({ ok: true, httpStatus: status, totalCount, rowsAppeared, supplierCount });
   } catch (e) {
     return NextResponse.json(
-      {
-        ok: false,
-        url,
-        totalMs: Date.now() - startedAt,
-        error: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
-      },
+      { ok: false, error: e instanceof Error ? e.message : String(e) },
       { status: 502 },
     );
   } finally {

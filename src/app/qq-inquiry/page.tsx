@@ -1665,9 +1665,15 @@ export default function QqInquiryPage() {
               </div>
             )}
             {hqewResult && (
-              <div className="qq-query-note">
-                已查詢 <span className="mono">{hqewResult.partNumber}</span>；下方推薦供應商已切換為華強電子網解析結果。
-              </div>
+              hqewResult.suppliers?.length ? (
+                <div className="qq-query-note">
+                  已查詢 <span className="mono">{hqewResult.partNumber}</span>；下方推薦供應商已切換為華強電子網解析結果。
+                </div>
+              ) : (
+                <div className="qq-inline-error">
+                  華強電子網查無 <span className="mono">{hqewResult.partNumber}</span> 的供應商（共 0 筆），請確認料號是否正確。
+                </div>
+              )
             )}
           </div>
         </section>

@@ -108,12 +108,36 @@ export async function GET(req: NextRequest) {
       locale: 'zh-CN',
     });
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('tr.ec-data, body', { timeout: 12000 });
-    await page.waitForTimeout(2500);
+    const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    // 華強對機房 IP 會回 403 空白頁「您的请求过于频繁，已被网站管理员设置拦截」。
+    // page.goto 不會因 4xx 拋錯，不自己判斷就會被當成「查詢成功但沒有供應商」。
+    const status = resp?.status() ?? 0;
+    if (status >= 400) {
+      const blockText = await page.locator('body').innerText({ timeout: 3000 }).catch(() => '');
+      if (status === 403 && /请求过于频繁|拦截|解封/.test(blockText)) {
+        throw new Error('華強電子網暫時封鎖了本站 IP（請求過於頻繁），請稍後再試');
+      }
+      throw new Error(`華強電子網回應 HTTP ${status}`);
+    }
+
+    // 供應商列表是 JS 後續注入的，實測快網路也要 3 秒以上才出現。
+    // 原本等的是 'tr.ec-data, body'——body 一定立刻命中，等於完全沒等。
+    let rowsAppeared = true;
+    try {
+      await page.waitForSelector('tr.ec-data', { timeout: 20000 });
+    } catch {
+      rowsAppeared = false;
+    }
 
     const bodyText = await page.locator('body').innerText({ timeout: 5000 });
     const totalCount = Number(bodyText.match(/共\s*([0-9]+)\s*条/)?.[1] ?? 0);
+
+    // 查無此料號時華強頁面照常渲染、顯示「共 0 条」，那是合法的空結果；
+    // 列表沒出現又不是查無，代表被擋或頁面改版，不能回空陣列假裝成功。
+    if (!rowsAppeared && totalCount !== 0 && !/无结果|無結果/.test(bodyText)) {
+      throw new Error('華強電子網未回傳供應商列表（可能被防爬阻擋或頁面改版），請稍後再試');
+    }
 
     const suppliers = await page.locator('tr.ec-data').evaluateAll((rows) =>
       rows.slice(0, 3).map((row) => {
