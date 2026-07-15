@@ -1,6 +1,30 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-13（詢價內容框改為每家供應商各自保存人工微調）
+> 最後更新：2026-07-14（收緊 QQ 精簡回覆單價解析；修正看板欄重疊）
+
+---
+
+### 2026-07-14 — 收緊 QQ 精簡回覆「40 25+」單價解析（避免庫存量誤判）
+
+**背景**：接續上一條發現的、先前 session 遺留未提交的 `parseReplyText` 改動——第三層 fallback 以「數字 空白 兩位數+」把 QQ 精簡回覆（如 `40 25+`＝單價 40、批號 25+）的第一個數字當單價。實測發現誤判：`庫存 5000 25+`、`5000 24+` 會把庫存量 5000 報成 ￥5000。因單價直接進報價庫並影響最佳報價挑選，報錯價比顯示「待確認」更糟。經 Danny 決定「收緊後再上」。
+
+- [x] **收緊第三層 fallback**（`src/app/qq-inquiry/page.tsx` `parseReplyText`）：改為先算 `terseQqPrice` 再併入 `price` 鏈，加兩道防線——(1) 數字前若被 `庫存/库存/現貨/现货/MOQ/起訂/起订/數量/数量` 標籤帶出則不當單價；(2) 單價需「有小數點，或整數 < 1000」，大額整數多為庫存量。標籤價／`含税` 行式仍優先。
+- [x] **驗證**：`npx tsc --noEmit` ✅；node 純函式實測 10 例——`40 25+`→40、`0.112 25+`→0.112、`800 25+`→800、`含税` 行式→0.2 皆正確；`庫存 5000 25+`、`5000 24+` 正確擋為「待確認」。（此解析在登入牆後且需貼上真實回覆，以純函式測試為主，未做登入端到端。）
+- [x] **部署**：commit `97cd601` push main，Railway 自動部署。
+- **修改檔案**：`src/app/qq-inquiry/page.tsx`、`project_summary.md`
+
+---
+
+### 2026-07-14 — 修正詢價看板報價進度與最新報價欄重疊
+
+**背景**：使用者回報看板畫面出問題——「報價進度」的進度條與「6/11 已報價」文字，和右側「最新報價」的日期時間（如 2026/7/13 05:14:07）互相重疊，日期還被擠成兩行。
+
+- **根因**：看板表格 `.qq-board-table` 沿用共用 `.qq-table`（`table-layout: fixed`）的固定欄寬，其中第 5 欄（報價進度）僅 50px、第 6 欄（最新報價）110px 且 `white-space: normal`。進度條容器 `.qq-board-progress` 的 `min-width: 140px` 在 50px 的儲存格內向右溢出，壓進最新報價欄；日期又因可換行被折成兩行，兩者疊在一起。
+- [x] **新增 `.qq-board-table` 專屬欄寬覆寫**（`src/app/globals.css`，接在 `.qq-board-status` 樣式後）：Case 132px、建立者 96px、建立時間 auto、報價進度 172px、最新報價 auto、狀態 96px，並讓日期相關欄 `white-space: nowrap`。特異度（`.qq-table.qq-board-table td:nth-child(n)`）高於共用 `.qq-table td:nth-child(n)`，確保覆寫生效。
+- [x] **驗證**：`npx tsc --noEmit` ✅；以獨立 repro（相同 markup＋CSS，1232px 容器）在瀏覽器對照「修正前 vs 修正後」截圖確認——修正前重疊重現、修正後進度條與日期各自獨立單行不重疊。
+- [x] **部署**：commit `30004dc` push main，Railway 自動部署。
+- **注意**：工作區當時另有一份未提交、與本次無關的 `qq-inquiry/page.tsx`（`parseReplyText` 單價解析）改動；本次未一併帶上，已於上方 2026-07-14 收緊後另行部署。
+- **修改檔案**：`src/app/globals.css`、`project_summary.md`
 
 ---
 
