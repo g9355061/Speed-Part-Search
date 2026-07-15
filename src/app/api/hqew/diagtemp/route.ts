@@ -29,13 +29,36 @@ export async function GET(req: NextRequest) {
     const gotoMs = Date.now() - startedAt;
     await page.waitForTimeout(2500);
 
-    const probe = await page.evaluate(() => ({
-      title: document.title,
-      ecData: document.querySelectorAll('tr.ec-data').length,
-      anyTr: document.querySelectorAll('tr').length,
-      tables: document.querySelectorAll('table').length,
-      htmlLength: document.documentElement.outerHTML.length,
-    }));
+    const probe = await page.evaluate(() => {
+      const shadowHosts: { tag: string; id: string; cls: string; mode: string; trCount: number }[] = [];
+      const walk = (root: Document | ShadowRoot) => {
+        root.querySelectorAll('*').forEach((el) => {
+          const sr = (el as Element & { shadowRoot: ShadowRoot | null }).shadowRoot;
+          if (sr) {
+            shadowHosts.push({
+              tag: el.tagName,
+              id: el.id,
+              cls: String(el.className).slice(0, 60),
+              mode: 'open',
+              trCount: sr.querySelectorAll('tr').length,
+            });
+            walk(sr);
+          }
+        });
+      };
+      walk(document);
+      return {
+        title: document.title,
+        ecData: document.querySelectorAll('tr.ec-data').length,
+        anyTr: document.querySelectorAll('tr').length,
+        tables: document.querySelectorAll('table').length,
+        htmlLength: document.documentElement.outerHTML.length,
+        iframes: document.querySelectorAll('iframe').length,
+        bodyChildTags: Array.from(document.body.children).map((el) => `${el.tagName}.${String(el.className).slice(0, 40)}`),
+        shadowHosts,
+        fullHtml: document.documentElement.outerHTML.slice(0, 6000),
+      };
+    });
     const bodyText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
 
     return NextResponse.json({
