@@ -23,6 +23,11 @@ export async function GET(req: NextRequest) {
     egressIp = `error: ${e instanceof Error ? e.message : String(e)}`;
   }
 
+  // ipOnly=1：只回對外 IP，不碰華強（用來取樣 IP 是否浮動，避免再刺激封鎖）
+  if (req.nextUrl.searchParams.get('ipOnly') === '1') {
+    return NextResponse.json({ egressIp, at: new Date().toISOString() });
+  }
+
   // 華強目前對這個 IP 的回應
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
   let hqew: Record<string, unknown> = {};
