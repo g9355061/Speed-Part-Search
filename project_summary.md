@@ -1,6 +1,19 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-19（QQ 報價六項修正：華強查詢 3 小時快取、共用 browser、報價交易保護、含稅混雜警示、純函式抽庫＋測試、模板入 DB 共享）
+> 最後更新：2026-07-20（修正 7/20 週報與 7/13 一模一樣：新聞窗縮 8 天＋與上一期去重＋rev 強制重建）
+
+---
+
+### 2026-07-20 — 修正「7/20 週報與 7/13 一模一樣」
+
+**背景**：Danny 發現新一期（7/20）週報內容與 7/13 完全相同。根因有二：(1) 7/19 深夜 QQ 部署後的 smoke test 手動觸發了 weekly-report-build workflow，當時已是台北週一 00:25，把新一期**提早建構並固化**；(2) 更根本的——週報新聞窗原為 45 天、市場報告快取也數週不變，相鄰兩期素材幾乎全同，而標題/導語是決定性函數、封面故事證據相同 → 產出相同，固化後鎖住一整週。今早 08:10 排程看到「已建成且有素材」便直接沿用。
+
+- [x] **新聞窗 45 → 8 天**（`RECENT_SIGNAL_DAYS`）：一週一刊，本期只收這一週的新聞。
+- [x] **與上一期 URL 去重**：建構時讀上一期的 newsHighlights/marketHighlights/sourceLinks URL 集合（Google 翻譯包裝網址先還原原始 URL），上期報過的新聞與市場報告本期不再進素材——舊聞不重印；若某週真的沒新料，就誠實輸出平靜報告，不重複上期內容。
+- [x] **建構版本號 `REPORT_BUILD_REV`（v2）**：`getCachedWeeklyReport` 檢查快取的 rev，不符就重建本週這期（歷史期數走 `getWeeklyReportById` 不受影響）——用來讓被錯誤固化的 7/20 期在部署後自動重建，免動正式站 DB。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅；本機實測重建 7/20 期——19 則新聞 URL 與上期完全不重疊、上期報過的 5 份市場報告全數排除（marketReports: 0）、封面故事從 2 類增為 4 類（新增 PMIC、連接器）、內文與上期不同。標題仍聚焦「記憶體、MLCC」屬市場焦點延續，非重複內容。
+- **教訓**：週一凌晨後不要再拿 weekly-report-build 當部署 smoke test——會提早固化新一期。改用 `mode=cached` 或 health 端點煙測。
+- **修改檔案**：`src/lib/demand-forecast/weekly-report.ts`、`project_summary.md`
 
 ---
 

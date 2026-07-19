@@ -4,7 +4,9 @@ import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from 
 import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import crypto from 'crypto';
 
-const RECENT_SIGNAL_DAYS = 45;
+// 一週一刊：本期只收「這一週」的新聞。原本 45 天窗會讓相鄰兩期素材幾乎全同，
+// 加上固化後整週不變，造成 7/13 與 7/20 兩期內容一模一樣（2026-07-20 修正）。
+const RECENT_SIGNAL_DAYS = 8;
 const ARTICLE_FETCH_TIMEOUT_MS = 4500;
 const ARTICLE_TEXT_LIMIT = 9000;
 const ARTICLE_POINT_LIMIT = 4;
@@ -788,8 +790,49 @@ function buildWeeklyTitle(
 
 const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才重試建構
 
+// 建構邏輯版本：升版會讓「本週」既有的固化快取重建一次（歷史期數不受影響）。
+// v2＝2026-07-20 修正「相鄰兩期一模一樣」：新聞窗縮為 8 天＋與上一期 URL 去重。
+const REPORT_BUILD_REV = 2;
+
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
+}
+
+function previousWeeklyReportId(now = new Date()) {
+  return `weekly-${formatDateId(new Date(weekStart(now).getTime() - 7 * 86400000))}`;
+}
+
+// 來源連結存的是 Google 翻譯包裝網址，去重前還原成原始 URL
+function unwrapTranslatedUrl(url: string) {
+  if (!url.includes('translate.google.com')) return url;
+  const m = url.match(/[?&]u=([^&]+)/);
+  if (!m) return url;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return url;
+  }
+}
+
+// 上一期已報過的新聞/報告 URL 集合——本期素材去重用（一週一刊：舊聞不重印）
+async function getPreviousIssueUrls(now: Date): Promise<Set<string>> {
+  const urls = new Set<string>();
+  try {
+    const cached: any = await getGenericCache(`weekly-report-built-${previousWeeklyReportId(now)}`);
+    const report = cached?.report as WeeklyReportDetail | undefined;
+    if (!report) return urls;
+    const items = [
+      ...(report.newsHighlights ?? []),
+      ...(report.marketHighlights ?? []),
+      ...(report.sourceLinks ?? []),
+    ];
+    for (const item of items) {
+      if (item.url && item.url !== '#') urls.add(unwrapTranslatedUrl(item.url));
+    }
+  } catch (err) {
+    console.warn('[WeeklyReport] failed to load previous issue urls:', err);
+  }
+  return urls;
 }
 
 function reportHasContent(report: WeeklyReportDetail) {
@@ -808,7 +851,8 @@ export async function getCachedWeeklyReport(): Promise<WeeklyReportDetail> {
   const cacheKey = `weekly-report-built-${id}`;
   try {
     const cached: any = await getGenericCache(cacheKey);
-    if (cached?.builtAt && cached.report?.id === id) {
+    // rev 不符＝建構邏輯已升版，本週這期重建一次（歷史期數走 getWeeklyReportById，不受 rev 影響）
+    if (cached?.builtAt && cached.report?.id === id && cached.rev === REPORT_BUILD_REV) {
       const report = cached.report as WeeklyReportDetail;
       if (reportHasContent(report) || Date.now() - cached.builtAt < EMPTY_REPORT_RETRY_MS) {
         return report;
@@ -820,7 +864,7 @@ export async function getCachedWeeklyReport(): Promise<WeeklyReportDetail> {
 
   const report = await buildWeeklyReport();
   try {
-    await setGenericCache(cacheKey, { builtAt: Date.now(), report });
+    await setGenericCache(cacheKey, { builtAt: Date.now(), rev: REPORT_BUILD_REV, report });
   } catch (err) {
     console.warn('[WeeklyReport] cache write failed:', err);
   }
@@ -848,10 +892,15 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const marketCache = await getMarketReportsCache();
   const newsCache = await readNewsCacheShared();
 
+  // 一週一刊去重：上一期報過的新聞與市場報告，本期不再進素材（否則相鄰兩期會近乎相同）
+  const prevIssueUrls = await getPreviousIssueUrls(now);
+
   const shortageNews = Array.isArray(newsCache?.news)
-    ? newsCache.news.filter((item: any) => item.riskHit && isRecentSignal(item, now))
+    ? newsCache.news.filter((item: any) =>
+        item.riskHit && isRecentSignal(item, now) && !(item.link && prevIssueUrls.has(item.link)))
     : [];
-  const marketReports = Array.isArray(marketCache?.reports) ? marketCache.reports : [];
+  const marketReports = (Array.isArray(marketCache?.reports) ? marketCache.reports : [])
+    .filter((report: any) => !(report.url && prevIssueUrls.has(report.url)));
 
   // 生命週期訊號：由料件 API 的 lifecycleStatus 判定（demand-forecast 已停抓 RSS PCN/EOL 新聞，
   // 舊的 newsCache.lifecycleNews 永遠是空的）。資料來源＝150 顆基準料的最近一次查詢快取。
