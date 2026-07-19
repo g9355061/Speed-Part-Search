@@ -12,6 +12,7 @@
 - [x] **與上一期 URL 去重**：建構時讀上一期的 newsHighlights/marketHighlights/sourceLinks URL 集合（Google 翻譯包裝網址先還原原始 URL），上期報過的新聞與市場報告本期不再進素材——舊聞不重印；若某週真的沒新料，就誠實輸出平靜報告，不重複上期內容。
 - [x] **建構版本號 `REPORT_BUILD_REV`（v2）**：`getCachedWeeklyReport` 檢查快取的 rev，不符就重建本週這期（歷史期數走 `getWeeklyReportById` 不受影響）——用來讓被錯誤固化的 7/20 期在部署後自動重建，免動正式站 DB。
 - [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅；本機實測重建 7/20 期——19 則新聞 URL 與上期完全不重疊、上期報過的 5 份市場報告全數排除（marketReports: 0）、封面故事從 2 類增為 4 類（新增 PMIC、連接器）、內文與上期不同。標題仍聚焦「記憶體、MLCC」屬市場焦點延續，非重複內容。
+- [x] **正式站驗證**（直連 Railway Postgres 讀快取比對）：7/20 期已於部署後重建（rev 2、builtAt 21:46 UTC）——17 則新聞 URL 與 7/13 期完全不重疊、上期 5 份市場報告全數去重（marketReports: 0）、生命週期訊號首次上線（lifecycleNews: 3，來自料件 API 的 NRND 料）、封面故事改為 記憶體/PMIC/MCU（上期為 記憶體/MLCC/PMIC/連接器）、兩期封面故事比對 `duplicate? false`。
 - **教訓**：週一凌晨後不要再拿 weekly-report-build 當部署 smoke test——會提早固化新一期。改用 `mode=cached` 或 health 端點煙測。
 - **修改檔案**：`src/lib/demand-forecast/weekly-report.ts`、`project_summary.md`
 
