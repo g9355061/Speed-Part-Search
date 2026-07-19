@@ -1,6 +1,7 @@
 import { getMarketReportsCache, getGenericCache, listGenericCacheByPrefix, setGenericCache, getDemandForecastSnapshotHistory, type SnapshotPoint } from '@/lib/db';
-import { DEMAND_CATEGORIES, BENCHMARK_PARTS } from '@/lib/demand-forecast/benchmark';
+import { DEMAND_CATEGORIES, BENCHMARK_PARTS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
 import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
+import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import crypto from 'crypto';
 
 const RECENT_SIGNAL_DAYS = 45;
@@ -125,24 +126,6 @@ const WEEKLY_CATEGORY_LABELS: Record<string, string> = {
   C13: '光耦 / 數位隔離器',
   C14: '乙太網路 / 網通 IC',
   C15: '散熱 / 風扇 / 電源模組',
-};
-
-const WEEKLY_CATEGORY_KEYWORDS: Record<string, string[]> = {
-  C01: ['mlcc', 'ceramic capacitor', 'capacitor', '積層陶瓷電容', '電容', '高容'],
-  C02: ['pmic', 'power management', 'regulator', '電源管理', '穩壓'],
-  C03: ['mosfet', 'discrete', 'nexperia', 'infineon', 'onsemi', '功率', '分離式'],
-  C04: ['memory', 'ddr', 'dram', 'flash', 'nand', 'hbm', '記憶體', '內存'],
-  C05: ['mcu', 'microcontroller', 'processor', '處理器', '微控制器'],
-  C06: ['connector', '連接器'],
-  C07: ['crystal', 'oscillator', '晶體', '振盪器'],
-  C08: ['tvs', 'esd', 'protection', '保護元件'],
-  C09: ['analog', 'sensor', 'op amp', '感測器', '類比'],
-  C10: ['interface', 'can transceiver', 'rs-485', 'ethernet phy', '介面'],
-  C11: ['inductor', 'choke', '電感', '扼流圈'],
-  C12: ['aluminum capacitor', 'polymer capacitor', 'electrolytic', '鋁質', '固態電容'],
-  C13: ['optocoupler', 'isolator', '光耦', '隔離器'],
-  C14: ['ethernet', 'networking', '網通', '乙太網路'],
-  C15: ['fan', 'thermal', 'power module', '散熱', '風扇', '電源模組'],
 };
 
 export interface WeeklyReportListItem {
@@ -325,7 +308,7 @@ function splitSentences(text: string) {
 
 function sentenceScore(sentence: string, categoryId: string) {
   const lower = sentence.toLowerCase();
-  const categoryKeywords = WEEKLY_CATEGORY_KEYWORDS[categoryId] ?? [];
+  const categoryKeywords = CATEGORY_NEWS_KEYWORDS[categoryId] ?? [];
   const riskKeywords = [
     'shortage', 'shortages', 'tight', 'constraint', 'constrained', 'allocation',
     'lead time', 'delivery', 'price', 'cost', 'supply', 'demand', 'inventory',
@@ -340,28 +323,6 @@ function sentenceScore(sentence: string, categoryId: string) {
   }
   if (sentence.length >= 60 && sentence.length <= 220) score += 1;
   return score;
-}
-
-async function translateTextToZh(text: string) {
-  if (!text || /[\u4e00-\u9fff]/.test(text)) return text;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3000);
-  try {
-    const resp = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text)}`, {
-      signal: controller.signal,
-      cache: 'no-store',
-    });
-    if (!resp.ok) return text;
-    const data = await resp.json();
-    const translated = Array.isArray(data?.[0])
-      ? data[0].map((part: any) => part?.[0] || '').join('').trim()
-      : '';
-    return translated || text;
-  } catch {
-    return text;
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 async function fetchArticlePoints(url: string | undefined, categoryId: string) {
@@ -385,7 +346,7 @@ async function fetchArticlePoints(url: string | undefined, categoryId: string) {
       .sort((a, b) => b.score - a.score)
       .slice(0, ARTICLE_POINT_LIMIT)
       .map((item) => item.sentence);
-    const translated = await Promise.all(candidates.map((sentence) => translateTextToZh(sentence)));
+    const translated = await Promise.all(candidates.map((sentence) => translateToZhTW(sentence)));
     return translated
       .map((sentence) => cleanEvidenceText(sentence))
       .filter(Boolean)
@@ -410,7 +371,7 @@ function isRecentSignal(item: any, now: Date) {
 }
 
 async function categoryEvidence(categoryId: string, items: any[], limit = 3) {
-  const keywords = WEEKLY_CATEGORY_KEYWORDS[categoryId] ?? [];
+  const keywords = CATEGORY_NEWS_KEYWORDS[categoryId] ?? [];
   const keywordHit = (item: any) => {
     if (keywords.length === 0) return true;
     const text = `${pickTitle(item)} ${pickSummary(item)}`.toLowerCase();
@@ -731,7 +692,7 @@ function reportSummary(report: any) {
 async function reportEvidence(report: any) {
   const source = report.source || '公開報告';
   const rawText = cleanEvidenceText(report.evidenceTextZh || report.evidenceText || report.summaryZh || report.titleZh || report.title || '公開報告提到此類別');
-  const text = await translateTextToZh(rawText);
+  const text = await translateToZhTW(rawText);
   return `${source}：${text}`;
 }
 

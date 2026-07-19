@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { BENCHMARK_PARTS, DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS } from '@/lib/demand-forecast/benchmark';
+import { BENCHMARK_PARTS, DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
+import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo, getCustomThresholds } from '@/lib/db';
@@ -17,24 +18,6 @@ const LIFECYCLE_WORDS = [
   'pcn', 'eol', 'nrnd', 'end of life', 'end-of-life', 'last time buy',
   'product change notification', 'product discontinuance', 'obsolete', 'obsolescence',
 ];
-
-const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  C01: ['mlcc', 'ceramic capacitor', 'murata', 'tdk', 'samsung electro-mechanics'],
-  C02: ['pmic', 'power management', 'regulator', 'buck converter', 'ldo', 'texas instruments'],
-  C03: ['mosfet', 'power discrete', 'infineon', 'onsemi', 'vishay'],
-  C04: ['ddr', 'dram', 'memory', 'flash', 'nand', 'nor', 'hbm', 'micron', 'sk hynix', 'samsung'],
-  C05: ['mcu', 'microcontroller', 'automotive mcu', 'stm32', 'nxp', 'renesas', 'infineon aurix'],
-  C06: ['connector', 'fpc', 'ffc', 'board-to-board', 'wire-to-board', 'te connectivity', 'molex', 'hirose'],
-  C07: ['crystal', 'oscillator', 'clock', 'timing component'],
-  C08: ['tvs', 'esd protection', 'surge protection', 'protection diode'],
-  C09: ['analog ic', 'sensor', 'op amp', 'current sensor', 'temperature sensor'],
-  C10: ['interface ic', 'can transceiver', 'rs-485', 'usb bridge', 'ethernet phy'],
-  C11: ['inductor', 'choke', 'power inductor', 'common mode choke'],
-  C12: ['aluminum capacitor', 'polymer capacitor', 'electrolytic capacitor'],
-  C13: ['optocoupler', 'digital isolator', 'isolation ic'],
-  C14: ['ethernet', 'networking ic', 'phy', 'switch ic', 'retimer'],
-  C15: ['fan', 'thermal', 'cooling', 'power module', 'dc dc module', 'ac dc module'],
-};
 
 const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
   C01: ['MLCC', '"ceramic capacitor"', '"multilayer ceramic capacitor"'],
@@ -128,7 +111,7 @@ function decodeXml(value: string): string {
 function tagCategories(text: string): string[] {
   const lower = text.toLowerCase();
   return DEMAND_CATEGORIES
-    .filter((cat) => CATEGORY_KEYWORDS[cat.categoryId]?.some((word) => lower.includes(word)))
+    .filter((cat) => CATEGORY_NEWS_KEYWORDS[cat.categoryId]?.some((word) => lower.includes(word)))
     .map((cat) => cat.categoryId);
 }
 
@@ -161,7 +144,7 @@ function parseGoogleNews(xml: string, requestedCategoryId?: string, signalWords:
 }
 
 function buildCategoryNewsUrl(categoryId: string, kind: 'shortage' | 'lifecycle'): string {
-  const terms = CATEGORY_SEARCH_QUERIES[categoryId] ?? CATEGORY_KEYWORDS[categoryId] ?? [];
+  const terms = CATEGORY_SEARCH_QUERIES[categoryId] ?? CATEGORY_NEWS_KEYWORDS[categoryId] ?? [];
   const signalQuery = kind === 'lifecycle'
     ? '(PCN OR EOL OR NRND OR "end of life" OR "last time buy" OR "product change notification" OR "product discontinuance")'
     : '(shortage OR allocation OR "lead time" OR "price increase" OR "tight supply")';
@@ -331,38 +314,11 @@ async function decodeGoogleNewsUrl(sourceUrl: string): Promise<string> {
   }
 }
 
-const translationCache = new Map<string, string>();
-
+// 翻譯走共用模組（gtx → Gemini 備援）；兩者都失敗回原文時，這裡再套詞彙級 roughTranslateZh 兜底
 async function translateToZh(text: string): Promise<string> {
-  if (!text) return "";
-  const cleaned = text.trim();
-  if (!cleaned) return "";
-  if (translationCache.has(cleaned)) {
-    console.log("[TRANSLATOR] Cache hit for:", cleaned.substring(0, 20) + "...");
-    return translationCache.get(cleaned)!;
-  }
-  try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(cleaned)}`;
-    console.log("[TRANSLATOR] Requesting translation for:", cleaned.substring(0, 20) + "...");
-    const resp = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      },
-      next: { revalidate: 3600 }
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const json = await resp.json();
-    const translated = json[0].map((item: any) => item[0]).join('');
-    if (translated) {
-      console.log("[TRANSLATOR] Success! Translated to:", translated.substring(0, 20) + "...");
-      translationCache.set(cleaned, translated);
-      return translated;
-    }
-    return roughTranslateZh(cleaned);
-  } catch (err) {
-    console.error("[TRANSLATOR] Failed to translate:", cleaned, err);
-    return roughTranslateZh(cleaned);
-  }
+  if (!text?.trim()) return '';
+  const translated = await translateToZhTW(text.trim());
+  return /[\u4e00-\u9fff]/.test(translated) ? translated : roughTranslateZh(translated);
 }
 
 async function fetchIndustryNews(): Promise<NewsItem[]> {
@@ -572,7 +528,10 @@ async function runWithConcurrency<T, R>(items: T[], limit: number, task: (item: 
   return results;
 }
 
-async function searchBenchmarkPart(part: BenchmarkPart) {
+async function searchBenchmarkPart(
+  part: BenchmarkPart,
+  activeThresholds: Record<string, { minStock: number; lowStock: number }>
+) {
   const suppliers = getEnabledSuppliers();
   const results: PartResult[] = [];
   const errors: string[] = [];
@@ -591,8 +550,6 @@ async function searchBenchmarkPart(part: BenchmarkPart) {
   }));
 
   const snapshot7DaysAgo = await getDemandForecastSnapshot7DaysAgo(part.mpn);
-  const dbThresholds = await getCustomThresholds();
-  const activeThresholds = dbThresholds ? { ...CATEGORY_THRESHOLDS, ...dbThresholds } : CATEGORY_THRESHOLDS;
   const summary = summarizePart(part, results, errors, snapshot7DaysAgo, activeThresholds);
 
   // 儲存今日快照以供後續比對趨勢
@@ -751,12 +708,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // 門檻整輪查一次就好——先前放在 searchBenchmarkPart 內，150 顆會重複打 150 次相同 DB 查詢
+  const dbThresholds = await getCustomThresholds();
+  const activeThresholds = dbThresholds ? { ...CATEGORY_THRESHOLDS, ...dbThresholds } : CATEGORY_THRESHOLDS;
+
   // Pre-populate parts array with cached parts or empty placeholders to preserve order
   const parts: any[] = await Promise.all(
     BENCHMARK_PARTS.map(async (part) => {
       const cachedPart = cachedPartsMap.get(part.mpn);
       if (cachedPart) {
-        return await recalculateForecastPart(cachedPart);
+        return await recalculateForecastPart(cachedPart, activeThresholds);
       }
       return {
         ...part,
@@ -771,6 +732,10 @@ export async function GET(req: NextRequest) {
   );
 
   const cacheTTL = 12 * 60 * 60 * 1000; // 12 hours TTL for cached parts
+  // Progressive save 改為每 10 顆存一次：邊緣切斷後接力續跑的粒度仍夠細，
+  // 但不再每查一顆就整包重寫 150 顆的大 JSON（原本一輪 150 次大寫入）。
+  const SAVE_EVERY = 10;
+  let liveQueriedCount = 0;
 
   // Query parts with concurrency (10 parallel workers for faster completion)
   await runWithConcurrency(
@@ -785,13 +750,13 @@ export async function GET(req: NextRequest) {
         cachedPart.supplierCount !== null;
 
       if (isCacheValid) {
-        const recalculated = await recalculateForecastPart(cachedPart);
+        const recalculated = await recalculateForecastPart(cachedPart, activeThresholds);
         parts[idx] = recalculated;
         return recalculated;
       }
 
       // Query live API
-      const result = await searchBenchmarkPart(part);
+      const result = await searchBenchmarkPart(part, activeThresholds);
       const resultWithTime = {
         ...result,
         queryTime: Date.now(),
@@ -800,13 +765,15 @@ export async function GET(req: NextRequest) {
       // Update in-place to preserve index order
       parts[idx] = resultWithTime;
 
-      // Progressive save: save the full 150 parts array containing live results + cached results + empty placeholders
-      const currentSummary = buildSupplyCategorySummary(parts);
-      await writeCache({
-        updatedAt: new Date().toISOString(),
-        parts,
-        categorySummary: currentSummary,
-      });
+      liveQueriedCount += 1;
+      if (liveQueriedCount % SAVE_EVERY === 0) {
+        const currentSummary = buildSupplyCategorySummary(parts);
+        await writeCache({
+          updatedAt: new Date().toISOString(),
+          parts,
+          categorySummary: currentSummary,
+        });
+      }
 
       return resultWithTime;
     }

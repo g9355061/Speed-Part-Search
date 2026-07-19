@@ -1,0 +1,77 @@
+name: Benchmark Monthly Health Check
+
+# 每月 1 日 09:10（台北時間 UTC+8）跑基準料名單體檢：
+#   1. benchmark-health —— EOL/無資料/死訊號/重複，給汰換建議
+#   2. field-suggestions —— 90 天真實搜尋記錄，產出實戰料輪換候選
+# 結果自動開成 GitHub issue 提醒處理（先前是手動端點、沒有排程也沒有提醒機制）。
+# 2026-08-01 的第一期同時就是「實戰料輪換第一輪」的到期提醒（search_logs 自 2026-07-11 起累積）。
+on:
+  schedule:
+    - cron: '10 1 1 * *'
+  workflow_dispatch: {} # 允許手動觸發測試
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run health checks and open issue
+        env:
+          BASE_URL: ${{ secrets.FORECAST_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::缺少 repo secrets：FORECAST_BASE_URL 或 CRON_SECRET"
+            exit 1
+          fi
+
+          HEALTH=$(curl -sS --max-time 120 -H "x-cron-secret: $CRON_SECRET" "$BASE_URL/api/demand-forecast/benchmark-health")
+          FIELD=$(curl -sS --max-time 120 -H "x-cron-secret: $CRON_SECRET" "$BASE_URL/api/demand-forecast/field-suggestions")
+
+          # 兩個回應都必須是合法 JSON，否則直接失敗（寄通知）
+          echo "$HEALTH" | jq -e '.totalParts' > /dev/null
+          echo "$FIELD"  | jq -e '.windowDays' > /dev/null
+
+          MONTH=$(TZ=Asia/Taipei date +%Y-%m)
+
+          {
+            echo "自動產生於 $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M')（台北時間）。資料來源：正式站 \`benchmark-health\` 與 \`field-suggestions\` 端點。"
+            echo
+            echo "## 一、名單體檢（benchmark-health）"
+            echo "$HEALTH" | jq -r '"- 總數 \(.totalParts)｜健康 \(.healthy)｜有問題 \(.issueCount)｜重複 \(if (.duplicates|length)==0 then "無" else (.duplicates|join("、")) end)"'
+            echo
+            if [ "$(echo "$HEALTH" | jq '.issueCount')" -gt 0 ]; then
+              echo "| 料號 | 類別 | 角色 | 問題 | 建議 |"
+              echo "| --- | --- | --- | --- | --- |"
+              echo "$HEALTH" | jq -r '.issues[:30][] | "| \(.mpn) | \(.category) | \(.role) | \(.problems|join("；")) | \(.suggestion) |"'
+              if [ "$(echo "$HEALTH" | jq '.issueCount')" -gt 30 ]; then
+                echo
+                echo "（僅列前 30 筆，完整清單請直接呼叫端點）"
+              fi
+            else
+              echo "全數健康，無需汰換。"
+            fi
+            echo
+            echo "> $(echo "$HEALTH" | jq -r '.note')"
+            echo
+            echo "## 二、實戰料輪換建議（field-suggestions，90 天搜尋記錄）"
+            echo "$FIELD" | jq -r '"- 期間總搜尋 \(.totalLogged) 次｜現任實戰料 \(.currentFieldParts|length) 顆｜名單外候選 \(.candidates|length) 顆"'
+            echo
+            if [ "$(echo "$FIELD" | jq '.candidates|length')" -gt 0 ]; then
+              echo "| 候選料號 | 搜尋次數 | 最後搜尋 |"
+              echo "| --- | --- | --- |"
+              echo "$FIELD" | jq -r '.candidates[:10][] | "| \(.mpn) | \(.count) | \(.lastSearched) |"'
+            else
+              echo "目前沒有名單外的高頻搜尋候選。"
+            fi
+            echo
+            echo "> $(echo "$FIELD" | jq -r '.note')"
+          } > issue-body.md
+
+          gh issue create --repo "$GH_REPO" \
+            --title "Benchmark 名單月度體檢 $MONTH" \
+            --body-file issue-body.md

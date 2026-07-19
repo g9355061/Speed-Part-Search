@@ -53,7 +53,28 @@ jobs:
           done
 
           if [ "$DONE" = "1" ]; then
-            echo "Weekly forecast refresh OK."
+            echo "迴圈偵測到快速 200，進入資料驗證。"
           else
-            echo "::warning::迴圈結束仍未偵測到「快速 200」；伺服器端通常仍在背景完成，資料會陸續寫入。"
+            echo "迴圈未偵測到「快速 200」；伺服器可能仍在背景完成，以下用資料新鮮度驗證。"
           fi
+
+          # 成敗以「資料實際新鮮」為準，不看迴圈有沒有跑完：
+          # mode=cached 的 parts 需有 ≥140/150 顆的 queryTime 落在 24 小時內，
+          # 否則以 error 失敗（GitHub 會寄通知信）——先前只印 warning，若哪週 API 掛了
+          # 150 顆全沒更新也沒人知道，直到下週趨勢訊號全部靜默才發現。
+          CUTOFF=$(( ( $(date +%s) - 86400 ) * 1000 ))
+          FRESH=0
+          for i in $(seq 1 10); do
+            FRESH=$(curl -s --max-time 60 -H "x-cron-secret: $CRON_SECRET" \
+              "$BASE_URL/api/demand-forecast?mode=cached" \
+              | jq --argjson cutoff "$CUTOFF" '[.parts[] | select(.queryTime != null and .queryTime > $cutoff)] | length' 2>/dev/null || echo 0)
+            echo "驗證第 $i 次：24 小時內查過的料件 $FRESH/150"
+            if [ "$FRESH" -ge 140 ]; then break; fi
+            sleep 60   # 邊緣切斷後伺服器仍在背景查，等它收尾再驗一次
+          done
+
+          if [ "$FRESH" -lt 140 ]; then
+            echo "::error::本週查詢未完成：僅 $FRESH/150 顆料件在 24 小時內有新資料，趨勢快照可能斷檔（週報主訊號來源）。請檢查 Railway logs 與 DigiKey/Mouser API 狀態。"
+            exit 1
+          fi
+          echo "Weekly forecast refresh OK（$FRESH/150 顆料件資料新鮮）。"

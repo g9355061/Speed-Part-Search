@@ -1,6 +1,21 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-19（週報五項體質修正：移除硬編碼劇本、生命週期改料件 API、新聞快取入 DB、週報固化＋排程預建、台北時區）
+> 最後更新：2026-07-19（缺料預測五項修正：週更失敗告警、mode=full 降耗、翻譯 Gemini 備援、關鍵字表合併、月度體檢排程）
+
+---
+
+### 2026-07-19 — 缺料預測五項修正（依整體 review 結論 #12–#16）
+
+**背景**：接續同日的週報五項修正，Danny 同意處理缺料預測部分的五點：(12) 週更 workflow 失敗只印 warning，趨勢斷資料無人知道；(13) mode=full 每顆料重複查門檻 DB×150 次＋每顆料整包重寫快取×150 次；(14) 翻譯依賴 Google 非官方 gtx 端點，斷掉時輸出退化成半英文；(15) 週報與預測頁各自維護一份類別關鍵字表，已漂移；(16) 實戰料輪換（8 月初到期）與 benchmark-health 季度體檢沒有排程與提醒機制。
+
+- [x] **(12) weekly-forecast.yml 改為資料驗證定成敗**：迴圈跑完後不再只印 warning——改抓 `mode=cached` 用 jq 數「queryTime 在 24 小時內」的料件數，≥140/150 才算成功；不足則最多等 10×60 秒（背景查詢收尾）後以 `::error` 失敗退出（GitHub 會寄通知信）。
+- [x] **(13) mode=full 降耗**（`route.ts`）：`getCustomThresholds()` 從 `searchBenchmarkPart` 內拉出、整輪只查一次傳入（原 150 次相同查詢）；progressive save 改每 10 顆存一次（原每顆整包重寫 150 顆大 JSON），接力續跑粒度不受影響。順帶修正：mode=full 的 `recalculateForecastPart` 現在也吃自訂門檻（先前漏傳、只用預設值）。
+- [x] **(14) 翻譯共用模組**（`src/lib/demand-forecast/translate.ts` 新）：翻譯鏈 gtx（主，免費快速）→ Gemini（gtx 掛掉時接手；與週報共用 `gemini_monthly_usage` 的 $5/月＋4000 次熔斷）→ 原文。route.ts 的 `translateToZh`（保留 roughTranslateZh 詞彙級兜底）與 weekly-report.ts 的 `translateTextToZh` 都改走共用模組，刪除兩份重複的 gtx 實作。
+- [x] **(15) 關鍵字表合併**：`CATEGORY_NEWS_KEYWORDS` 進 `benchmark.ts`（單一事實來源），內容為 route.ts `CATEGORY_KEYWORDS` 與 weekly-report.ts `WEEKLY_CATEGORY_KEYWORDS` 的聯集；兩份舊表刪除、所有引用改走新表。注意：聯集使新聞歸類略為放寬（例如含 "capacitor" 的新聞現在也會標到 C01），屬預期的一致化。
+- [x] **(16) 月度體檢排程**（`.github/workflows/benchmark-maintenance.yml` 新）：每月 1 日 09:10（台北）呼叫 `benchmark-health` 與 `field-suggestions`，把「名單體檢表＋實戰料輪換候選表」自動開成 GitHub issue（`permissions: issues: write`，用內建 GITHUB_TOKEN）。**2026-08-01 第一期 issue 就是實戰料輪換第一輪的到期提醒**（search_logs 自 7/11 累積）。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅；兩個 workflow YAML 語法檢查通過；本機 dev server 實測——`mode=cached` 200、workflow 的 jq 新鮮度判斷式對真實回應可用（本機舊快取正確算出 `fresh24h: 0`，即該擋的情境會擋）、`mode=summary` 200、週報端點快取直回 0.24 秒。正式站以手動觸發 benchmark-maintenance workflow 驗證 issue 建立。限制：Gemini 翻譯備援分支需 gtx 失敗才觸發，本機未實際演練（程式碼為週報既有 Gemini 呼叫的同款寫法）。
+- **注意**：weekly-forecast 的新驗證步驟從下週日（2026-07-26 03:00 深圳）起生效；若某週真的失敗，Danny 會收到 GitHub Actions 失敗通知信。
+- **修改檔案**：`.github/workflows/weekly-forecast.yml`、`.github/workflows/benchmark-maintenance.yml`（新）、`src/lib/demand-forecast/translate.ts`（新）、`src/lib/demand-forecast/benchmark.ts`、`src/lib/demand-forecast/weekly-report.ts`、`src/app/api/demand-forecast/route.ts`、`project_summary.md`
 
 ---
 
