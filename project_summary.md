@@ -1,6 +1,22 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-19（缺料預測五項修正：週更失敗告警、mode=full 降耗、翻譯 Gemini 備援、關鍵字表合併、月度體檢排程）
+> 最後更新：2026-07-19（QQ 報價六項修正：華強查詢 3 小時快取、共用 browser、報價交易保護、含稅混雜警示、純函式抽庫＋測試、模板入 DB 共享）
+
+---
+
+### 2026-07-19 — QQ 報價六項修正（依整體 review 結論 #6–#11；快取 TTL 依 Danny 指定 3 小時）
+
+**背景**：接續同日週報與缺料預測的修正，處理 QQ 報價部分六點。華強封鎖的根本解（自架代理 vs 外購住宅代理）仍待 Danny 決定，本次先做止血與體質修正。
+
+- [x] **(6) 華強查詢加「料號 × 3 小時」DB 快取**（`api/hqew/search/route.ts`）：同料號重複查詢直接回快取、完全不碰華強，降低觸發封鎖的頻率（實測連打 6 次即封、封鎖不自動解除）。只快取成功結果（generic cache，key `hqew-search-<料號>`）；**企點簽章跳轉連結（jumpUrl，實測僅存活約 40 分鐘）在快取命中時重新預抓**——那些請求打的是騰訊 gateway 不會碰華強，QQ 按鈕不會因快取而失效。快取命中的回應帶 `cached: true`；後端支援 `?force=1` 強制重查（前端目前一律走快取，未加 UI）。
+- [x] **(7) Playwright browser 模組層級共用**：移除每 request `chromium.launch`/`close`（28 顆 BOM＝28 次冷啟）；改為 globalThis 共用單一 browser（撐過 dev 熱重載、斷線自動重啟），每次查詢只開新 page、finally 關閉。
+- [x] **(8) `saveQqQuote` 包 transaction**（`db.ts`）：DELETE＋INSERT 改為同交易（Postgres BEGIN/COMMIT/ROLLBACK、SQLite `db.transaction()`），INSERT 失敗時舊報價不再消失。已以 SQLite 實測 PK 衝突情境：拋錯且舊報價完整保留。
+- [x] **(9) 含稅/未稅混雜警示**：`bestQuoteReason` 改收完整候選清單，偵測有單價的候選中含稅與未稅並存時，附加「⚠ 候選報價含稅/未稅混雜，價格排序僅供參考」（含稅 0.2 會被數字排序誤判輸給未稅 0.19，不可比就明示請人工確認；未做稅率換算假設）。
+- [x] **(10) 純函式抽到 `src/lib/qq/quote-utils.ts`**：parseReplyText／cleanSupplierReply／computeValidUntil／quoteFreshness／quoteScore／pickBestQuote／bestQuoteReason 等自 page.tsx 抽出（頁面 2,315 → 約 2,100 行），新增 `tests/qq-quote-utils.test.ts` 併入 `npm test`——涵蓋 7/14 收緊的「40 25+」單價防線 10 例、有效期換算、新鮮度分級、降權與混雜警示，之後改解析邏輯不必再登入後手動貼回覆驗證。
+- [x] **(11) 自訂模板入 DB 團隊共享**：新表 `qq_templates`（SQLite+Postgres 雙路徑）＋ `GET/POST/DELETE /api/qq/templates`（走 `canAccessQqInquiry` 權限閘、系統預設模板 id 拒收）；前端載入改抓伺服器，localStorage 舊自訂模板**一次性自動搬遷入 DB**（全部成功才清 key，同 Case 搬遷模式）；系統預設模板仍以程式碼為準不入庫；「目前選用哪個模板」維持 localStorage（個人偏好）。決策依據：模板 localStorage 已在 7/13 造成過「新版預設被舊快取蓋掉」事件，且 Case/報價皆已入庫共享，模板跟進一致。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅（新增 QQ 測試 5 組全過）；SQLite 直測模板 CRUD（upsert/覆寫/刪除）與報價交易回滾均正確（測試資料已清）。**限制**：hqew 路由與模板 API 在登入牆後、華強在 Railway IP 才觸發封鎖情境，本機未做登入後端到端；快取/共用 browser 的實際效果待正式站下次 BOM 詢價觀察。
+- **注意**：華強封鎖根本解（自架代理用公司台灣 IP $0 vs IPRoyal 1GB/$7.35）仍待決定；3 小時快取只是降頻止血。
+- **修改檔案**：`src/app/api/hqew/search/route.ts`、`src/lib/db.ts`、`src/lib/qq/quote-utils.ts`（新）、`src/app/api/qq/templates/route.ts`（新）、`src/app/qq-inquiry/page.tsx`、`tests/qq-quote-utils.test.ts`（新）、`package.json`、`project_summary.md`
 
 ---
 

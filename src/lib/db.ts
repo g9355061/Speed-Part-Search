@@ -142,6 +142,13 @@ async function initPostgres() {
     );
     CREATE INDEX IF NOT EXISTS idx_qq_quotes_case ON qq_quotes (case_id);
     CREATE INDEX IF NOT EXISTS idx_qq_quotes_mpn ON qq_quotes (mpn);
+    CREATE TABLE IF NOT EXISTS qq_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
   await pg.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -272,6 +279,13 @@ function initSqlite() {
     );
     CREATE INDEX IF NOT EXISTS idx_qq_quotes_case ON qq_quotes (case_id);
     CREATE INDEX IF NOT EXISTS idx_qq_quotes_mpn ON qq_quotes (mpn);
+    CREATE TABLE IF NOT EXISTS qq_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   const cols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name);
@@ -1323,43 +1337,56 @@ export async function deleteQqCase(id: string): Promise<void> {
 
 // 同 Case 內同一 RFQ（或無 RFQ 時同料號×供應商）的舊報價以新報價取代；
 // 跨 Case 的歷史報價一律保留（歷史報價是資產：談判依據與行情曲線）。
+// 「同 RFQ（或同料號×供應商）新報價取代舊報價」的 DELETE+INSERT 必須同交易——
+// 否則 INSERT 失敗時舊報價已被刪除，這筆團隊共享的報價就直接消失。
 export async function saveQqQuote(quote: QqQuoteRecord): Promise<void> {
   await ensureDb();
   if (isPostgres) {
-    const pg = getPool();
-    await pg.query(
-      `DELETE FROM qq_quotes WHERE case_id = $1 AND (
-         (rfq_id IS NOT NULL AND $2::text IS NOT NULL AND rfq_id = $2)
-         OR ((rfq_id IS NULL OR $2::text IS NULL) AND mpn = $3 AND supplier = $4)
-       )`,
-      [quote.caseId, quote.rfqId, quote.mpn, quote.supplier]
-    );
-    await pg.query(
-      `INSERT INTO qq_quotes (id, case_id, rfq_id, mpn, qty, supplier, qq, manufacturer, unit_price, stock, moq, lead_time, raw_reply, quoted_at, valid_until, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-      [
-        quote.id, quote.caseId, quote.rfqId, quote.mpn, quote.qty, quote.supplier, quote.qq,
-        quote.manufacturer, quote.unitPrice, quote.stock, quote.moq, quote.leadTime, quote.rawReply,
-        quote.quotedAt, quote.validUntil, quote.createdBy,
-      ]
-    );
+    const client = await getPool().connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `DELETE FROM qq_quotes WHERE case_id = $1 AND (
+           (rfq_id IS NOT NULL AND $2::text IS NOT NULL AND rfq_id = $2)
+           OR ((rfq_id IS NULL OR $2::text IS NULL) AND mpn = $3 AND supplier = $4)
+         )`,
+        [quote.caseId, quote.rfqId, quote.mpn, quote.supplier]
+      );
+      await client.query(
+        `INSERT INTO qq_quotes (id, case_id, rfq_id, mpn, qty, supplier, qq, manufacturer, unit_price, stock, moq, lead_time, raw_reply, quoted_at, valid_until, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [
+          quote.id, quote.caseId, quote.rfqId, quote.mpn, quote.qty, quote.supplier, quote.qq,
+          quote.manufacturer, quote.unitPrice, quote.stock, quote.moq, quote.leadTime, quote.rawReply,
+          quote.quotedAt, quote.validUntil, quote.createdBy,
+        ]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
     return;
   }
   const db = getSqlite();
-  db.prepare(
-    `DELETE FROM qq_quotes WHERE case_id = ? AND (
-       (rfq_id IS NOT NULL AND ? IS NOT NULL AND rfq_id = ?)
-       OR ((rfq_id IS NULL OR ? IS NULL) AND mpn = ? AND supplier = ?)
-     )`
-  ).run(quote.caseId, quote.rfqId, quote.rfqId, quote.rfqId, quote.mpn, quote.supplier);
-  db.prepare(
-    `INSERT INTO qq_quotes (id, case_id, rfq_id, mpn, qty, supplier, qq, manufacturer, unit_price, stock, moq, lead_time, raw_reply, quoted_at, valid_until, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    quote.id, quote.caseId, quote.rfqId, quote.mpn, quote.qty, quote.supplier, quote.qq,
-    quote.manufacturer, quote.unitPrice, quote.stock, quote.moq, quote.leadTime, quote.rawReply,
-    quote.quotedAt, quote.validUntil, quote.createdBy,
-  );
+  db.transaction(() => {
+    db.prepare(
+      `DELETE FROM qq_quotes WHERE case_id = ? AND (
+         (rfq_id IS NOT NULL AND ? IS NOT NULL AND rfq_id = ?)
+         OR ((rfq_id IS NULL OR ? IS NULL) AND mpn = ? AND supplier = ?)
+       )`
+    ).run(quote.caseId, quote.rfqId, quote.rfqId, quote.rfqId, quote.mpn, quote.supplier);
+    db.prepare(
+      `INSERT INTO qq_quotes (id, case_id, rfq_id, mpn, qty, supplier, qq, manufacturer, unit_price, stock, moq, lead_time, raw_reply, quoted_at, valid_until, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      quote.id, quote.caseId, quote.rfqId, quote.mpn, quote.qty, quote.supplier, quote.qq,
+      quote.manufacturer, quote.unitPrice, quote.stock, quote.moq, quote.leadTime, quote.rawReply,
+      quote.quotedAt, quote.validUntil, quote.createdBy,
+    );
+  })();
 }
 
 // 跨 Case 歷史報價（同料號在其他 Case 談到的價），供詢價前參考行情
@@ -1381,6 +1408,62 @@ export async function getQqQuotesByMpn(mpn: string, excludeCaseId?: string, limi
     )
     .all(mpn, excludeCaseId ?? null, excludeCaseId ?? null, safeLimit) as any[];
   return rows.map(mapQqQuoteRow);
+}
+
+// ── QQ 詢價模板（團隊共享；系統預設模板以程式碼為準、不入庫） ──────────────
+export interface QqTemplateRecord {
+  id: string;
+  name: string;
+  content: string;
+  createdBy: string;
+  updatedAt: string;
+}
+
+function mapQqTemplateRow(row: any): QqTemplateRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    content: row.content,
+    createdBy: row.created_by ?? '',
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+  };
+}
+
+export async function listQqTemplates(): Promise<QqTemplateRecord[]> {
+  await ensureDb();
+  if (isPostgres) {
+    const res = await getPool().query('SELECT * FROM qq_templates ORDER BY updated_at ASC');
+    return res.rows.map(mapQqTemplateRow);
+  }
+  const rows = getSqlite().prepare('SELECT * FROM qq_templates ORDER BY updated_at ASC').all() as any[];
+  return rows.map(mapQqTemplateRow);
+}
+
+export async function saveQqTemplate(tpl: { id: string; name: string; content: string; createdBy: string }): Promise<void> {
+  await ensureDb();
+  if (isPostgres) {
+    await getPool().query(
+      `INSERT INTO qq_templates (id, name, content, created_by, updated_at)
+       VALUES ($1, $2, $3, $4, now())
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, content = EXCLUDED.content, updated_at = now()`,
+      [tpl.id, tpl.name, tpl.content, tpl.createdBy]
+    );
+    return;
+  }
+  getSqlite().prepare(
+    `INSERT INTO qq_templates (id, name, content, created_by, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT (id) DO UPDATE SET name = excluded.name, content = excluded.content, updated_at = datetime('now')`
+  ).run(tpl.id, tpl.name, tpl.content, tpl.createdBy);
+}
+
+export async function deleteQqTemplate(id: string): Promise<void> {
+  await ensureDb();
+  if (isPostgres) {
+    await getPool().query('DELETE FROM qq_templates WHERE id = $1', [id]);
+    return;
+  }
+  getSqlite().prepare('DELETE FROM qq_templates WHERE id = ?').run(id);
 }
 
 // 最近 N 天最常被搜尋的料號（供 field-suggestions 建議實戰料輪換）

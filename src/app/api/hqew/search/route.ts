@@ -3,10 +3,45 @@ import { getServerSession } from 'next-auth';
 import { chromium } from 'playwright';
 import { authOptions } from '@/lib/auth-config';
 import { canAccessQqInquiry } from '@/lib/permissions';
-import { logPartSearch } from '@/lib/db';
+import { logPartSearch, getGenericCache, setGenericCache } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// 華強查詢結果快取（料號 × 3 小時，存 DB）：同料號重複查詢不再重打華強，
+// 直接降低觸發封鎖的頻率（實測連打 6 次即被封 IP，且封鎖不會自動解除）。
+// 只快取華強的供應商列表；企點簽章跳轉連結（jumpUrl 實測僅存活約 40 分鐘）
+// 在快取命中時重新預抓——那些請求打的是騰訊 gateway，不會碰華強。
+const HQEW_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+const HQEW_CACHE_PREFIX = 'hqew-search-';
+
+type LaunchedBrowser = Awaited<ReturnType<typeof chromium.launch>>;
+
+// 模組層級共用 browser：先前每個 request chromium.launch 再 close，28 顆 BOM 就是
+// 28 次瀏覽器冷啟（每次 1–2 秒＋記憶體峰值）。頁面各自建立與關閉，互不影響。
+// 存在 globalThis 以撐過 Next dev 熱重載，避免重複 launch 洩漏。
+const hqewGlobal = globalThis as unknown as { __hqewBrowserPromise?: Promise<LaunchedBrowser> | null };
+
+async function getSharedBrowser(): Promise<LaunchedBrowser> {
+  if (hqewGlobal.__hqewBrowserPromise) {
+    try {
+      const existing = await hqewGlobal.__hqewBrowserPromise;
+      if (existing.isConnected()) return existing;
+    } catch {
+      // 前次 launch 失敗，往下重新啟動
+    }
+  }
+  hqewGlobal.__hqewBrowserPromise = chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+  try {
+    return await hqewGlobal.__hqewBrowserPromise;
+  } catch (err) {
+    hqewGlobal.__hqewBrowserPromise = null;
+    throw err;
+  }
+}
 
 interface HqewSupplier {
   supplier: string;
@@ -30,10 +65,7 @@ const BROWSER_UA =
 // gateway getWpaUrl 直接以 server fetch 呼叫會回 10001 parameter error（需瀏覽器指紋與
 // 前端 JS 產生的 client 狀態），所以用 Playwright 渲染官方 wpa 頁、攔截它自己發出的
 // getWpaUrl 回應。簽章 uid 實測可重複使用且存活至少 40 分鐘，搜尋階段預抓即可。
-async function fetchQqJumpUrl(
-  browser: Awaited<ReturnType<typeof chromium.launch>>,
-  qq: string,
-): Promise<string | null> {
+async function fetchQqJumpUrl(qq: string): Promise<string | null> {
   // 快路徑：v1/b2b/qq/wpa 可直接 server fetch。部分企點號在這層就拿到
   // wpa1.qq.com/<碼>?qidian=true 簽章短連結（官方頁對這種號也是直接轉走、
   // 不會再呼叫 getWpaUrl），直接回傳給前端 window.open 即可。
@@ -50,6 +82,7 @@ async function fetchQqJumpUrl(
     // 快路徑失敗就走 Playwright
   }
 
+  const browser = await getSharedBrowser();
   const page = await browser.newPage({ userAgent: BROWSER_UA, locale: 'zh-CN' });
   try {
     const respPromise = page.waitForResponse((r) => r.url().includes('/v1/b2b/wpa/getWpaUrl'), { timeout: 12000 });
@@ -81,6 +114,24 @@ function parseStock(text: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// 為每家供應商預抓企點簽章跳轉連結（華強已給企點連結者不需要）；快取命中與新查詢共用
+async function refreshJumpUrls(suppliers: HqewSupplier[]): Promise<void> {
+  await Promise.all(
+    suppliers.map(async (s) => {
+      if (!s.qq || /qidian=true|wpa1\.qq\.com/i.test(s.qqHref ?? '')) return;
+      s.jumpUrl = await fetchQqJumpUrl(s.qq.replace(/\D/g, ''));
+    }),
+  );
+}
+
+interface HqewCachedResult {
+  partNumber: string;
+  url: string;
+  totalCount: number;
+  suppliers: HqewSupplier[];
+  queriedAt: string;
+}
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!canAccessQqInquiry(session?.user)) {
@@ -92,18 +143,32 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'partNumber query parameter is required' }, { status: 400 });
   }
 
-  // QQ 詢價查的是真實 BOM 料號——實戰料最有價值的來源
+  // QQ 詢價查的是真實 BOM 料號——實戰料最有價值的來源（快取命中也照記，記的是查詢意圖）
   void logPartSearch(partNumber, 'qq-inquiry');
 
   const url = `https://s.hqew.com/${encodeURIComponent(partNumber)}.html`;
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+  const cacheKey = `${HQEW_CACHE_PREFIX}${partNumber.toUpperCase()}`;
+  const force = req.nextUrl.searchParams.get('force') === '1';
+
+  // 快取命中：不碰華強，只重新預抓企點跳轉連結（jumpUrl 簽章壽命短）
+  if (!force) {
+    try {
+      const cached = (await getGenericCache(cacheKey)) as HqewCachedResult | null;
+      if (cached?.queriedAt && Date.now() - Date.parse(cached.queriedAt) < HQEW_CACHE_TTL_MS) {
+        const suppliers = (cached.suppliers ?? []).map((s) => ({ ...s }));
+        await refreshJumpUrls(suppliers);
+        return NextResponse.json({ ...cached, suppliers, cached: true });
+      }
+    } catch (err) {
+      console.warn('[HQEW] cache read failed, falling back to live query:', err);
+    }
+  }
+
+  let page: Awaited<ReturnType<LaunchedBrowser['newPage']>> | null = null;
 
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-    const page = await browser.newPage({
+    const browser = await getSharedBrowser();
+    page = await browser.newPage({
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36',
       locale: 'zh-CN',
     });
@@ -201,21 +266,24 @@ export async function GET(req: NextRequest) {
     })).filter((s) => s.supplier && s.mpn);
 
     // 預抓每家的簽章跳轉連結（華強已給企點連結者不需要）；三家並行
-    const activeBrowser = browser;
-    await Promise.all(
-      normalized.map(async (s) => {
-        if (!s.qq || /qidian=true|wpa1\.qq\.com/i.test(s.qqHref ?? '')) return;
-        s.jumpUrl = await fetchQqJumpUrl(activeBrowser, s.qq.replace(/\D/g, ''));
-      }),
-    );
+    await refreshJumpUrls(normalized);
 
-    return NextResponse.json({
+    const result: HqewCachedResult = {
       partNumber,
       url,
       totalCount,
       suppliers: normalized,
       queriedAt: new Date().toISOString(),
-    });
+    };
+
+    // 只快取成功結果（被擋/查詢失敗不會走到這裡）；jumpUrl 一併存入無妨，命中時會重抓
+    try {
+      await setGenericCache(cacheKey, result);
+    } catch (err) {
+      console.warn('[HQEW] cache write failed:', err);
+    }
+
+    return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(
       {
@@ -226,6 +294,6 @@ export async function GET(req: NextRequest) {
       { status: 502 }
     );
   } finally {
-    await browser?.close();
+    await page?.close().catch(() => undefined);
   }
 }
