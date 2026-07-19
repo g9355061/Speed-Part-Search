@@ -1,6 +1,21 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-15（釐清 Railway 對外 IP 與華強封鎖的關係）
+> 最後更新：2026-07-19（週報五項體質修正：移除硬編碼劇本、生命週期改料件 API、新聞快取入 DB、週報固化＋排程預建、台北時區）
+
+---
+
+### 2026-07-19 — 缺料週報五項體質修正（依整體 review 結論）
+
+**背景**：全專案 review 指出週報有五個結構性問題，Danny 同意全部修正：(1) C01/C03/C04 有硬編碼劇本，來源報告換題目後仍照唸舊文案，內容與事實脫鉤；(2) demand-forecast 已停抓 RSS PCN/EOL（`lifecycleNews` 永遠空陣列），週報的生命週期區塊永遠是空的，而料件 API 明明有 Obsolete/NRND 資料；(3) `news-cache.json` 寫在 Railway 暫時性磁碟，每次部署新聞快取歸零；(4) 週報 6 小時 TTL 重建——同一週內容會變、TTL 過期後第一個訪客要扛整個建構時間（最壞 30–60 秒）；(5) 週界線用 server 時區（Railway=UTC），台北週一早上 8 點前產生的週報被歸到上一週。
+
+- [x] **(1) 移除硬編碼劇本**（`weekly-report.ts`）：`categoryReportNotes` 的 C01/C03/C04 寫死段落、`reportNarrative` 整個函式、`reportHeadline` 的類別劇本、`reportSummary` 的 dram/mosfet 罐頭句全部移除。市場報告的標題/摘要一律取自報告本身的實際內容（`titleZh`/`summaryZh`/evidence），`marketHighlights.summary` 改用 `reportSummary`。
+- [x] **(2) 生命週期改由料件 API 判定**：`lifecycleFlag` 從 route.ts 移到 `cache-util.ts` 共用；週報改讀 parts cache，篩出 lifecycleStatus 異常（Obsolete/LTB/NRND）的基準料，產出 `lifecycleCount`（進 crossHit/tone/標題分支）、`lifecycleHighlights`、封面故事 evidence（「代理商料件 API：{mpn} 原廠生命週期標示為 …」）與 sourceLinks 的 PCN/EOL 連結（指向 productUrl）。`metrics.lifecycleNews` 欄位名不變、語意改為異常料顆數。死掉的 `lifecycleNews` 讀取路徑清除。
+- [x] **(3) 新聞快取搬進 DB**：`cache-util.ts` 新增 `readNewsCacheShared`/`writeNewsCacheShared`（generic cache key `news-cache-v1`），DB 為準、舊 `data/news-cache.json` 僅作首次遷移的讀取 fallback；route.ts 與 weekly-report.ts 都改走共用函式，route.ts 保留 in-memory 快取層。
+- [x] **(4) 週報固化＋排程預建**：`getCachedWeeklyReport` 改為「一週一刊」——建成且有素材（新聞/生命週期/市場報告任一 >0）就固化，整週不再重建；只有建構當下完全沒素材（如剛部署、新聞快取未回）才 6 小時後重試，避免整週卡空殼。新增 `.github/workflows/weekly-report-build.yml`：每週一 08:10（台北）先打 `mode=summary` 抓新聞、再迴圈觸發 `weekly-reports` 端點直到「快速 200」（沿用 forecast workflow 的邊緣切斷容錯模式）；**迴圈跑完仍未成功會以 error 失敗**（GitHub 會寄通知），不像舊 forecast workflow 只 warning。
+- [x] **(5) 台北時區**：`weekStart`/`formatDateId`/`formatDate` 一律以 Asia/Taipei（固定 UTC+8，無 DST）計算週界線與顯示日期。既有週報 id 不受影響（同為週一日期）。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅；時區邏輯 4 個邊界案例（UTC 週日 18:00=台北週一凌晨→歸新週等）全對；本機 dev server 實測——首次呼叫 `weekly-reports` 建構出 `weekly-2026-07-13`（週界線正確），第二次呼叫 0.03 秒快取直回（固化生效）；`marketHighlights` 摘要為報告實際內容（非罐頭文案）；`mode=summary` 後 `news-cache-v1` 正確寫入 DB（66KB）。限制：本機 150 顆基準料全 Active、無生命週期異常料，(2) 的路徑僅驗證 typecheck 與邏輯，正式站有真實 Obsolete 料可觀察。
+- **注意**：正式站部署後，本週既有週報（有素材）會直接固化不再重建；`weekly-report-build` workflow 需要的 `FORECAST_BASE_URL`/`CRON_SECRET` repo secrets 沿用 weekly-forecast 既有設定，無須新增。
+- **修改檔案**：`src/lib/demand-forecast/weekly-report.ts`、`src/lib/demand-forecast/cache-util.ts`、`src/app/api/demand-forecast/route.ts`、`.github/workflows/weekly-report-build.yml`（新）、`project_summary.md`
 
 ---
 

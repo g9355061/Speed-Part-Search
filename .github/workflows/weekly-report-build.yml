@@ -1,0 +1,66 @@
+name: Weekly Report Prebuild
+
+# 每週一早上 08:10（台北時間 UTC+8，台灣無 DST）先抓最新新聞、再預先建構本週週報。
+# 週報建成後即固化（一週一刊），使用者整週看到同一份內容，也不會有人在頁面上等建構。
+# GitHub Actions cron 使用 UTC：台北週一 08:10 = UTC 週一 00:10。
+on:
+  schedule:
+    - cron: '10 0 * * 1'
+  workflow_dispatch: {} # 允許手動觸發測試
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh news and prebuild weekly report
+        env:
+          BASE_URL: ${{ secrets.FORECAST_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::缺少 repo secrets：FORECAST_BASE_URL 或 CRON_SECRET"
+            exit 1
+          fi
+
+          # 先用 mode=cached 驗證 CRON_SECRET（避免整輪都因 307/401 失敗）
+          AUTH_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -H "x-cron-secret: $CRON_SECRET" \
+            "$BASE_URL/api/demand-forecast?mode=cached")
+          if [ "$AUTH_CODE" != "200" ]; then
+            echo "::error::驗證失敗 HTTP $AUTH_CODE（307/401 代表 CRON_SECRET 與 Railway 不符）"
+            exit 1
+          fi
+
+          # 1) mode=summary 抓最新新聞寫入 DB 快取。Railway 邊緣約 50 秒會切斷（502），
+          #    但伺服器端會繼續完成，所以逾時/502 都不視為失敗，等一下再進下一步。
+          echo "--- 抓取最新新聞（mode=summary） ---"
+          set +e
+          curl -s -o /dev/null -w "news http=%{http_code} time=%{time_total}s\n" --max-time 180 \
+            -H "x-cron-secret: $CRON_SECRET" "$BASE_URL/api/demand-forecast?mode=summary"
+          set -e
+          sleep 30
+
+          # 2) 觸發本週週報建構（weekly-reports 端點會建構並固化本週報告）。
+          #    第一次呼叫可能因建構慢被邊緣切斷；固化後重打會「快速 200」→ 視為完成。
+          DONE=0
+          for i in $(seq 1 6); do
+            echo "--- 第 $i 次觸發週報建構 ---"
+            set +e
+            OUT=$(curl -s -o /dev/null -w "%{http_code} %{time_total}" --max-time 120 \
+              -H "x-cron-secret: $CRON_SECRET" \
+              "$BASE_URL/api/demand-forecast/weekly-reports?t=$RANDOM$i")
+            set -e
+            CODE=$(echo "$OUT" | awk '{print $1}')
+            SECS=$(echo "$OUT" | awk '{print $2}')
+            echo "http=$CODE time=${SECS}s"
+            if [ "$CODE" = "200" ] && awk "BEGIN{exit !($SECS < 15)}"; then
+              DONE=1
+              echo "本週週報已建構並固化。"
+              break
+            fi
+            sleep 20
+          done
+
+          if [ "$DONE" != "1" ]; then
+            echo "::error::迴圈結束仍未偵測到「快速 200」——週報可能未建構成功，請檢查 Railway logs"
+            exit 1
+          fi

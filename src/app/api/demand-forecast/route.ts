@@ -2,14 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { BENCHMARK_PARTS, DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS } from '@/lib/demand-forecast/benchmark';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
-import fs from 'fs';
-import path from 'path';
 import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo, getCustomThresholds } from '@/lib/db';
-import { readCache, writeCache, buildSupplyCategorySummary, recalculateForecastPart, recalculatePartsCache } from '@/lib/demand-forecast/cache-util';
+import { readCache, writeCache, buildSupplyCategorySummary, recalculateForecastPart, recalculatePartsCache, readNewsCacheShared, writeNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
 
 export const dynamic = 'force-dynamic';
-
-const CACHE_DIR = path.join(process.cwd(), 'data');
 
 const RISK_WORDS = [
   'shortage', 'allocation', 'allocated', 'tight supply', 'lead time', 'leadtime',
@@ -632,8 +628,6 @@ function buildNewsCategorySummary(news: NewsItem[]) {
 
 
 
-const NEWS_CACHE_PATH = path.join(CACHE_DIR, 'news-cache.json');
-
 interface NewsCache {
   updatedAt: string;
   news: NewsItem[];
@@ -646,25 +640,14 @@ let memoryNewsCache: NewsCache | null = null;
 
 async function readNewsCache(): Promise<NewsCache | null> {
   if (memoryNewsCache) return memoryNewsCache;
-  try {
-    if (!fs.existsSync(NEWS_CACHE_PATH)) return null;
-    const raw = fs.readFileSync(NEWS_CACHE_PATH, 'utf-8');
-    const parsed = JSON.parse(raw) as NewsCache;
-    memoryNewsCache = parsed;
-    return parsed;
-  } catch {
-    return null;
-  }
+  const parsed = (await readNewsCacheShared()) as NewsCache | null;
+  if (parsed) memoryNewsCache = parsed;
+  return parsed;
 }
 
 async function writeNewsCache(data: NewsCache) {
   memoryNewsCache = data;
-  try {
-    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(NEWS_CACHE_PATH, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[NEWS_CACHE] Failed to write:', err);
-  }
+  await writeNewsCacheShared(data);
 }
 
 async function fetchAndCacheNews(): Promise<NewsCache> {
@@ -684,15 +667,6 @@ async function fetchAndCacheNews(): Promise<NewsCache> {
 }
 
 
-
-// 依供應商 API 的 lifecycleStatus 判定單顆料件的生命週期風險等級
-function lifecycleFlag(status?: string | null): 'high' | 'medium' | null {
-  if (!status) return null;
-  const s = status.toLowerCase();
-  if (/obsolete|discontinued|end.of.life|eol|last.time.buy|\bltb\b|not for new/.test(s)) return 'high';
-  if (/nrnd|not recommended/.test(s)) return 'medium';
-  return null;
-}
 
 // 以料件 API 的 lifecycleStatus 建立「生命週期」類別摘要（取代 RSS 新聞，權威且零雜訊）
 function buildLifecycleCategorySummaryFromParts(parts: any[]) {

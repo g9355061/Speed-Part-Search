@@ -1,10 +1,8 @@
-import fs from 'fs';
-import path from 'path';
 import { getMarketReportsCache, getGenericCache, listGenericCacheByPrefix, setGenericCache, getDemandForecastSnapshotHistory, type SnapshotPoint } from '@/lib/db';
 import { DEMAND_CATEGORIES, BENCHMARK_PARTS } from '@/lib/demand-forecast/benchmark';
+import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
 import crypto from 'crypto';
 
-const NEWS_CACHE_PATH = path.join(process.cwd(), 'data', 'news-cache.json');
 const RECENT_SIGNAL_DAYS = 45;
 const ARTICLE_FETCH_TIMEOUT_MS = 4500;
 const ARTICLE_TEXT_LIMIT = 9000;
@@ -218,23 +216,17 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
   recommendedActions: string[];
 }
 
-function readNewsCache() {
-  try {
-    if (!fs.existsSync(NEWS_CACHE_PATH)) return null;
-    return JSON.parse(fs.readFileSync(NEWS_CACHE_PATH, 'utf-8'));
-  } catch (err) {
-    console.error('[WEEKLY_REPORT] Failed to read news cache:', err);
-    return null;
-  }
-}
+// 週界線與日期顯示一律以台北時間為準（台灣無夏令時間，固定 UTC+8）。
+// Railway 伺服器時區是 UTC，不處理的話台北週一早上 8 點前產生的週報會被歸到上一週。
+const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 function weekStart(date: Date) {
-  const result = new Date(date);
-  const day = result.getDay();
+  const shifted = new Date(date.getTime() + TAIPEI_OFFSET_MS);
+  const day = shifted.getUTCDay();
   const diff = day === 0 ? -6 : 1 - day;
-  result.setDate(result.getDate() + diff);
-  result.setHours(0, 0, 0, 0);
-  return result;
+  shifted.setUTCDate(shifted.getUTCDate() + diff);
+  shifted.setUTCHours(0, 0, 0, 0);
+  return new Date(shifted.getTime() - TAIPEI_OFFSET_MS);
 }
 
 function formatDate(date: Date) {
@@ -242,13 +234,15 @@ function formatDate(date: Date) {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
+    timeZone: 'Asia/Taipei',
   }).format(date);
 }
 
 function formatDateId(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const shifted = new Date(date.getTime() + TAIPEI_OFFSET_MS);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
@@ -727,17 +721,11 @@ function describeCategorySignal(
   return `本類別市場上有相關消息流通，通路觀測資料仍在累積中，建議維持例行關注。`;
 }
 
+// 報告摘要一律取自報告本身的實際內容，不加任何寫死的敘述——
+// 寫死文案會在來源報告換題目後繼續照唸，內容與事實脫鉤（2026-07 review 修正）。
 function reportSummary(report: any) {
   const summary = report.summaryZh || report.evidenceTextZh || report.evidenceText || report.titleZh || report.title || '';
-  const cleaned = String(summary).replace(/\s+/g, ' ').trim();
-  const text = cleaned.toLowerCase();
-  if (text.includes('dram') && text.includes('產能受限')) {
-    return '報告提到 DRAM 相關供應有產能受限或配給風險，可能影響記憶體交期與 BOM 成本。';
-  }
-  if (text.includes('mosfet') && text.includes('產能受限')) {
-    return '報告提到 MOSFET 相關供應有產能受限或配給風險，建議先確認常用功率料的通路供應。';
-  }
-  return cleaned;
+  return String(summary).replace(/\s+/g, ' ').trim();
 }
 
 async function reportEvidence(report: any) {
@@ -747,31 +735,10 @@ async function reportEvidence(report: any) {
   return `${source}：${text}`;
 }
 
+// 類別報告備註：只轉述報告的實際摘要，不套硬編碼劇本（劇本會在來源換題目後照唸舊內容）
 function categoryReportNotes(categoryId: string, reports: any[]) {
   const matchedReports = reports.filter((report) => report.categoryIds?.includes(categoryId)).slice(0, 3);
-  const sourceNames = matchedReports.map((report) => report.source || '公開報告');
   if (matchedReports.length === 0) return [];
-
-  if (categoryId === 'C03') {
-    return [
-      `${sourceNames.join(' 與 ')} 發布的市場監測均聚焦於 MOSFET。PPSI 著重分析 Nexperia 供應鏈面臨的潛在貿易及關稅壁壘風險；Future Electronics 則指出低壓 MOSFET 通路庫存去化完畢，部分規格已出現供貨配給跡象。`,
-      '綜合情報研判，當前雖無全面短缺之虞，但常用功率器件的前置交期已開始拉長，建議專案團隊提早佈署採購排程以策安全。',
-    ];
-  }
-
-  if (categoryId === 'C04') {
-    return [
-      `${sourceNames.join(' 與 ')} 指出記憶體市場壓力升高。PPSI 歸因於 AI 硬體需求的爆發性增長對常規產能的排擠；Future Electronics 則預警 DRAM 與 Flash 快閃記憶體即將進入供應分配狀態，導致交期顯著拉長。`,
-      '綜合情報研判，短期內記憶體價格與交期波動將傳導至中下游，相關品項之 BOM 成本結構可能面臨調漲壓力，需做好預算鎖定與採購規劃。',
-    ];
-  }
-
-  if (categoryId === 'C01') {
-    return [
-      `${sourceNames.join(' 與 ')} 指出高容值 MLCC 的供應鏈緊縮。報告強調，市場目前並非全面短缺，而是小尺寸、高容值及車規級等高端品項之庫存去化速度遠超預期。`,
-      '綜合情報研判，熱門規格與高用量 MLCC 將面臨局部配貨，專案團隊應著重核對高風險料號，一般常規低容量電容則維持正常採購流程即可。',
-    ];
-  }
 
   return matchedReports.map((report) => {
     const source = report.source || '公開報告';
@@ -780,51 +747,8 @@ function categoryReportNotes(categoryId: string, reports: any[]) {
   });
 }
 
-function reportCategoryIds(report: any): string[] {
-  return Array.isArray(report.categoryIds) ? report.categoryIds : [];
-}
-
-function reportCategoryNames(report: any) {
-  return reportCategoryIds(report).map((categoryId) => categoryLabel(categoryId)).join('、');
-}
-
-function reportNarrative(report: any) {
-  const categoryIds = reportCategoryIds(report);
-  const source = report.source || '公開報告';
-  const sourceText = source.includes('PPSI') ? 'PPSI' : source.includes('Future') ? 'Future' : source;
-  if (categoryIds.includes('C04')) {
-    if (source.includes('PPSI')) {
-      return 'PPSI 報告分析，AI 伺服器的強勁拉貨正持續擠壓常規記憶體產能，DRAM 與 Flash 供應鏈預計將於短期內進入分配狀態，逐步影響終端 BOM 成本與前置交期。';
-    }
-    return 'Future Electronics 指出，記憶體與快閃記憶體供應緊縮加速，部分晶圓大廠已啟動供貨限制。建議近期有 DDR/DRAM/Flash 需求的專案團隊儘早鎖定產能與報價。';
-  }
-  if (categoryIds.includes('C01')) {
-    return '報告強調 MLCC 短缺並非全面性，而是庫存去化集中於高容值、高壓或車規等高端品項，原廠對此類產能規劃趨於保守，產品團隊需優先審視高用量與特殊規格電容。';
-  }
-  if (categoryIds.includes('C03')) {
-    if (source.includes('PPSI')) {
-      return 'PPSI 本期重點分析 MOSFET 市場，指出 Nexperia 供應鏈潛在的貿易政策風險及關稅波動，並警告熱門封裝交期可能受此影響而有所延宕。';
-    }
-    return 'Future Electronics 監測顯示，低壓 MOSFET 因通路積壓去化且市場需求溫和回升，熱門功率封裝已呈現供貨吃緊跡象，建議採購窗口提早開展備貨對接。';
-  }
-  if (categoryIds.length > 0) {
-    return `${sourceText} 報告主要提及 ${reportCategoryNames(report)} 之供應動態。若相關專案已導入此類別，建議提早與供應商確認交貨排程與庫存保障額度。`;
-  }
-  return `${sourceText} 報告提供當前市場供應鏈背景趨勢分析。若內容與現有專案 BOM 類別重疊，建議將其作為料號風險管理之參考依據。`;
-}
-
 function reportHeadline(report: any) {
-  const categoryIds = reportCategoryIds(report);
-  if (categoryIds.includes('C04')) {
-    return '記憶體產能受限與分配風險增加，建議鎖定交期與成本';
-  }
-  if (categoryIds.includes('C01')) {
-    return '高端高容值 MLCC 庫存去化加速，通路啟動配貨防範';
-  }
-  if (categoryIds.includes('C03')) {
-    return '功率分離式元件（MOSFET）交期波動，常用封裝供應趨緊';
-  }
-  return report.titleZh || report.title || '公開市場報告提示供應風險異動';
+  return report.titleZh || report.title || '公開市場報告';
 }
 
 function sourceLinkKey(item: { title: string; source: string; url: string }) {
@@ -901,23 +825,33 @@ function buildWeeklyTitle(
   return `物料預測週報｜${dateText}｜市場消息聚焦 ${catText}，通路供應暫穩，維持觀察`;
 }
 
-const REPORT_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 小時
+const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才重試建構
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
 }
 
+function reportHasContent(report: WeeklyReportDetail) {
+  return report.metrics.shortageNews + report.metrics.lifecycleNews + report.metrics.marketReports > 0;
+}
+
 /**
- * 取得本週週報——優先回快取（6 小時內），未命中才實際建構（含 Gemini/抓文章，慢）。
- * 詳情頁與列表都改用這個，避免每次點擊都重跑 buildWeeklyReport 造成頁面卡住「點不進去」。
+ * 取得本週週報——一週一刊：建成且有素材就固化，整週內容不再改變（同一期讀者週一
+ * 和週三看到的必須是同一份）。只有「建構當下完全沒素材」（如剛部署、新聞快取尚未
+ * 抓回）才會在 6 小時後重試，避免整週卡在空殼報告。
+ * 正常情況下本週報告由排程（weekly-report-build workflow）在週一早上預先建構，
+ * 使用者請求都走快取直回，不會在頁面上等建構。
  */
 export async function getCachedWeeklyReport(): Promise<WeeklyReportDetail> {
   const id = currentWeeklyReportId();
   const cacheKey = `weekly-report-built-${id}`;
   try {
     const cached: any = await getGenericCache(cacheKey);
-    if (cached?.builtAt && cached.report?.id === id && Date.now() - cached.builtAt < REPORT_CACHE_TTL_MS) {
-      return cached.report as WeeklyReportDetail;
+    if (cached?.builtAt && cached.report?.id === id) {
+      const report = cached.report as WeeklyReportDetail;
+      if (reportHasContent(report) || Date.now() - cached.builtAt < EMPTY_REPORT_RETRY_MS) {
+        return report;
+      }
     }
   } catch (err) {
     console.warn('[WeeklyReport] cache read failed:', err);
@@ -951,15 +885,20 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const id = `weekly-${formatDateId(start)}`;
 
   const marketCache = await getMarketReportsCache();
-  const newsCache = readNewsCache();
+  const newsCache = await readNewsCacheShared();
 
   const shortageNews = Array.isArray(newsCache?.news)
     ? newsCache.news.filter((item: any) => item.riskHit && isRecentSignal(item, now))
     : [];
-  const lifecycleNews = Array.isArray(newsCache?.lifecycleNews)
-    ? newsCache.lifecycleNews.filter((item: any) => item.riskHit && isRecentSignal(item, now))
-    : [];
   const marketReports = Array.isArray(marketCache?.reports) ? marketCache.reports : [];
+
+  // 生命週期訊號：由料件 API 的 lifecycleStatus 判定（demand-forecast 已停抓 RSS PCN/EOL 新聞，
+  // 舊的 newsCache.lifecycleNews 永遠是空的）。資料來源＝150 顆基準料的最近一次查詢快取。
+  const partsCache = await readPartsCache();
+  const lifecycleParts = ((partsCache?.parts ?? []) as any[])
+    .map((part) => ({ part, severity: lifecycleFlag(part.lifecycleStatus) }))
+    .filter((item): item is { part: any; severity: 'high' | 'medium' } => item.severity !== null)
+    .sort((a, b) => (a.severity === 'high' ? 0 : 1) - (b.severity === 'high' ? 0 : 1));
 
   // 自家快照（150 顆基準料的週環比）——這是別人沒有的內部測量，當主訊號
   const allMpns = BENCHMARK_PARTS.map((p) => p.mpn);
@@ -967,7 +906,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
 
   const categorySignals = DEMAND_CATEGORIES.map((cat) => {
     const newsCount = shortageNews.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
-    const lifecycleCount = lifecycleNews.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
+    const lifecycleCount = lifecycleParts.filter((item) => item.part.categoryId === cat.categoryId).length;
     const reportNotes = categoryReportNotes(cat.categoryId, marketReports);
     const marketReportCount = reportNotes.length;
     const data = computeCategoryDataSignal(cat.categoryId, snapshotHistory);
@@ -1065,9 +1004,13 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       .filter((item: any) => item.categoryIds?.includes(signal.categoryId))
       .slice(0, 2)
       .map((item: any) => reportEvidence(item)));
+    const lifecycleEvidence = lifecycleParts
+      .filter((item) => item.part.categoryId === signal.categoryId)
+      .slice(0, 2)
+      .map((item) => `代理商料件 API：${item.part.mpn}（${item.part.manufacturer || item.part.apiManufacturer || ''}）原廠生命週期標示為 ${item.part.lifecycleStatus}，建議比對 BOM 是否使用並評估替代料`);
     const evidence = [
       ...(await categoryEvidence(signal.categoryId, shortageNews, 3)),
-      ...(await categoryEvidence(signal.categoryId, lifecycleNews, 2)),
+      ...lifecycleEvidence,
       ...reportEvidenceList,
     ].slice(0, 6);
 
@@ -1083,12 +1026,12 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     summary: pickSummary(item),
   }));
 
-  const lifecycleHighlights = lifecycleNews.slice(0, 5).map((item: any) => ({
-    title: pickTitle(item),
-    source: item.source || 'PCN/EOL 新聞',
-    url: item.link || '#',
-    publishedAt: item.publishedAt || null,
-    summary: pickSummary(item),
+  const lifecycleHighlights = lifecycleParts.slice(0, 5).map(({ part, severity }) => ({
+    title: `${part.mpn} 原廠標示 ${part.lifecycleStatus}`,
+    source: 'DigiKey / Mouser 料件 API',
+    url: part.productUrl || '#',
+    publishedAt: null,
+    summary: `${categoryLabel(part.categoryId)}：${part.manufacturer || part.apiManufacturer || ''} ${part.mpn} 生命週期狀態為 ${part.lifecycleStatus}${severity === 'high' ? '，建議確認最後下單日（LTB）並啟動替代認證' : '，原廠不建議用於新設計'}`,
   }));
 
   const marketHighlights = marketReports.slice(0, 6).map((report: any) => ({
@@ -1096,7 +1039,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     source: report.source || '公開報告',
     url: report.url || '#',
     publishedAt: report.publishedAt || null,
-    summary: reportNarrative(report),
+    summary: reportSummary(report),
   }));
 
   const sourceLinks = uniqueSourceLinks([
@@ -1111,15 +1054,15 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
         dateLabel: sourceDateLabel(item.publishedAt, '新聞'),
         kind: '新聞' as const,
       })),
-    ...lifecycleNews
-      .filter((item: any) => item.categoryIds?.some((categoryId: string) => focusCategories.includes(categoryId)))
+    ...lifecycleParts
+      .filter((item) => focusCategories.includes(item.part.categoryId))
       .slice(0, 4)
-      .map((item: any) => ({
-        title: pickTitle(item),
-        source: item.source || 'PCN/EOL 新聞',
-        url: translatedSourceUrl(item.link || '#'),
-        publishedAt: item.publishedAt || null,
-        dateLabel: sourceDateLabel(item.publishedAt, 'PCN/EOL'),
+      .map(({ part }) => ({
+        title: `${part.mpn}（${part.manufacturer || part.apiManufacturer || ''}）：${part.lifecycleStatus}`,
+        source: 'DigiKey / Mouser 料件 API',
+        url: part.productUrl || '#',
+        publishedAt: null,
+        dateLabel: null,
         kind: 'PCN/EOL' as const,
       })),
     ...marketReports
@@ -1149,7 +1092,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     summary,
     metrics: {
       shortageNews: shortageNews.length,
-      lifecycleNews: lifecycleNews.length,
+      lifecycleNews: lifecycleParts.length,
       marketReports: marketReports.length,
       watchedCategories: categorySignals.length,
       dataAlertCategories,

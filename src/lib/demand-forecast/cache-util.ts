@@ -1,10 +1,47 @@
 import fs from 'fs';
 import path from 'path';
 import { CATEGORY_THRESHOLDS, DEMAND_CATEGORIES } from './benchmark';
-import { getDemandForecastCache, setDemandForecastCache, getDemandForecastSnapshot7DaysAgo } from '@/lib/db';
+import { getDemandForecastCache, setDemandForecastCache, getDemandForecastSnapshot7DaysAgo, getGenericCache, setGenericCache } from '@/lib/db';
 
 const CACHE_DIR = path.join(process.cwd(), 'data');
 const CACHE_PATH = path.join(CACHE_DIR, 'demand-forecast-cache.json');
+const NEWS_CACHE_KEY = 'news-cache-v1';
+const NEWS_CACHE_PATH = path.join(CACHE_DIR, 'news-cache.json');
+
+// 新聞快取以 DB 為準——Railway 磁碟是暫時性的，部署後 data/ 下的檔案會消失；
+// 本機舊檔僅作首次遷移的讀取 fallback。
+export async function readNewsCacheShared(): Promise<any | null> {
+  try {
+    const dbCache = await getGenericCache(NEWS_CACHE_KEY);
+    if (dbCache) return dbCache;
+  } catch (err) {
+    console.error('[NEWS_CACHE] Failed to read database cache:', err);
+  }
+  try {
+    if (!fs.existsSync(NEWS_CACHE_PATH)) return null;
+    return JSON.parse(fs.readFileSync(NEWS_CACHE_PATH, 'utf-8'));
+  } catch (err) {
+    console.error('[NEWS_CACHE] Failed to read legacy cache file:', err);
+    return null;
+  }
+}
+
+export async function writeNewsCacheShared(data: any): Promise<void> {
+  try {
+    await setGenericCache(NEWS_CACHE_KEY, data);
+  } catch (err) {
+    console.error('[NEWS_CACHE] Failed to write database cache:', err);
+  }
+}
+
+// 依供應商 API 的 lifecycleStatus 判定生命週期風險等級（權威、零雜訊，取代 RSS PCN/EOL 新聞）
+export function lifecycleFlag(status?: string | null): 'high' | 'medium' | null {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  if (/obsolete|discontinued|end.of.life|eol|last.time.buy|\bltb\b|not for new/.test(s)) return 'high';
+  if (/nrnd|not recommended/.test(s)) return 'medium';
+  return null;
+}
 
 export async function readCache(): Promise<{ updatedAt: string; parts: any[]; categorySummary: any[] } | null> {
   try {
