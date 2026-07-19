@@ -419,7 +419,8 @@ async function synthesizeWeeklyReportStoryWithGemini(
   }
 
   const evidenceHash = crypto.createHash('md5').update(`${data.text}\n${evidence.join('\n')}`).digest('hex');
-  const cacheKey = `weekly-report-story-gemini-${reportId}-${categoryId}-${evidenceHash}`;
+  // key 帶 rev：建構邏輯升版時不沿用舊版產出的故事（例如 v3 前的快取含 Markdown 符號）
+  const cacheKey = `weekly-report-story-gemini-r${REPORT_BUILD_REV}-${reportId}-${categoryId}-${evidenceHash}`;
 
   try {
     const cached = await getGenericCache(cacheKey);
@@ -469,7 +470,7 @@ ${data.text || '（本週通路平穩）'}
 2. 通路觀測最多佔一句，例如「本站監測的通路庫存亦同步走低」，嚴禁列出任何顆數、百分比或統計數字清單。
 3. 兩到三段，總長 280–420 個中文字：盡量把上面每一則素材的重點都用進去（不同消息來源、不同角度都帶到）。前面講市場正在發生什麼事（自然提及消息來源名稱）；最後一段講這對讀者的意義——採購、交期或成本上該留意什麼。
 4. 筆調像報紙產業版：自然、口語、好讀。禁止空泛詞堆疊（「壓力顯著升高」「水溫上升」），禁止 meta 說明。
-5. 繁體中文輸出，段落間空一行，只輸出報導本身。`;
+5. 繁體中文輸出，段落間空一行，只輸出報導本身。純文字段落——禁止任何 Markdown 符號（**、#、- 條列）與獨立標題行，開頭直接進入敘述。`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   
@@ -515,8 +516,14 @@ ${data.text || '（本週通路平穩）'}
           return fallbackStory;
         }
 
+        // 頁面是純文字渲染：剝掉 Gemini 偶爾夾帶的 Markdown 符號與標題行裝飾，
+        // 避免 **、## 原樣顯示在報導裡
         const paragraphs = resultText
           .split(/\n+/)
+          .map((p: string) => p.trim()
+            .replace(/^#{1,4}\s*/, '')
+            .replace(/\*\*/g, '')
+            .replace(/^【([^】]+)】$/, '$1'))
           .map((p: string) => p.trim())
           .filter(Boolean);
 
@@ -792,7 +799,8 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 
 // 建構邏輯版本：升版會讓「本週」既有的固化快取重建一次（歷史期數不受影響）。
 // v2＝2026-07-20 修正「相鄰兩期一模一樣」：新聞窗縮為 8 天＋與上一期 URL 去重。
-const REPORT_BUILD_REV = 2;
+// v3＝2026-07-20 剝除 Gemini 報導中的 Markdown 符號（頁面純文字渲染會原樣顯示）。
+const REPORT_BUILD_REV = 3;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;

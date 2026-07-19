@@ -1,6 +1,18 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-20（修正 7/20 週報與 7/13 一模一樣：新聞窗縮 8 天＋與上一期去重＋rev 強制重建）
+> 最後更新：2026-07-20（週報 rev 3：剝除 Gemini 報導的 Markdown 符號、故事快取 key 帶 rev）
+
+---
+
+### 2026-07-20 — 週報 rev 3：剝除 Gemini 報導中的 Markdown 符號
+
+**背景**：Danny 問 7/20 週報能否「做不一樣的」——正式站其實已於 21:46 UTC 重建成不同內容（標題改聚焦 記憶體、PMIC；封面故事 記憶體/PMIC/MCU），使用者看到相同可能是重建前的頁面快取。但比對時發現 Gemini 產出的報導段落夾雜 Markdown（`**粗體**`、`## 標題`、`【標題行】`），詳情頁為純文字渲染會原樣顯示。
+
+- [x] **後處理剝除 Markdown**：`synthesizeWeeklyReportStoryWithGemini` 段落切分時剝掉行首 `#`、全部 `**`、獨立的 `【…】` 標題行裝飾；prompt 同步加「禁止 Markdown 符號與獨立標題行」。
+- [x] **故事快取 key 帶 rev**（`weekly-report-story-gemini-r{rev}-…`）：建構邏輯升版時不沿用舊版產出（否則 v3 重建會命中含 Markdown 的舊快取）。
+- [x] **`REPORT_BUILD_REV` 2 → 3**：讓 7/20 期部署後再重建一次乾淨版。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅；部署後觸發 weekly-report-build 重建，直連 Railway Postgres 確認 rev 3 且報導段落無 `**`/`##` 殘留。
+- **修改檔案**：`src/lib/demand-forecast/weekly-report.ts`、`project_summary.md`
 
 ---
 
