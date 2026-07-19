@@ -36,3 +36,5 @@ coverage/
 # Scratch
 scratch/
 
+# Local confidential business files (never commit)
+YAS/
