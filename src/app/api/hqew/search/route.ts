@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import { authOptions } from '@/lib/auth-config';
 import { canAccessQqInquiry } from '@/lib/permissions';
 import { logPartSearch, getGenericCache, setGenericCache } from '@/lib/db';
+import { parseHqewTotalCount, isLegitimateEmptyHqewPage } from '@/lib/qq/hqew-parse';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -196,12 +197,13 @@ export async function GET(req: NextRequest) {
     }
 
     const bodyText = await page.locator('body').innerText({ timeout: 5000 });
-    const totalCount = Number(bodyText.match(/共\s*([0-9]+)\s*条/)?.[1] ?? 0);
+    const totalCount = parseHqewTotalCount(bodyText) ?? 0;
 
-    // 查無此料號時華強頁面照常渲染、顯示「共 0 条」，那是合法的空結果；
-    // 列表沒出現又不是查無，代表被擋或頁面改版，不能回空陣列假裝成功。
-    if (!rowsAppeared && totalCount !== 0 && !/无结果|無結果/.test(bodyText)) {
-      throw new Error('華強電子網未回傳供應商列表（可能被防爬阻擋或頁面改版），請稍後再試');
+    // 查無此料號時華強頁面照常渲染、明確顯示「共 0 条」或「无结果」，那是合法的空結果；
+    // 列表沒出現、頁面又沒有這些標誌（例如 HTTP 200 的驗證頁），代表被擋或改版——
+    // 必須拋錯而不是回空陣列假裝成功（拋錯不會進 3 小時快取，空結果會）。
+    if (!rowsAppeared && !isLegitimateEmptyHqewPage(bodyText)) {
+      throw new Error('華強電子網未回傳供應商列表，頁面也沒有「共 N 条／无结果」統計（可能是驗證頁、防爬阻擋或頁面改版），請稍後再試');
     }
 
     const suppliers = await page.locator('tr.ec-data').evaluateAll((rows) =>

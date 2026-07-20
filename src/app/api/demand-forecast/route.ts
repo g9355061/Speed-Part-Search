@@ -3,10 +3,13 @@ import { BENCHMARK_PARTS, DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS,
 import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
-import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo, getCustomThresholds } from '@/lib/db';
+import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo, getCustomThresholds, getGenericCache, setGenericCache } from '@/lib/db';
 import { readCache, writeCache, buildSupplyCategorySummary, recalculateForecastPart, recalculatePartsCache, readNewsCacheShared, writeNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
 
 export const dynamic = 'force-dynamic';
+
+// 上次 mode=full 的執行摘要（供 mode=cached 回傳、workflow 驗證快照寫入健康度）
+const LAST_FULL_RUN_KEY = 'forecast-last-full-run';
 
 const RISK_WORDS = [
   'shortage', 'allocation', 'allocated', 'tight supply', 'lead time', 'leadtime',
@@ -530,7 +533,8 @@ async function runWithConcurrency<T, R>(items: T[], limit: number, task: (item: 
 
 async function searchBenchmarkPart(
   part: BenchmarkPart,
-  activeThresholds: Record<string, { minStock: number; lowStock: number }>
+  activeThresholds: Record<string, { minStock: number; lowStock: number }>,
+  counters?: { snapshotWriteFailures: number }
 ) {
   const suppliers = getEnabledSuppliers();
   const results: PartResult[] = [];
@@ -552,8 +556,8 @@ async function searchBenchmarkPart(
   const snapshot7DaysAgo = await getDemandForecastSnapshot7DaysAgo(part.mpn);
   const summary = summarizePart(part, results, errors, snapshot7DaysAgo, activeThresholds);
 
-  // 儲存今日快照以供後續比對趨勢
-  await saveDemandForecastSnapshot(
+  // 儲存今日快照以供後續比對趨勢；寫失敗要計數（快照是週報趨勢的唯一資料來源）
+  const snapshotSaved = await saveDemandForecastSnapshot(
     part.mpn,
     summary.totalStock,
     summary.supplierCount,
@@ -562,6 +566,7 @@ async function searchBenchmarkPart(
     summary.maxLeadTimeDays,
     summary.riskLevel
   );
+  if (!snapshotSaved && counters) counters.snapshotWriteFailures += 1;
 
   return summary;
 }
@@ -668,6 +673,8 @@ export async function GET(req: NextRequest) {
       newsCategorySummary: newsCache?.newsCategorySummary ?? emptyCategories,
       lifecycleCategorySummary: buildLifecycleCategorySummaryFromParts(cachedParts),
       parts: cachedParts,
+      // 上次 mode=full 的執行摘要（含快照寫入失敗數），供 weekly-forecast workflow 驗證
+      lastFullRun: await getGenericCache(LAST_FULL_RUN_KEY),
     });
   }
 
@@ -694,7 +701,25 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // --- mode=full: fetch fresh news + query all 150 parts ---
+  // --- mode=full ---
+  // In-flight lock：邊緣 50 秒切斷後 workflow 會重打 mode=full，但伺服器端上一輪仍在跑；
+  // 沒有鎖會併發重查同一批料、浪費 DigiKey/Mouser 額度並互相覆寫快取。
+  // Railway 為單一 instance，模組層級的 promise 鎖即足夠（不需分散式鎖）。
+  const g = globalThis as unknown as { __forecastFullRun?: Promise<any> | null };
+  if (!g.__forecastFullRun) {
+    g.__forecastFullRun = runFullForecast().finally(() => {
+      g.__forecastFullRun = null;
+    });
+  } else {
+    console.log('[FORECAST] full run already in flight; sharing its result');
+  }
+  const payload = await g.__forecastFullRun;
+  // 快照寫入系統性失敗（≥10 顆）→ 回 500，讓排程端告警而不是靜默斷趨勢
+  return NextResponse.json(payload, { status: payload.snapshotWriteFailures >= 10 ? 500 : 200 });
+}
+
+// mode=full 實際執行（單飛，由 GET 內的 in-flight lock 保證同時只有一輪）
+async function runFullForecast() {
   const newsData = await fetchAndCacheNews();
 
   // Load existing cache to get previously queried parts
@@ -736,6 +761,7 @@ export async function GET(req: NextRequest) {
   // 但不再每查一顆就整包重寫 150 顆的大 JSON（原本一輪 150 次大寫入）。
   const SAVE_EVERY = 10;
   let liveQueriedCount = 0;
+  const counters = { snapshotWriteFailures: 0 };
 
   // Query parts with concurrency (10 parallel workers for faster completion)
   await runWithConcurrency(
@@ -756,7 +782,7 @@ export async function GET(req: NextRequest) {
       }
 
       // Query live API
-      const result = await searchBenchmarkPart(part, activeThresholds);
+      const result = await searchBenchmarkPart(part, activeThresholds, counters);
       const resultWithTime = {
         ...result,
         queryTime: Date.now(),
@@ -789,14 +815,24 @@ export async function GET(req: NextRequest) {
     categorySummary,
   });
 
-  return NextResponse.json({
+  if (counters.snapshotWriteFailures > 0) {
+    console.error(`[FORECAST] ${counters.snapshotWriteFailures} 顆料件的快照寫入失敗（趨勢資料可能缺口）`);
+  }
+  await setGenericCache(LAST_FULL_RUN_KEY, {
+    at: updatedAt,
+    liveQueried: liveQueriedCount,
+    snapshotWriteFailures: counters.snapshotWriteFailures,
+  });
+
+  return {
     updatedAt,
-    mode,
+    mode: 'full',
     news: newsData.news,
     lifecycleNews: [],
     categorySummary,
     newsCategorySummary: newsData.newsCategorySummary,
     lifecycleCategorySummary: buildLifecycleCategorySummaryFromParts(parts),
     parts,
-  });
+    snapshotWriteFailures: counters.snapshotWriteFailures,
+  };
 }

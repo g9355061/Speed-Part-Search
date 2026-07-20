@@ -1,6 +1,22 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-20（週報 rev 3：剝除 Gemini 報導的 Markdown 符號、故事快取 key 帶 rev）
+> 最後更新：2026-07-20（外部 review 六項採納：華強空結果判斷、CRON_SECRET 收斂、對照表入 DB、full 鎖＋快照告警、CI、session 撤銷）
+
+---
+
+### 2026-07-20 — 採納外部（ChatGPT）review：六項安全與可靠性修正 + CI
+
+**背景**：Danny 提供一份 ChatGPT 的專案檢查報告，經逐項對照程式碼後採納（四點完全同意、兩點修正藥方後採納），依先前議定順序一次完成。
+
+- [x] **(1) 華強空結果判斷收緊**（最重要——3 小時快取會放大此 bug）：抽出純函式 `src/lib/qq/hqew-parse.ts`——`parseHqewTotalCount`（抓不到「共 N 条」回 null 不假設 0）、`isLegitimateEmptyHqewPage`（合法查無必須明確出現「共 0 条」或「无结果」）。HTTP 200 的驗證頁/改版頁現在會拋錯（錯誤不進快取），不再被當成「合法查無」回空結果。新增 `tests/hqew-parse.test.ts`：4 個 HTML fixture（正常頁/查無頁/403 封鎖頁原文/安全驗證頁）9 個斷言全過，併入 npm test。
+- [x] **(2) CRON_SECRET 收斂**（`middleware.ts`）：後門從「所有 /api/」縮到 `/api/demand-forecast` 前綴（三個 workflow 用到的端點都在此下）。實測：`/api/search`、`/api/manufacturer-mapping` 帶 secret 已被擋（307），demand-forecast 正常 200。
+- [x] **(3) 廠商對照表搬 DB**：讀取 DB 為準（key `manufacturer-aliases`）、內建 JSON 僅作首次遷移種子；寫入改用新增的 `setGenericCacheOrThrow`（失敗回 500，不再假裝已儲存）。修掉「runtime 寫 src/data、部署即消失」問題。db.ts 同步把 `setGenericCache` 重構為 strict 版的包裝（快取語意呼叫端行為不變）。
+- [x] **(4) mode=full in-memory lock ＋ 快照寫入告警**：mode=full 抽成 `runFullForecast()`，globalThis in-flight promise 鎖——邊緣 502 後 workflow 重打會共用進行中那輪的結果，不再併發重查浪費 DigiKey/Mouser 額度（Railway 單 instance，不需分散式鎖，ChatGPT 的 DB lease 方案過重）。`saveDemandForecastSnapshot` 改回傳成敗，mode=full 累計失敗數：≥10 顆回 500；執行摘要寫入 `forecast-last-full-run`，`mode=cached` 回傳 `lastFullRun`，weekly-forecast workflow 驗證步驟同時檢查新鮮度與 `snapshotWriteFailures`。
+- [x] **(5) CI**（`.github/workflows/ci.yml` 新）：push main / PR 觸發 `npm ci → tsc → test → build`；移除指向不存在檔案的 `test:search` 腳本。lint 待 ESLint 設定後再加。
+- [x] **(6) Session 撤銷（sessionVersion）**：users 表新增 `session_version`（雙路徑 DDL＋ALTER 遷移，比照 department 模式）；`setUserStatus`／`updateUserPassword` 時 +1；jwt callback 每 5 分鐘對 DB 校驗一次——帳號被停用/刪除或 version 不符時把 `sessionExpiresAt` 設為過去，交給 middleware 既有過期檢查踢下線（不用 0，middleware 以 truthy 判斷）；順帶同步角色變更（升降權免重登）。生效延遲＝最長 5 分鐘＋下次 session 刷新，遠優於原本的 48 小時/30 天。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅（三份測試檔全過）、`npm run build` ✅；本機 dev 實測——cron secret 範圍收斂正確（307/200 分流）、`mode=cached` 帶出 `lastFullRun` 欄位、SQLite 遷移自動補 `session_version` 欄位（既有使用者=1）。
+- **未做**（另排）：npm audit 升級（Next/Nodemailer/xlsx；BOM 解析在瀏覽器端執行，xlsx 實際風險低於公告字面）、ESLint 設定、大檔案拆分（qq-inquiry 上週已抽純函式 2,315→2,158 行）。
+- **修改檔案**：`src/lib/qq/hqew-parse.ts`（新）、`tests/hqew-parse.test.ts`（新）、`src/app/api/hqew/search/route.ts`、`src/middleware.ts`、`src/app/api/manufacturer-mapping/route.ts`、`src/lib/db.ts`、`src/app/api/demand-forecast/route.ts`、`src/lib/auth-config.ts`、`.github/workflows/weekly-forecast.yml`、`.github/workflows/ci.yml`（新）、`package.json`、`project_summary.md`
 
 ---
 

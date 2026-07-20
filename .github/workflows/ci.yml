@@ -1,0 +1,26 @@
+name: CI
+
+# 每次 push / PR 跑 typecheck + test + build——七月已兩度發生「未提交/未驗證改動混入」，
+# 這裡是最後防線。lint 待 ESLint 設定完成後再加入。
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build

@@ -21,9 +21,11 @@ export async function middleware(req: NextRequest) {
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return NextResponse.next();
   if (PUBLIC_API_PREFIXES.some(p => pathname.startsWith(p))) return NextResponse.next();
 
-  // 排程器後門：帶正確 CRON_SECRET header 的請求放行（供每週自動查詢用，無 session）
+  // 排程器後門：帶正確 CRON_SECRET header 的請求放行（供 GitHub Actions 排程用，無 session）。
+  // 只限 demand-forecast 前綴（兩個 workflow 用到的端點都在這底下）——先前放行所有 /api/
+  // 等於單一 secret 可打到任何 API（含可寫入的廠商對照表），權限過大。
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && pathname.startsWith('/api/') && req.headers.get('x-cron-secret') === cronSecret) {
+  if (cronSecret && pathname.startsWith('/api/demand-forecast') && req.headers.get('x-cron-secret') === cronSecret) {
     return NextResponse.next();
   }
 

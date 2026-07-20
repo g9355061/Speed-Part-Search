@@ -22,6 +22,7 @@ export interface User {
   role: 'user' | 'admin';
   department: string;
   status: 'pending' | 'active' | 'rejected';
+  session_version: number;
   created_at: string;
   updated_at: string;
 }
@@ -159,6 +160,7 @@ async function initPostgres() {
       role TEXT NOT NULL DEFAULT 'user',
       department TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
+      session_version INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
@@ -178,6 +180,12 @@ async function initPostgres() {
   );
   if (column.rowCount === 0) {
     await pg.query("ALTER TABLE users ADD COLUMN department TEXT NOT NULL DEFAULT ''");
+  }
+  const svColumn = await pg.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'session_version'"
+  );
+  if (svColumn.rowCount === 0) {
+    await pg.query('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1');
   }
 }
 
@@ -202,6 +210,7 @@ function initSqlite() {
       role TEXT NOT NULL DEFAULT 'user',
       department TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
+      session_version INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -291,6 +300,9 @@ function initSqlite() {
   const cols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map((c) => c.name);
   if (!cols.includes('department')) {
     db.exec("ALTER TABLE users ADD COLUMN department TEXT NOT NULL DEFAULT ''");
+  }
+  if (!cols.includes('session_version')) {
+    db.exec('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1');
   }
 }
 
@@ -453,27 +465,36 @@ export async function listUsers() {
   `).all() as PublicUser[];
 }
 
+// 變更狀態同時 bump session_version：停用/退回的帳號既有 JWT session 會在下次校驗時失效
 export async function setUserStatus(id: number | string, status: User['status']) {
   await ensureDb();
   if (isPostgres) {
-    await getPool().query('UPDATE users SET status = $1, updated_at = now() WHERE id = $2', [status, Number(id)]);
+    await getPool().query(
+      'UPDATE users SET status = $1, session_version = session_version + 1, updated_at = now() WHERE id = $2',
+      [status, Number(id)]
+    );
     return;
   }
 
-  getSqlite().prepare("UPDATE users SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, id);
+  getSqlite()
+    .prepare("UPDATE users SET status = ?, session_version = session_version + 1, updated_at = datetime('now') WHERE id = ?")
+    .run(status, id);
 }
 
+// 改密碼同時 bump session_version：其他裝置上的既有 session 會在下次校驗時失效
 export async function updateUserPassword(id: number | string, passwordHash: string) {
   await ensureDb();
   if (isPostgres) {
-    await getPool().query('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [
-      passwordHash,
-      Number(id),
-    ]);
+    await getPool().query(
+      'UPDATE users SET password_hash = $1, session_version = session_version + 1, updated_at = now() WHERE id = $2',
+      [passwordHash, Number(id)]
+    );
     return;
   }
 
-  getSqlite().prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?").run(passwordHash, id);
+  getSqlite()
+    .prepare("UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = datetime('now') WHERE id = ?")
+    .run(passwordHash, id);
 }
 
 export async function deleteUser(id: number | string) {
@@ -708,41 +729,46 @@ export async function listGenericCacheByPrefix<T = any>(prefix: string, limit = 
   }
 }
 
-export async function setGenericCache(key: string, data: any): Promise<void> {
+// 寫入失敗會拋錯的版本——「使用者的資料」（如廠商對照表）必須用這個，
+// 寫失敗要讓呼叫端回錯誤，不能假裝已儲存（部署後就消失）。
+export async function setGenericCacheOrThrow(key: string, data: any): Promise<void> {
   await ensureDb();
   const dataStr = JSON.stringify(data);
   if (isPostgres) {
-    try {
-      await getPool().query(
-        `
-          INSERT INTO demand_forecast_cache (key, data, updated_at)
-          VALUES ($1, $2, now())
-          ON CONFLICT (key) DO UPDATE
-          SET data = EXCLUDED.data, updated_at = now()
-        `,
-        [key, dataStr]
-      );
-    } catch (err) {
-      console.error(`[DB-CACHE] Failed to set cache for key ${key}:`, err);
-    }
+    await getPool().query(
+      `
+        INSERT INTO demand_forecast_cache (key, data, updated_at)
+        VALUES ($1, $2, now())
+        ON CONFLICT (key) DO UPDATE
+        SET data = EXCLUDED.data, updated_at = now()
+      `,
+      [key, dataStr]
+    );
   } else {
-    try {
-      getSqlite()
-        .prepare(
-          `
-            INSERT INTO demand_forecast_cache (key, data)
-            VALUES (?, ?)
-            ON CONFLICT (key) DO UPDATE
-            SET data = excluded.data
-          `
-        )
-        .run(key, dataStr);
-    } catch (err) {
-      console.error(`[DB-CACHE] Failed to set cache for key ${key} (sqlite):`, err);
-    }
+    getSqlite()
+      .prepare(
+        `
+          INSERT INTO demand_forecast_cache (key, data)
+          VALUES (?, ?)
+          ON CONFLICT (key) DO UPDATE
+          SET data = excluded.data
+        `
+      )
+      .run(key, dataStr);
   }
 }
 
+// 快取語意的寫入：失敗只記 log（下次重建即可），不打斷主流程
+export async function setGenericCache(key: string, data: any): Promise<void> {
+  try {
+    await setGenericCacheOrThrow(key, data);
+  } catch (err) {
+    console.error(`[DB-CACHE] Failed to set cache for key ${key}:`, err);
+  }
+}
+
+// 回傳是否寫入成功：快照是週報趨勢的唯一資料來源，寫失敗不能無聲吞掉——
+// 呼叫端（mode=full）會累計失敗數，系統性失敗時回 500 讓排程告警。
 export async function saveDemandForecastSnapshot(
   mpn: string,
   totalStock: number,
@@ -751,7 +777,7 @@ export async function saveDemandForecastSnapshot(
   minLeadTimeDays: number | null,
   maxLeadTimeDays: number | null,
   riskLevel: string
-): Promise<void> {
+): Promise<boolean> {
   await ensureDb();
   const dateStr = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
   if (isPostgres) {
@@ -772,8 +798,10 @@ export async function saveDemandForecastSnapshot(
         `,
         [mpn, dateStr, totalStock, supplierCount, lowestPriceUsd, minLeadTimeDays, maxLeadTimeDays, riskLevel]
       );
+      return true;
     } catch (err) {
       console.error("[DB-SNAPSHOT] Failed to save postgres snapshot:", err);
+      return false;
     }
   } else {
     try {
@@ -794,8 +822,10 @@ export async function saveDemandForecastSnapshot(
           `
         )
         .run(mpn, dateStr, totalStock, supplierCount, lowestPriceUsd, minLeadTimeDays, maxLeadTimeDays, riskLevel);
+      return true;
     } catch (err) {
       console.error("[DB-SNAPSHOT] Failed to save sqlite snapshot:", err);
+      return false;
     }
   }
 }

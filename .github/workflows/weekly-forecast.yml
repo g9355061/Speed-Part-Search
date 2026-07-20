@@ -65,9 +65,9 @@ jobs:
           CUTOFF=$(( ( $(date +%s) - 86400 ) * 1000 ))
           FRESH=0
           for i in $(seq 1 10); do
-            FRESH=$(curl -s --max-time 60 -H "x-cron-secret: $CRON_SECRET" \
-              "$BASE_URL/api/demand-forecast?mode=cached" \
-              | jq --argjson cutoff "$CUTOFF" '[.parts[] | select(.queryTime != null and .queryTime > $cutoff)] | length' 2>/dev/null || echo 0)
+            curl -s --max-time 60 -H "x-cron-secret: $CRON_SECRET" \
+              "$BASE_URL/api/demand-forecast?mode=cached" -o cached.json || true
+            FRESH=$(jq --argjson cutoff "$CUTOFF" '[.parts[] | select(.queryTime != null and .queryTime > $cutoff)] | length' cached.json 2>/dev/null || echo 0)
             echo "驗證第 $i 次：24 小時內查過的料件 $FRESH/150"
             if [ "$FRESH" -ge 140 ]; then break; fi
             sleep 60   # 邊緣切斷後伺服器仍在背景查，等它收尾再驗一次
@@ -77,4 +77,12 @@ jobs:
             echo "::error::本週查詢未完成：僅 $FRESH/150 顆料件在 24 小時內有新資料，趨勢快照可能斷檔（週報主訊號來源）。請檢查 Railway logs 與 DigiKey/Mouser API 狀態。"
             exit 1
           fi
-          echo "Weekly forecast refresh OK（$FRESH/150 顆料件資料新鮮）。"
+
+          # 快照寫入健康檢查：queryTime 只證明查了供應商 API，不保證趨勢快照有寫進 DB；
+          # mode=full 會把快照寫入失敗數記在 lastFullRun，這裡一併驗。
+          SNAPFAIL=$(jq '.lastFullRun.snapshotWriteFailures // 0' cached.json 2>/dev/null || echo 0)
+          if [ "$SNAPFAIL" -ge 10 ]; then
+            echo "::error::本輪有 $SNAPFAIL 顆料件的趨勢快照寫入失敗（週報趨勢資料將出現缺口），請檢查 Railway Postgres 狀態。"
+            exit 1
+          fi
+          echo "Weekly forecast refresh OK（$FRESH/150 顆資料新鮮、快照寫入失敗 $SNAPFAIL 顆）。"
