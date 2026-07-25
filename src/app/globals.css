@@ -2519,13 +2519,13 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 
 .forecast-matrix-status-none {
   color: #18785a;
-  border-color: #e1e9e6;
-  background: #fbfdfc;
+  border-color: #b9ddcf;
+  background: linear-gradient(135deg, #f0faf5, #e6f6ee);
 }
 
 .forecast-matrix-status-none .forecast-matrix-status-icon {
   color: #12966d;
-  background: #e9f8f1;
+  background: #cfeddf;
 }
 
 .forecast-matrix-status-none:hover {
@@ -2535,13 +2535,13 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 
 .forecast-matrix-status-medium {
   color: #a45108;
-  border-color: #f7ddb1;
-  background: linear-gradient(135deg, #fffdf8, #fff8e9);
+  border-color: #e8bd66;
+  background: linear-gradient(135deg, #fff5dc, #ffe9b8);
 }
 
 .forecast-matrix-status-medium .forecast-matrix-status-icon {
   color: #d97706;
-  background: #ffedc7;
+  background: #ffd98e;
 }
 
 .forecast-matrix-status-medium:hover {
@@ -2551,13 +2551,13 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 
 .forecast-matrix-status-high {
   color: #b42318;
-  border-color: #f4c8c4;
-  background: linear-gradient(135deg, #fffafa, #fff0ee);
+  border-color: #e5958e;
+  background: linear-gradient(135deg, #ffeceb, #ffdad6);
 }
 
 .forecast-matrix-status-high .forecast-matrix-status-icon {
   color: #d92d20;
-  background: #fee4e2;
+  background: #f9c2bd;
 }
 
 .forecast-matrix-status-high:hover {
@@ -2602,35 +2602,41 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
 
 .forecast-inline-status-normal {
   color: #18785a;
-  border-color: #dce9e4;
-  background: #f8fcfa;
+  border-color: #add8c7;
+  background: #e5f6ee;
 }
 
 .forecast-inline-status-normal .forecast-inline-status-icon {
   color: #12966d;
-  background: #e4f6ef;
+  background: #ccebdd;
 }
 
 .forecast-inline-status-medium {
   color: #a45108;
-  border-color: #f2d9ad;
-  background: #fffaf0;
+  border-color: #e5b85d;
+  background: #ffedc8;
 }
 
 .forecast-inline-status-medium .forecast-inline-status-icon {
   color: #d97706;
-  background: #ffebc2;
+  background: #ffd889;
 }
 
 .forecast-inline-status-high {
   color: #b42318;
-  border-color: #f0c7c3;
-  background: #fff5f4;
+  border-color: #e28e87;
+  background: #ffe1de;
 }
 
 .forecast-inline-status-high .forecast-inline-status-icon {
   color: #d92d20;
-  background: #fee4e2;
+  background: #f7bbb5;
+}
+
+.forecast-risk-level-status {
+  width: 78px;
+  min-height: 28px;
+  justify-content: flex-start;
 }
 
 .forecast-inline-status-info {

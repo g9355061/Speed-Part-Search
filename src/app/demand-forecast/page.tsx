@@ -1838,7 +1838,7 @@ function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string
 
 type ForecastStatusTone = 'high' | 'medium' | 'normal' | 'info' | 'unavailable';
 
-function ForecastInlineStatus({ tone, label, title }: { tone: ForecastStatusTone; label: string; title?: string }) {
+function ForecastInlineStatus({ tone, label, title, uniform = false }: { tone: ForecastStatusTone; label: string; title?: string; uniform?: boolean }) {
   const icon = tone === 'high'
     ? 'alert'
     : tone === 'medium'
@@ -1849,7 +1849,7 @@ function ForecastInlineStatus({ tone, label, title }: { tone: ForecastStatusTone
           ? 'file'
           : 'info';
   return (
-    <span className={`forecast-inline-status forecast-inline-status-${tone}`} title={title}>
+    <span className={`forecast-inline-status forecast-inline-status-${tone}${uniform ? ' forecast-risk-level-status' : ''}`} title={title}>
       <span className="forecast-inline-status-icon"><Icon name={icon} size={12} stroke={2} /></span>
       <span>{label}</span>
     </span>
@@ -1864,7 +1864,7 @@ function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查
     '有缺料風險': { tone: 'high' as const, label: '高風險' },
     '正常': { tone: 'normal' as const, label: '正常' },
   }[value];
-  return <ForecastInlineStatus tone={config.tone} label={config.label} />;
+  return <ForecastInlineStatus tone={config.tone} label={config.label} uniform />;
 }
 
 // 基準料角色標示：市場指標=觀察整體供需、單一來源=提醒斷供風險、實際用料=團隊真實用料

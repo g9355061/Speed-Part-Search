@@ -15,12 +15,12 @@ function riskColor(level: string) {
 
 type WeeklyRiskLevel = 'high' | 'medium' | 'normal';
 
-function WeeklyRiskStatus({ level, label }: { level: string; label: string }) {
+function WeeklyRiskStatus({ level, label, uniform = false }: { level: string; label: string; uniform?: boolean }) {
   const normalizedLevel: WeeklyRiskLevel = level === 'high' || level === 'medium' ? level : 'normal';
   const icon = normalizedLevel === 'high' ? 'alert' : normalizedLevel === 'medium' ? 'info' : 'check';
 
   return (
-    <span className={`forecast-inline-status forecast-inline-status-${normalizedLevel}`}>
+    <span className={`forecast-inline-status forecast-inline-status-${normalizedLevel}${uniform ? ' forecast-risk-level-status' : ''}`}>
       <span className="forecast-inline-status-icon"><Icon name={icon} size={12} stroke={2} /></span>
       <span>{label}</span>
     </span>
@@ -62,7 +62,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
               <p style={{ margin: '12px 0 0', fontSize: 14, color: 'var(--text-2)', lineHeight: 1.7, maxWidth: 760 }}>{report.summary}</p>
             </div>
             <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
-              <WeeklyRiskStatus level={report.riskLevel} label={tone.label} />
+              <WeeklyRiskStatus level={report.riskLevel} label={tone.label} uniform />
               <span style={{ color: 'var(--text-3)', fontSize: 12 }}>產生時間：{formatDateTime(report.generatedAt)}</span>
             </div>
           </div>
