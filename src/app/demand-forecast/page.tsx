@@ -838,47 +838,47 @@ export default function DemandForecastPage() {
 
         <section style={{ marginBottom: 20 }}>
           <Panel id="risk-matrix-panel" title="缺料預測風險對照矩陣" tone="api">
-            <p style={{ margin: '0 0 14px 0', fontSize: 13, color: 'var(--text-3)' }}>
+            <p className="forecast-matrix-intro">
               整合兩種預警偵測管道（RSS 新聞、實時通路代理商庫存）及市場情報佐證，橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
             <div className="forecast-rule-grid">
-              <div>
-                <strong>💡 庫存優先於交期原則：</strong>現貨庫存大於等於類別「補貨水位」時，完全忽略交期，視為「正常」綠標。補貨交期改用各授權分銷商中的「最短交期」（而非最長），避免因單一代理商交期拉長導致誤判。
-                <div style={{ marginTop: 8 }}>
-                  <strong>📈 歷史趨勢警告規則（對比 7 天前歷史點）：</strong>
-                  <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-                    <li>🔴 庫存 7 天內暴跌 &gt; 80%</li>
-                    <li>🟡 庫存 7 天內下降 &gt; 50% / 授權分銷商數自 2 家減至 1 家</li>
-                    <li>🟡 最低報價上漲 &gt; 30% / 補貨最短交期增加 &gt; 8 週</li>
+              <div className="forecast-rule-card">
+                <div className="forecast-rule-heading">
+                  <span className="forecast-rule-number">01</span>
+                  <strong>庫存優先於交期</strong>
+                </div>
+                <p>現貨庫存達到類別「補貨水位」時，交期不納入風險判定，直接標示為正常。補貨交期採各授權分銷商的最短交期，避免單一供應商交期過長造成誤判。</p>
+                <div className="forecast-rule-section">
+                  <strong className="forecast-rule-subheading">歷史趨勢警告 <span>對比 7 天前</span></strong>
+                  <ul className="forecast-rule-list">
+                    <li><span className="forecast-rule-dot high" />庫存 7 天內暴跌 &gt; 80%</li>
+                    <li><span className="forecast-rule-dot medium" />庫存下降 &gt; 50%，或授權分銷商由 2 家降為 1 家</li>
+                    <li><span className="forecast-rule-dot medium" />最低報價上漲 &gt; 30%，或最短交期增加 &gt; 8 週</li>
                   </ul>
                 </div>
               </div>
-              <div>
-                <strong>⚠️ 水位定義與警示說明：</strong>
-                <ul style={{ margin: '4px 0 0', paddingLeft: 16, listStyleType: 'disc' }}>
-                  <li style={{ marginBottom: 4 }}>
-                    <strong style={{ borderBottom: '1px dashed var(--text-3)', cursor: 'help' }} title="維持生產不中斷的底線庫存。一旦跌破，代表安全緩衝已遭消耗，系統會直接觸發中風險 (🟡) 警示，此時交期長短將被忽略。">
-                      安全水位 (Safety Stock)
-                    </strong>：維持生產營運不中斷的<strong>底線防禦庫存</strong>。低於此水位直接觸發 🟡 中風險警示（忽略交期長短）。
+              <div className="forecast-rule-card">
+                <div className="forecast-rule-heading">
+                  <span className="forecast-rule-number">02</span>
+                  <strong>水位定義與警示</strong>
+                </div>
+                <ul className="forecast-threshold-list">
+                  <li>
+                    <span className="forecast-threshold-name" title="維持生產不中斷的底線庫存。一旦跌破，代表安全緩衝已遭消耗，系統會直接觸發中風險警示，此時交期長短將被忽略。">
+                      安全水位 <small>Safety Stock</small>
+                    </span>
+                    <p>維持生產不中斷的底線庫存。低於此水位時，直接觸發<span className="forecast-text-medium">中風險</span>，不考慮交期長短。</p>
                   </li>
                   <li>
-                    <strong style={{ borderBottom: '1px dashed var(--text-3)', cursor: 'help' }} title="啟動採購補貨流程的預警庫存線。當庫存低於此水位但高於安全水位時，僅在最短補貨交期拉長（>= 12週觸發 🟡，>= 20週觸發 🔴）時才會警示；若交期短於 12 週仍視為安全 (🟢)。">
-                      補貨水位 (Reorder Point)
-                    </strong>：啟動採購補貨的<strong>預警庫存界線</strong>。低於此水位且最短補貨交期拉長（&gt;= 12週觸發 🟡，&gt;= 20週觸發 🔴）時觸發警示。
+                    <span className="forecast-threshold-name" title="啟動採購補貨流程的預警庫存線。當庫存低於此水位但高於安全水位時，僅在最短補貨交期拉長時才會警示。">
+                      補貨水位 <small>Reorder Point</small>
+                    </span>
+                    <p>啟動採購的預警庫存線。低於水位且最短交期達 12 週為<span className="forecast-text-medium">中風險</span>，達 20 週為<span className="forecast-text-high">高風險</span>。</p>
                   </li>
                 </ul>
-                <div
-                  style={{
-                    marginTop: 10,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: 'var(--primary)',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    textDecoration: 'underline'
-                  }}
+                <button
+                  type="button"
+                  className="forecast-threshold-link"
                   onClick={() => {
                     setEditingThresholds(JSON.parse(JSON.stringify(thresholds)));
                     setThresholdsError(null);
@@ -886,32 +886,32 @@ export default function DemandForecastPage() {
                     setShowThresholdsModal(true);
                   }}
                 >
-                  ▼ 🔍 點此查看 15 個類別的「安全水位 / 補貨水位」具體數值
-                </div>
+                  查看 15 個類別的安全／補貨水位
+                  <Icon name="arrow-down" size={13} stroke={2} />
+                </button>
               </div>
             </div>
             <div className="forecast-table-wrap">
               <table className="forecast-matrix-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '20%' }}>料件類別與安全/補貨門檻</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
-                      <div>RSS 新聞監測</div>
-                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        14 天內 ≥2 則含缺料關鍵字新聞 → 風險
-                      </div>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '20%' }}>
+                      <div className="forecast-matrix-head-title">料件類別</div>
+                      <div className="forecast-matrix-head-note">安全／補貨門檻</div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
-                      <div>市場報告 / 產業情報佐證</div>
-                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        自動擷取公開情報，僅供佐證參考，不作為主判定
-                      </div>
+                      <div className="forecast-matrix-head-title">RSS 新聞監測</div>
+                      <div className="forecast-matrix-head-note">14 天內 ≥ 2 則缺料新聞即預警</div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
-                      <div>實時通路庫存 (API)</div>
-                      <div style={{ fontWeight: 400, fontSize: 10, color: 'var(--text-3)', marginTop: 3, whiteSpace: 'normal', lineHeight: 1.4 }}>
-                        🔴 庫存=0、(庫存 &lt; 補貨水位 且 最短交期 &gt;= 20週) 或 7天庫存暴跌 &gt; 80%<br />
-                        🟡 庫存 &lt; 安全水位、交期 &gt;= 12週 或觸發 7天趨勢警示 (量/價/交期/供應商)
+                      <div className="forecast-matrix-head-title">市場情報佐證</div>
+                      <div className="forecast-matrix-head-note">公開情報僅供參考，不作為主判定</div>
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
+                      <div className="forecast-matrix-head-title">實時通路庫存 <span>API</span></div>
+                      <div className="forecast-matrix-head-note forecast-matrix-head-rules">
+                        <span><i className="high" />零庫存、交期 ≥ 20 週或庫存暴跌</span>
+                        <span><i className="medium" />低水位、交期 ≥ 12 週或趨勢異常</span>
                       </div>
                     </th>
                   </tr>
@@ -1042,6 +1042,17 @@ export default function DemandForecastPage() {
         </section>
 
         <Panel id="api-parts-panel" title="150 顆代表性料件監測" tone="api">
+          <div className="forecast-role-guide">
+            <div className="forecast-role-guide-copy">
+              <strong>三種料件分類</strong>
+              <span>依監測目的區分，方便快速理解每顆料在預測中的用途。</span>
+            </div>
+            <div className="forecast-role-guide-items">
+              <div><RoleBadge role="thermometer" /><span>常見共用料，用來觀察整體市場供需</span></div>
+              <div><RoleBadge role="chokepoint" /><span>缺少替代料，用來提醒單點斷供風險</span></div>
+              <div><RoleBadge role="field" /><span>團隊實際查詢或使用，異常時可直接處理</span></div>
+            </div>
+          </div>
           <div className="forecast-filter-bar">
             <select value={category} onChange={(e) => setCategory(e.target.value)}>
               <option value="all">全部類別</option>
