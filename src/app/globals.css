@@ -2461,6 +2461,121 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   border-bottom: 1px solid #dce4ec;
 }
 
+.forecast-matrix-table td {
+  height: 76px;
+}
+
+.forecast-matrix-status {
+  display: inline-grid;
+  width: min(100%, 210px);
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  text-align: left;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.forecast-matrix-status:hover {
+  transform: translateY(-1px);
+}
+
+.forecast-matrix-status-icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+}
+
+.forecast-matrix-status-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.forecast-matrix-status-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forecast-matrix-status-copy small {
+  overflow: hidden;
+  color: #718096;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forecast-matrix-status-none {
+  color: #18785a;
+  border-color: #e1e9e6;
+  background: #fbfdfc;
+}
+
+.forecast-matrix-status-none .forecast-matrix-status-icon {
+  color: #12966d;
+  background: #e9f8f1;
+}
+
+.forecast-matrix-status-none:hover {
+  border-color: #c9ded6;
+  box-shadow: 0 6px 16px rgba(18, 150, 109, 0.07);
+}
+
+.forecast-matrix-status-medium {
+  color: #a45108;
+  border-color: #f7ddb1;
+  background: linear-gradient(135deg, #fffdf8, #fff8e9);
+}
+
+.forecast-matrix-status-medium .forecast-matrix-status-icon {
+  color: #d97706;
+  background: #ffedc7;
+}
+
+.forecast-matrix-status-medium:hover {
+  border-color: #edc476;
+  box-shadow: 0 8px 18px rgba(217, 119, 6, 0.1);
+}
+
+.forecast-matrix-status-high {
+  color: #b42318;
+  border-color: #f4c8c4;
+  background: linear-gradient(135deg, #fffafa, #fff0ee);
+}
+
+.forecast-matrix-status-high .forecast-matrix-status-icon {
+  color: #d92d20;
+  background: #fee4e2;
+}
+
+.forecast-matrix-status-high:hover {
+  border-color: #eca6a0;
+  box-shadow: 0 8px 18px rgba(217, 45, 32, 0.11);
+}
+
+.forecast-matrix-status-unavailable {
+  color: #667085;
+  border-color: #e4e7ec;
+  background: #f8fafc;
+}
+
+.forecast-matrix-status-unavailable .forecast-matrix-status-icon {
+  color: #667085;
+  background: #eaecf0;
+}
+
 .forecast-two-column {
   display: grid;
   grid-template-columns: minmax(380px, 0.82fr) minmax(0, 1.18fr);

@@ -956,7 +956,13 @@ export default function DemandForecastPage() {
                           onClick={() => handleMatrixClick(cat.categoryId, 'shortage-news-panel')}
                           style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
                         >
-                          <RiskCellBadge level={newsRisk ? 'high' : 'none'} />
+                          <MatrixRiskStatus
+                            level={newsRisk ? 'high' : 'none'}
+                            label={newsRisk ? '缺料訊號' : '未見異常'}
+                            detail={newsRisk
+                              ? `${newsSum?.riskNewsCount ?? 0} 則新聞達預警門檻`
+                              : '近 14 天未達預警門檻'}
+                          />
                         </td>
                         <td
                           className="matrix-cell-interactive"
@@ -964,7 +970,7 @@ export default function DemandForecastPage() {
                           onClick={() => handleMatrixClick(cat.categoryId, 'market-reports-panel')}
                           style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
                         >
-                          <MarketSignalBadge level={marketSignal} />
+                          <MatrixMarketStatus level={marketSignal} />
                         </td>
                         <td
                           className="matrix-cell-interactive"
@@ -973,11 +979,19 @@ export default function DemandForecastPage() {
                           style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
                         >
                           {hasApiCheck ? (
-                            <RiskCellBadge level={apiRiskLevel} />
+                            <MatrixRiskStatus
+                              level={apiRiskLevel}
+                              label={apiRiskLevel === 'high' ? '高風險' : apiRiskLevel === 'medium' ? '中風險' : '供應穩定'}
+                              detail={apiRiskLevel === 'none'
+                                ? `${apiSum?.checkedPartCount ?? 0} 顆料件已監測`
+                                : `${apiSum?.riskPartCount ?? 0} 顆料件需關注`}
+                            />
                           ) : (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 700, background: '#F2F4F7', color: '#344054' }}>
-                              尚未查詢
-                            </span>
+                            <MatrixRiskStatus
+                              level="unavailable"
+                              label="尚未查詢"
+                              detail="等待授權通路資料"
+                            />
                           )}
                         </td>
                       </tr>
@@ -2121,6 +2135,27 @@ function RiskCellBadge({ level, highLabel = '有缺料風險', medLabel = '中�
   );
 }
 
+function MatrixRiskStatus({
+  level,
+  label,
+  detail,
+}: {
+  level: 'high' | 'medium' | 'none' | 'unavailable';
+  label: string;
+  detail: string;
+}) {
+  const icon = level === 'high' ? 'alert' : level === 'medium' ? 'trend' : level === 'unavailable' ? 'info' : 'check';
+  return (
+    <span className={`forecast-matrix-status forecast-matrix-status-${level}`}>
+      <span className="forecast-matrix-status-icon"><Icon name={icon} size={15} stroke={2} /></span>
+      <span className="forecast-matrix-status-copy">
+        <strong>{label}</strong>
+        <small>{detail}</small>
+      </span>
+    </span>
+  );
+}
+
 const RISK_TYPE_LABELS: Record<string, string> = {
   lead_time_increase: '交期拉長',
   allocation: '產能配給 (Allocation)',
@@ -2137,6 +2172,27 @@ const SIGNAL_BADGE_CONFIG = {
   info: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', border: '#FEDF89', text: '一份報告顯示缺料' },
   multi_source: { bg: '#FFF1F0', color: '#B42318', dot: '#F04438', border: '#FECDCA', text: '兩份報告以上顯示缺料' },
 };
+
+const MATRIX_MARKET_STATUS = {
+  no_signal: { label: '未見訊號', detail: '公開情報無異常', tone: 'none' },
+  source_unavailable: { label: '來源未取得', detail: '暫無法完成判讀', tone: 'unavailable' },
+  info: { label: '單一來源', detail: '1 份報告提及供應風險', tone: 'medium' },
+  multi_source: { label: '多源佐證', detail: '2 份以上報告交叉命中', tone: 'high' },
+} as const;
+
+function MatrixMarketStatus({ level }: { level: keyof typeof MATRIX_MARKET_STATUS }) {
+  const config = MATRIX_MARKET_STATUS[level] || MATRIX_MARKET_STATUS.no_signal;
+  const icon = config.tone === 'high' ? 'alert' : config.tone === 'medium' ? 'file' : config.tone === 'unavailable' ? 'info' : 'check';
+  return (
+    <span className={`forecast-matrix-status forecast-matrix-status-${config.tone}`}>
+      <span className="forecast-matrix-status-icon"><Icon name={icon} size={15} stroke={2} /></span>
+      <span className="forecast-matrix-status-copy">
+        <strong>{config.label}</strong>
+        <small>{config.detail}</small>
+      </span>
+    </span>
+  );
+}
 
 function MarketSignalBadge({ level }: { level: keyof typeof SIGNAL_BADGE_CONFIG }) {
   const config = SIGNAL_BADGE_CONFIG[level] || SIGNAL_BADGE_CONFIG.no_signal;
