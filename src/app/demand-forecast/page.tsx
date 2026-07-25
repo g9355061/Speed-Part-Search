@@ -1051,36 +1051,48 @@ export default function DemandForecastPage() {
             <button className="btn" onClick={() => { setCategory('all'); setQuery(''); }}>清除</button>
           </div>
 
-          <div className="forecast-table-wrap">
-            <table className="forecast-parts-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1300 }}>
+          <div className="forecast-table-wrap forecast-parts-wrap">
+            <table className="forecast-parts-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', fontSize: 12 }}>
+              <colgroup>
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '22%' }} />
+              </colgroup>
               <thead>
                 <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
-                  <Th>類別</Th>
-                  <Th>角色</Th>
-                  <Th>料號</Th>
-                  <Th>廠商</Th>
-                  <Th>基本資料</Th>
+                  <Th>料件 / 類別</Th>
+                  <Th>廠商 / 基本資料</Th>
                   <Th align="right">供應商</Th>
                   <Th align="right">總庫存 / 趨勢</Th>
                   <Th align="right">最低價 / 趨勢</Th>
-                  <Th align="right">補貨交期 (最快/慢)</Th>
-                  <Th>生命週期</Th>
-                  <Th>總結</Th>
+                  <Th align="right">補貨交期</Th>
+                  <Th>生命週期 / 風險</Th>
                 </tr>
               </thead>
               <tbody>
                 {filteredParts.map((part, idx) => (
                   <tr key={`${part.categoryId}-${part.mpn}-${idx}`} style={{ borderTop: '1px solid var(--hairline)' }}>
-                    <Td>{categoryName(part.categoryId, part.category)}</Td>
-                    <Td><RoleBadge role={part.role} /></Td>
-                    <Td mono>{part.mpn}</Td>
-                    <Td>{part.apiManufacturer || part.manufacturer}</Td>
-                    <Td>
-                      <div style={{ color: 'var(--text)' }}>{part.description || part.family}</div>
-                      <div style={{ color: 'var(--text-3)', marginTop: 2 }}>{part.subCategory}</div>
+                    <Td label="料件 / 類別">
+                      <div className="forecast-part-identity">
+                        <div className="forecast-part-number">{categoryNumber(part.categoryId)}</div>
+                        <div className="forecast-part-identity-copy">
+                          <strong className="mono">{part.mpn}</strong>
+                          <span>{categoryTitle(part.categoryId, part.category)}</span>
+                        </div>
+                        <RoleBadge role={part.role} />
+                      </div>
                     </Td>
-                    <Td align="right">{part.supplierCount ?? '-'}</Td>
-                    <Td align="right">
+                    <Td label="廠商 / 基本資料">
+                      <strong className="forecast-part-maker">{part.apiManufacturer || part.manufacturer}</strong>
+                      <div className="forecast-part-description">{part.description || part.family}</div>
+                      <div className="forecast-part-subcategory">{part.subCategory}</div>
+                    </Td>
+                    <Td label="供應商" align="right">{part.supplierCount ?? '-'}</Td>
+                    <Td label="總庫存 / 趨勢" align="right">
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                         <span>{part.totalStock === null ? '-' : part.totalStock.toLocaleString()}</span>
                         <MetricSparkline
@@ -1092,7 +1104,7 @@ export default function DemandForecastPage() {
                         />
                       </div>
                     </Td>
-                    <Td align="right">
+                    <Td label="最低價 / 趨勢" align="right">
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                         <span>{part.lowestPriceUsd === null ? '-' : `$${part.lowestPriceUsd.toFixed(4)}`}</span>
                         <MetricSparkline
@@ -1103,7 +1115,7 @@ export default function DemandForecastPage() {
                         />
                       </div>
                     </Td>
-                    <Td align="right">
+                    <Td label="補貨交期" align="right">
                       {part.minLeadTimeDays === null || part.minLeadTimeDays === undefined ? (
                         part.maxLeadTimeDays === null ? '-' : `${Math.round(part.maxLeadTimeDays / 7)} 週`
                       ) : (
@@ -1114,13 +1126,15 @@ export default function DemandForecastPage() {
                         )
                       )}
                     </Td>
-                    <Td>
-                      <LifecycleBadge status={part.lifecycleStatus} />
-                    </Td>
-                    <Td>
-                      <RiskBadge value={part.summary} />
+                    <Td label="生命週期 / 風險">
+                      <div className="forecast-part-status-stack">
+                        <LifecycleBadge status={part.lifecycleStatus} />
+                        <RiskBadge value={part.summary} />
+                      </div>
                       {!!part.riskReasons?.length && (
-                        <div style={{ color: 'var(--text-3)', marginTop: 4, lineHeight: 1.4 }}>{part.riskReasons.join(' / ')}</div>
+                        <div className="forecast-part-risk-reasons" title={part.riskReasons.join(' / ')}>
+                          {part.riskReasons.join(' / ')}
+                        </div>
                       )}
                     </Td>
                   </tr>
@@ -1822,105 +1836,73 @@ function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string
   );
 }
 
-function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險' }) {
-  const config = {
-    '尚未查詢': { bg: '#F8F9FA', color: '#475467', dot: '#98A2B3', border: '#E4E7EC' },
-    '無代理商資料': { bg: '#F8F9FA', color: '#475467', dot: '#98A2B3', border: '#E4E7EC' },
-    '中風險': { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', border: '#FEDF89' },
-    '有缺料風險': { bg: '#FFF1F0', color: '#B42318', dot: '#F04438', border: '#FECDCA' },
-    '正常': { bg: '#ECFDF3', color: '#027A48', dot: '#12B76A', border: '#D1FADF' },
-  }[value];
+type ForecastStatusTone = 'high' | 'medium' | 'normal' | 'info' | 'unavailable';
 
+function ForecastInlineStatus({ tone, label, title }: { tone: ForecastStatusTone; label: string; title?: string }) {
+  const icon = tone === 'high'
+    ? 'alert'
+    : tone === 'medium'
+      ? 'trend'
+      : tone === 'normal'
+        ? 'check'
+        : tone === 'info'
+          ? 'file'
+          : 'info';
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-        borderRadius: 999,
-        padding: '5px 12px',
-        fontSize: 12,
-        fontWeight: 700,
-        background: config.bg,
-        color: config.color,
-        border: `1px solid ${config.border}`,
-        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)',
-      }}
-    >
-      <span style={{ width: 10, height: 10, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
-      {value}
+    <span className={`forecast-inline-status forecast-inline-status-${tone}`} title={title}>
+      <span className="forecast-inline-status-icon"><Icon name={icon} size={12} stroke={2} /></span>
+      <span>{label}</span>
     </span>
   );
+}
+
+function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險' }) {
+  const config = {
+    '尚未查詢': { tone: 'unavailable' as const, label: '尚未查詢' },
+    '無代理商資料': { tone: 'unavailable' as const, label: '無通路資料' },
+    '中風險': { tone: 'medium' as const, label: '中風險' },
+    '有缺料風險': { tone: 'high' as const, label: '高風險' },
+    '正常': { tone: 'normal' as const, label: '正常' },
+  }[value];
+  return <ForecastInlineStatus tone={config.tone} label={config.label} />;
 }
 
 // 基準料角色標示：溫度計=偵測市場級變化、咽喉=單點斷供風險、實戰=使用者真實用料
 function RoleBadge({ role }: { role?: 'thermometer' | 'chokepoint' | 'field' }) {
   if (!role) return <span style={{ color: 'var(--text-3)' }}>-</span>;
   const spec = {
-    thermometer: { label: '溫度計', bg: '#EFF8FF', color: '#175CD3', border: '#B2DDFF', title: '大宗共用料：偵測市場級供需變化' },
-    chokepoint: { label: '咽喉', bg: '#FFF6ED', color: '#B93815', border: '#F9DBAF', title: '單一來源/無替代：偵測單點斷供風險' },
-    field: { label: '實戰', bg: '#ECFDF3', color: '#067647', border: '#ABEFC6', title: '自家實際搜尋/使用的料：警報直接可行動' },
+    thermometer: { label: '溫度計', cls: 'thermometer', title: '大宗共用料：偵測市場級供需變化' },
+    chokepoint: { label: '咽喉', cls: 'chokepoint', title: '單一來源/無替代：偵測單點斷供風險' },
+    field: { label: '實戰', cls: 'field', title: '自家實際搜尋/使用的料：警報直接可行動' },
   }[role];
   return (
-    <span title={spec.title} style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 700, background: spec.bg, color: spec.color, border: `1px solid ${spec.border}`, whiteSpace: 'nowrap' }}>
+    <span title={spec.title} className={`forecast-role-label forecast-role-label-${spec.cls}`}>
       {spec.label}
     </span>
   );
 }
 
 function LifecycleBadge({ status }: { status?: string | null }) {
-  if (!status) {
-    return <span style={{ color: 'var(--text-3)' }}>-</span>;
-  }
+  if (!status) return null;
   const lower = status.toLowerCase();
-  
-  // Obsolete / Discontinued / EOL / End of Life -> Red
+
   if (lower.includes('obsolete') || lower.includes('discontinued') || lower.includes('end of life') || lower === 'eol') {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#FFF1F0', color: '#B42318', border: '1px solid #FECDCA', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F04438', display: 'inline-block' }}></span>
-        停產 ({status})
-      </span>
-    );
+    return <ForecastInlineStatus tone="high" label="已停產" title={status} />;
   }
-  
-  // Last Time Buy / LTB -> Red
+
   if (lower.includes('last time buy') || lower.includes('ltb')) {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#FFF1F0', color: '#B42318', border: '1px solid #FECDCA', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F04438', display: 'inline-block' }}></span>
-        最後採購 ({status})
-      </span>
-    );
+    return <ForecastInlineStatus tone="high" label="最後採購" title={status} />;
   }
-  
-  // NRND -> Yellow
+
   if (lower.includes('nrnd') || lower.includes('not recommended')) {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#FFFAEB', color: '#B54708', border: '1px solid #FEDF89', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F79009', display: 'inline-block' }}></span>
-        不推薦新設計 ({status})
-      </span>
-    );
+    return <ForecastInlineStatus tone="medium" label="不推薦新設計" title={status} />;
   }
 
-  // Active / In Production / New Product -> Green
   if (lower.includes('active') || lower.includes('new product') || lower.includes('production')) {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#ECFDF3', color: '#027A48', border: '1px solid #D1FADF', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#12B76A', display: 'inline-block' }}></span>
-        生產中 ({status})
-      </span>
-    );
+    return <ForecastInlineStatus tone="normal" label="生產中" title={status} />;
   }
 
-  // Other statuses -> Grey
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, background: '#F8F9FA', color: '#475467', border: '1px solid #E4E7EC', boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)' }}>
-      <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#98A2B3', display: 'inline-block' }}></span>
-      {status}
-    </span>
-  );
+  return <ForecastInlineStatus tone="unavailable" label={status} title={status} />;
 }
 
 function EmptyLine({ text }: { text: string }) {
@@ -1931,8 +1913,8 @@ function Th({ children, align = 'left' }: { children: ReactNode; align?: 'left' 
   return <th style={{ padding: '10px 12px', textAlign: align, fontWeight: 700, whiteSpace: 'nowrap' }}>{children}</th>;
 }
 
-function Td({ children, align = 'left', mono = false }: { children: ReactNode; align?: 'left' | 'right'; mono?: boolean }) {
-  return <td style={{ padding: '10px 12px', textAlign: align, verticalAlign: 'top', fontFamily: mono ? 'var(--font-mono)' : undefined }}>{children}</td>;
+function Td({ children, align = 'left', mono = false, label }: { children: ReactNode; align?: 'left' | 'right'; mono?: boolean; label?: string }) {
+  return <td data-label={label} style={{ padding: '10px 12px', textAlign: align, verticalAlign: 'top', fontFamily: mono ? 'var(--font-mono)' : undefined }}>{children}</td>;
 }
 
 function pctArrow(p: number) {
@@ -2107,34 +2089,6 @@ function MetricSparkline({
   );
 }
 
-function RiskCellBadge({ level, highLabel = '有缺料風險', medLabel = '中風險' }: { level: 'high' | 'medium' | 'none'; highLabel?: string; medLabel?: string }) {
-  const config = {
-    high: { bg: '#FFF1F0', color: '#B42318', dot: '#F04438', border: '#FECDCA', text: highLabel },
-    medium: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', border: '#FEDF89', text: medLabel },
-    none: { bg: '#ECFDF3', color: '#027A48', dot: '#12B76A', border: '#D1FADF', text: '正常' },
-  }[level];
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-        borderRadius: 999,
-        padding: '5px 12px',
-        fontSize: 12,
-        fontWeight: 700,
-        background: config.bg,
-        color: config.color,
-        border: `1px solid ${config.border}`,
-        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)',
-      }}
-    >
-      <span style={{ width: 10, height: 10, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
-      {config.text}
-    </span>
-  );
-}
-
 function MatrixRiskStatus({
   level,
   label,
@@ -2167,10 +2121,10 @@ const RISK_TYPE_LABELS: Record<string, string> = {
 };
 
 const SIGNAL_BADGE_CONFIG = {
-  no_signal: { bg: '#ECFDF3', color: '#027A48', dot: '#12B76A', border: '#D1FADF', text: '正常(無缺料情報)' },
-  source_unavailable: { bg: '#F8F9FA', color: '#475467', dot: '#98A2B3', border: '#E4E7EC', text: '來源未取得' },
-  info: { bg: '#FFFAEB', color: '#B54708', dot: '#F79009', border: '#FEDF89', text: '一份報告顯示缺料' },
-  multi_source: { bg: '#FFF1F0', color: '#B42318', dot: '#F04438', border: '#FECDCA', text: '兩份報告以上顯示缺料' },
+  no_signal: { tone: 'normal' as const, text: '未見訊號' },
+  source_unavailable: { tone: 'unavailable' as const, text: '來源未取得' },
+  info: { tone: 'medium' as const, text: '單一來源' },
+  multi_source: { tone: 'high' as const, text: '多源佐證' },
 };
 
 const MATRIX_MARKET_STATUS = {
@@ -2196,26 +2150,7 @@ function MatrixMarketStatus({ level }: { level: keyof typeof MATRIX_MARKET_STATU
 
 function MarketSignalBadge({ level }: { level: keyof typeof SIGNAL_BADGE_CONFIG }) {
   const config = SIGNAL_BADGE_CONFIG[level] || SIGNAL_BADGE_CONFIG.no_signal;
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-        borderRadius: 999,
-        padding: '5px 12px',
-        fontSize: 12,
-        fontWeight: 700,
-        background: config.bg,
-        color: config.color,
-        border: `1px solid ${config.border}`,
-        boxShadow: '0 1px 2px rgba(16, 24, 40, 0.05)',
-      }}
-    >
-      <span style={{ width: 10, height: 10, borderRadius: '50%', background: config.dot, display: 'inline-block' }}></span>
-      {config.text}
-    </span>
-  );
+  return <ForecastInlineStatus tone={config.tone} label={config.text} />;
 }
 
 const SOURCE_STATUS_LABELS: Record<string, { text: string; color: string }> = {

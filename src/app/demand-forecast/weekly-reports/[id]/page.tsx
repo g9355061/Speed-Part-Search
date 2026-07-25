@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { Header } from '@/components/Header';
+import { Icon } from '@/components/Icon';
 import { getWeeklyReportById } from '@/lib/demand-forecast/weekly-report';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +10,21 @@ export const dynamic = 'force-dynamic';
 function riskColor(level: string) {
   if (level === 'high') return { bg: '#FEF3F2', text: '#B42318', border: '#FECDCA', label: '高風險' };
   if (level === 'medium') return { bg: '#FFFAEB', text: '#B54708', border: '#FEDF89', label: '中風險' };
-  return { bg: '#ECFDF3', text: '#027A48', border: '#ABEFC6', label: '低風險' };
+  return { bg: '#ECFDF3', text: '#027A48', border: '#ABEFC6', label: '正常' };
+}
+
+type WeeklyRiskLevel = 'high' | 'medium' | 'normal';
+
+function WeeklyRiskStatus({ level, label }: { level: string; label: string }) {
+  const normalizedLevel: WeeklyRiskLevel = level === 'high' || level === 'medium' ? level : 'normal';
+  const icon = normalizedLevel === 'high' ? 'alert' : normalizedLevel === 'medium' ? 'info' : 'check';
+
+  return (
+    <span className={`forecast-inline-status forecast-inline-status-${normalizedLevel}`}>
+      <span className="forecast-inline-status-icon"><Icon name={icon} size={12} stroke={2} /></span>
+      <span>{label}</span>
+    </span>
+  );
 }
 
 function formatDateTime(value: string) {
@@ -47,9 +62,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
               <p style={{ margin: '12px 0 0', fontSize: 14, color: 'var(--text-2)', lineHeight: 1.7, maxWidth: 760 }}>{report.summary}</p>
             </div>
             <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
-              <span style={{ display: 'inline-flex', border: `1px solid ${tone.border}`, background: tone.bg, color: tone.text, borderRadius: 999, padding: '5px 10px', fontSize: 12, fontWeight: 800 }}>
-                {tone.label}
-              </span>
+              <WeeklyRiskStatus level={report.riskLevel} label={tone.label} />
               <span style={{ color: 'var(--text-3)', fontSize: 12 }}>產生時間：{formatDateTime(report.generatedAt)}</span>
             </div>
           </div>
@@ -65,14 +78,9 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                 {report.categorySignals
                   .filter((s) => s.tone !== 'normal')
                   .slice(0, 6)
-                  .map((s) => {
-                    const c = riskColor(s.tone);
-                    return (
-                      <span key={s.categoryId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${c.border}`, background: c.bg, color: c.text, borderRadius: 999, padding: '5px 12px', fontSize: 12.5, fontWeight: 800 }}>
-                        {s.category}
-                      </span>
-                    );
-                  })}
+                  .map((s) => (
+                    <WeeklyRiskStatus key={s.categoryId} level={s.tone} label={s.category} />
+                  ))}
               </div>
             )}
           </ArticleSection>
@@ -127,7 +135,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                     </span>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                       {item.dateLabel && (
-                        <span style={{ whiteSpace: 'nowrap', borderRadius: 999, padding: '3px 8px', background: '#F2F4F7', color: '#344054', fontSize: 11, fontWeight: 800 }}>
+                        <span style={{ whiteSpace: 'nowrap', borderRadius: 6, padding: '3px 8px', background: '#F2F4F7', color: '#344054', fontSize: 11, fontWeight: 800 }}>
                           {item.dateLabel
                             .replace(/^新聞時間\s*/, '')
                             .replace(/^PCN\/EOL 時間\s*/, '')
@@ -136,7 +144,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                             .replace(/^報告日期未標示｜擷取日期\s*/, '擷取 ')}
                         </span>
                       )}
-                      <span style={{ whiteSpace: 'nowrap', borderRadius: 999, padding: '3px 8px', background: '#F0FDF4', color: '#0F766E', fontSize: 11, fontWeight: 800 }}>{item.kind}</span>
+                      <span style={{ whiteSpace: 'nowrap', borderRadius: 6, padding: '3px 8px', background: '#F0FDF4', color: '#0F766E', fontSize: 11, fontWeight: 800 }}>{item.kind}</span>
                     </span>
                   </a>
                 ))}
