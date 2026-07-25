@@ -15,9 +15,9 @@
 export type PartRole = 'thermometer' | 'chokepoint' | 'field';
 
 export const ROLE_LABEL: Record<PartRole, string> = {
-  thermometer: '溫度計',
-  chokepoint: '咽喉',
-  field: '實戰',
+  thermometer: '市場指標',
+  chokepoint: '單一來源',
+  field: '實際用料',
 };
 
 export interface BenchmarkPart {

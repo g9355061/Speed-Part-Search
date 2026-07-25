@@ -7,11 +7,12 @@
 ### 2026-07-24 — 缺料預測狀態與 150 顆料件版面統一
 
 - [x] 將缺料預測主頁、料件明細、市場訊號、生命週期與週報詳情頁的高／中／正常／未取得狀態，統一為「圖示＋短標籤」矩形樣式與一致色階。
+- [x] 料件角色改用白話名稱：「溫度計／咽喉／實戰」改為「市場指標／單一來源／實際用料」，並重寫滑鼠提示說明。
 - [x] 150 顆料件桌面表格由 11 欄整併為 7 欄，把類別、廠商基本資料、趨勢與生命週期／風險重新分組；使用固定欄寬配置，取消水平捲動。
 - [x] 平板與手機改為直向資訊卡，不要求使用者左右拖曳；風險原因維持可讀的兩行摘要與完整 tooltip。
 - [x] Chrome 本機實測：視窗 1,470 px、表格 1,348 px／容器 1,350 px，頁面水平溢位 `0 px`、表格 `table-layout: fixed`、容器 `overflow-x: visible`。
 - [x] 驗證：`npx tsc --noEmit` ✅、`npm test` ✅。
-- **修改檔案**：`src/app/demand-forecast/page.tsx`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`、`src/app/globals.css`、`project_summary.md`
+- **修改檔案**：`src/app/demand-forecast/page.tsx`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`、`src/app/globals.css`、`src/lib/demand-forecast/benchmark.ts`、`project_summary.md`
 
 ---
 

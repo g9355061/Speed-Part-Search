@@ -1867,13 +1867,13 @@ function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查
   return <ForecastInlineStatus tone={config.tone} label={config.label} />;
 }
 
-// 基準料角色標示：溫度計=偵測市場級變化、咽喉=單點斷供風險、實戰=使用者真實用料
+// 基準料角色標示：市場指標=觀察整體供需、單一來源=提醒斷供風險、實際用料=團隊真實用料
 function RoleBadge({ role }: { role?: 'thermometer' | 'chokepoint' | 'field' }) {
   if (!role) return <span style={{ color: 'var(--text-3)' }}>-</span>;
   const spec = {
-    thermometer: { label: '溫度計', cls: 'thermometer', title: '大宗共用料：偵測市場級供需變化' },
-    chokepoint: { label: '咽喉', cls: 'chokepoint', title: '單一來源/無替代：偵測單點斷供風險' },
-    field: { label: '實戰', cls: 'field', title: '自家實際搜尋/使用的料：警報直接可行動' },
+    thermometer: { label: '市場指標', cls: 'thermometer', title: '常見共用料：用來觀察整體市場供需' },
+    chokepoint: { label: '單一來源', cls: 'chokepoint', title: '缺少替代料：用來提醒單一料件斷供風險' },
+    field: { label: '實際用料', cls: 'field', title: '團隊實際查詢或使用的料：異常時可直接採取行動' },
   }[role];
   return (
     <span title={spec.title} className={`forecast-role-label forecast-role-label-${spec.cls}`}>
