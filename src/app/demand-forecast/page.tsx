@@ -714,25 +714,30 @@ export default function DemandForecastPage() {
     : categoryName(category, DEMAND_CATEGORIES.find((item) => item.categoryId === category)?.category ?? category);
 
   return (
-    <div>
+    <div className="forecast-page-shell">
       <Header />
 
-      <main style={{ maxWidth: 1440, margin: '0 auto', padding: '34px 24px 56px', width: '100%' }}>
-        <section style={{ display: 'flex', justifyContent: 'space-between', gap: 24, alignItems: 'flex-start', marginBottom: 22 }}>
-          <div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--primary-2)', fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+      <main className="forecast-main">
+        <section className="forecast-hero">
+          <div className="forecast-hero-copy">
+            <div className="forecast-eyebrow">
               <Icon name="trend" size={14} /> 缺料預測雷達
             </div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em', color: 'var(--text)' }}>缺料預測</h1>
-            <p style={{ margin: 0, color: 'var(--text-3)', fontSize: 14, lineHeight: 1.7, maxWidth: 760 }}>
-              用 RSS 產業新聞判斷目前可能缺料的類別，再用 15 個類別 × 每類 10 顆基準料號查詢供應商資料，輸出每顆料的基本資料與總結。
+            <h1>供應風險，一眼掌握</h1>
+            <p>
+              整合 150 顆代表性料件的授權通路庫存、交期、價格趨勢與產業訊號，協助採購、PM 與工程團隊提早辨識供應風險。
             </p>
+            <div className="forecast-hero-meta">
+              <span><i className="forecast-live-dot" /> 15 類關鍵料件</span>
+              <span>每週趨勢快照</span>
+              <span>RSS ＋ 市場情報</span>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button className="btn" disabled={loading} onClick={() => loadForecast('summary')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <div className="forecast-hero-actions">
+            <button className="forecast-btn forecast-btn-secondary" disabled={loading} onClick={() => loadForecast('summary')}>
               <Icon name="globe" size={14} /> {loading && mode === 'summary' ? '處理中，請耐心等待' : '更新產業新聞'}
             </button>
-            <button className="btn-primary" disabled={loading} onClick={() => loadForecast('full')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button className="forecast-btn forecast-btn-primary" disabled={loading} onClick={() => loadForecast('full')}>
               <Icon name="zap" size={14} />
               {loading && mode === 'full'
                 ? fullProgress
@@ -745,6 +750,7 @@ export default function DemandForecastPage() {
 
         {/* 區塊導航列：sticky 在站頭下方，目前區塊高亮 */}
         <nav
+          className="forecast-section-nav"
           style={{
             position: 'sticky',
             top: 56,
@@ -752,13 +758,14 @@ export default function DemandForecastPage() {
             display: 'flex',
             gap: 6,
             alignItems: 'center',
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 10,
+            background: 'rgba(255,255,255,0.92)',
+            border: '1px solid rgba(214, 221, 231, 0.9)',
+            borderRadius: 14,
             padding: '6px 8px',
-            marginBottom: 18,
-            boxShadow: '0 2px 8px rgba(15, 23, 42, 0.06)',
+            marginBottom: 20,
+            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)',
             overflowX: 'auto',
+            backdropFilter: 'blur(14px)',
           }}
         >
           {SECTION_NAV.map((s) => {
@@ -770,12 +777,12 @@ export default function DemandForecastPage() {
                 style={{
                   border: 'none',
                   cursor: 'pointer',
-                  borderRadius: 8,
-                  padding: '6px 14px',
+                  borderRadius: 9,
+                  padding: '8px 15px',
                   fontSize: 13,
                   fontWeight: active ? 700 : 500,
                   whiteSpace: 'nowrap',
-                  background: active ? 'var(--primary)' : 'transparent',
+                  background: active ? '#172B4D' : 'transparent',
                   color: active ? '#fff' : 'var(--text-2)',
                   transition: 'background 0.15s, color 0.15s',
                 }}
@@ -796,22 +803,20 @@ export default function DemandForecastPage() {
           </button>
         </nav>
 
-        <WeeklyReportsPanel reports={weeklyReports} />
-
         {error && (
           <div style={{ border: '1px solid #F5C2C7', background: '#FFF5F5', color: '#B42318', borderRadius: 8, padding: '10px 12px', marginBottom: 16, fontSize: 13 }}>
             {error}
           </div>
         )}
 
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 18 }}>
-          <Metric label="資料模式" value={mode === 'full' ? '新聞 + 供應商資料' : mode === 'cached' ? '快取資料' : '新聞'} />
-          <Metric label="缺料新聞" value={`${shortageNewsCount}`} />
-          <Metric label="新聞風險類別" value={`${riskCategories} / ${DEMAND_CATEGORIES.length}`} tone={riskCategories > 0 ? 'risk' : 'normal'} />
-          <Metric label="風險料件" value={`${riskParts} / ${parts.length}`} tone={riskParts > 0 ? 'risk' : 'normal'} />
+        <section className="forecast-metrics">
+          <Metric icon="circuit" label="資料模式" value={mode === 'full' ? '即時資料' : mode === 'cached' ? '快取資料' : '產業新聞'} helper="目前載入來源" />
+          <Metric icon="globe" label="缺料新聞" value={`${shortageNewsCount}`} helper="近 14 天訊號" />
+          <Metric icon="trend" label="新聞風險類別" value={`${riskCategories} / ${DEMAND_CATEGORIES.length}`} helper="外部市場預警" tone={riskCategories > 0 ? 'risk' : 'normal'} />
+          <Metric icon="package" label="風險料件" value={`${riskParts} / ${parts.length}`} helper="授權通路觀測" tone={riskParts > 0 ? 'risk' : 'normal'} />
         </section>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 18, fontSize: 12 }}>
+        <div className="forecast-freshness">
           <span
             style={dataStale
               ? { display: 'inline-flex', alignItems: 'center', gap: 6, background: '#FFFAEB', border: '1px solid #FEDF89', color: '#B54708', borderRadius: 999, padding: '4px 12px', fontWeight: 700 }
@@ -829,19 +834,21 @@ export default function DemandForecastPage() {
           )}
         </div>
 
+        <WeeklyReportsPanel reports={weeklyReports} />
+
         <section style={{ marginBottom: 20 }}>
           <Panel id="risk-matrix-panel" title="缺料預測風險對照矩陣" tone="api">
             <p style={{ margin: '0 0 14px 0', fontSize: 13, color: 'var(--text-3)' }}>
               整合兩種預警偵測管道（RSS 新聞、實時通路代理商庫存）及市場情報佐證，橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 12, background: 'var(--surface-2)', padding: '12px 16px', borderRadius: 8, marginBottom: 14, fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, border: '1px solid var(--border)' }}>
+            <div className="forecast-rule-grid">
               <div>
                 <strong>💡 庫存優先於交期原則：</strong>現貨庫存大於等於類別「補貨水位」時，完全忽略交期，視為「正常」綠標。補貨交期改用各授權分銷商中的「最短交期」（而非最長），避免因單一代理商交期拉長導致誤判。
                 <div style={{ marginTop: 8 }}>
                   <strong>📈 歷史趨勢警告規則（對比 7 天前歷史點）：</strong>
                   <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
                     <li>🔴 庫存 7 天內暴跌 &gt; 80%</li>
-                    <li>🟡 庫存 7 天內下降 &gt; 50% / 授權分銷商數自 &gt;=3 家減至 1 家</li>
+                    <li>🟡 庫存 7 天內下降 &gt; 50% / 授權分銷商數自 2 家減至 1 家</li>
                     <li>🟡 最低報價上漲 &gt; 30% / 補貨最短交期增加 &gt; 8 週</li>
                   </ul>
                 </div>
@@ -852,12 +859,12 @@ export default function DemandForecastPage() {
                   <li style={{ marginBottom: 4 }}>
                     <strong style={{ borderBottom: '1px dashed var(--text-3)', cursor: 'help' }} title="維持生產不中斷的底線庫存。一旦跌破，代表安全緩衝已遭消耗，系統會直接觸發中風險 (🟡) 警示，此時交期長短將被忽略。">
                       安全水位 (Safety Stock)
-                    </strong>：維持生產營運不中斷的**底線防禦庫存**。低於此水位直接觸發 🟡 中風險 警示（忽略交期長短）。
+                    </strong>：維持生產營運不中斷的<strong>底線防禦庫存</strong>。低於此水位直接觸發 🟡 中風險警示（忽略交期長短）。
                   </li>
                   <li>
                     <strong style={{ borderBottom: '1px dashed var(--text-3)', cursor: 'help' }} title="啟動採購補貨流程的預警庫存線。當庫存低於此水位但高於安全水位時，僅在最短補貨交期拉長（>= 12週觸發 🟡，>= 20週觸發 🔴）時才會警示；若交期短於 12 週仍視為安全 (🟢)。">
                       補貨水位 (Reorder Point)
-                    </strong>：啟動採購補貨的**預警庫存界線**。低於此水位且最短補貨交期拉長（&gt;= 12週觸發 🟡，&gt;= 20週觸發 🔴）時觸發警示。
+                    </strong>：啟動採購補貨的<strong>預警庫存界線</strong>。低於此水位且最短補貨交期拉長（&gt;= 12週觸發 🟡，&gt;= 20週觸發 🔴）時觸發警示。
                   </li>
                 </ul>
                 <div
@@ -883,8 +890,8 @@ export default function DemandForecastPage() {
                 </div>
               </div>
             </div>
-            <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
+            <div className="forecast-table-wrap">
+              <table className="forecast-matrix-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
                     <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '20%' }}>料件類別與安全/補貨門檻</th>
@@ -982,7 +989,7 @@ export default function DemandForecastPage() {
           </Panel>
         </section>
 
-        <section style={{ display: 'grid', gridTemplateColumns: 'minmax(420px, 0.85fr) minmax(0, 1fr)', gap: 16, marginBottom: 18, alignItems: 'start' }}>
+        <section className="forecast-two-column">
           <CategoryRiskPanel
             id="shortage-category-panel"
             title="RSS 新聞風險總覽"
@@ -1020,18 +1027,18 @@ export default function DemandForecastPage() {
           />
         </section>
 
-        <Panel id="api-parts-panel" title="15 個類別 × 每類 10 顆料件查詢" tone="api">
-          <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-            <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ height: 36, border: '1px solid var(--border)', borderRadius: 8, padding: '0 10px', background: '#fff', color: 'var(--text)', fontSize: 13 }}>
+        <Panel id="api-parts-panel" title="150 顆代表性料件監測" tone="api">
+          <div className="forecast-filter-bar">
+            <select value={category} onChange={(e) => setCategory(e.target.value)}>
               <option value="all">全部類別</option>
               {DEMAND_CATEGORIES.map((item) => <option key={item.categoryId} value={item.categoryId}>{categoryName(item.categoryId, item.category)}</option>)}
             </select>
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜尋料號 / 廠商 / 類別…" style={{ height: 36, flex: '1 1 260px', border: '1px solid var(--border)', borderRadius: 8, padding: '0 12px', fontSize: 13 }} />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜尋料號 / 廠商 / 類別…" />
             <button className="btn" onClick={() => { setCategory('all'); setQuery(''); }}>清除</button>
           </div>
 
-          <div style={{ overflow: 'auto', border: '1px solid var(--hairline)', borderRadius: 8 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1300 }}>
+          <div className="forecast-table-wrap">
+            <table className="forecast-parts-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1300 }}>
               <thead>
                 <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
                   <Th>類別</Th>
@@ -1507,11 +1514,27 @@ export default function DemandForecastPage() {
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: 'normal' | 'risk' }) {
+function Metric({
+  label,
+  value,
+  helper,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+  icon: 'circuit' | 'globe' | 'trend' | 'package';
+  tone?: 'normal' | 'risk';
+}) {
   return (
-    <div style={{ border: '1px solid var(--hairline)', borderRadius: 8, padding: '14px 16px', background: '#fff' }}>
-      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: tone === 'risk' ? '#B42318' : 'var(--text)' }}>{value}</div>
+    <div className={`forecast-metric${tone === 'risk' ? ' forecast-metric-risk' : ''}`}>
+      <div className="forecast-metric-icon"><Icon name={icon} size={17} /></div>
+      <div className="forecast-metric-content">
+        <div className="forecast-metric-label">{label}</div>
+        <div className="forecast-metric-value">{value}</div>
+        <div className="forecast-metric-helper">{helper}</div>
+      </div>
     </div>
   );
 }
@@ -1521,15 +1544,18 @@ function Panel({ title, children, tone, id }: { title: string; children: ReactNo
   return (
     <section
       id={id}
+      className={`forecast-panel${tone ? ` forecast-panel-${tone}` : ''}`}
       style={{
         border: toneStyle ? `1px solid ${toneStyle.border}` : '1px solid var(--hairline)',
-        borderLeft: toneStyle ? `4px solid ${toneStyle.accent}` : '1px solid var(--hairline)',
-        borderRadius: 8,
-        background: toneStyle?.bg ?? '#fff',
-        padding: 16,
+        borderRadius: 14,
+        background: '#fff',
+        padding: 20,
       }}
     >
-      <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: toneStyle?.title ?? 'var(--text)' }}>{title}</h2>
+      <h2 className="forecast-panel-title" style={{ color: toneStyle?.title ?? 'var(--text)' }}>
+        {toneStyle && <span style={{ background: toneStyle.accent }} />}
+        {title}
+      </h2>
       {children}
     </section>
   );
@@ -2146,67 +2172,46 @@ const SOURCE_STATUS_LABELS: Record<string, { text: string; color: string }> = {
 };
 
 function WeeklyReportsPanel({ reports }: { reports: WeeklyReportLink[] }) {
-  const toneStyle = {
-    bg: '#ECFDF5',
-    border: '#A7F3D0',
-    accent: '#0F766E',
-    title: '#064E3B',
-    soft: '#CCFBF1',
-  };
+  const [latest, ...history] = reports;
 
   return (
     <section
       id="weekly-reports-panel"
-      style={{
-        gridColumn: '1 / -1',
-        border: `1px solid ${toneStyle.border}`,
-        borderLeft: `4px solid ${toneStyle.accent}`,
-        borderRadius: 8,
-        background: toneStyle.bg,
-        padding: 20,
-        marginBottom: 18,
-        boxShadow: '0 10px 30px rgba(15, 118, 110, 0.08)',
-      }}
+      className="forecast-weekly"
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+      <div className="forecast-weekly-heading">
         <div>
-          <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: toneStyle.title }}>物料預測週報</h2>
-          <div style={{ fontSize: 14, color: '#475467', fontWeight: 600 }}>給採購、PM、工程快速看：本週哪些料件類別可能影響交期、成本或替代料準備。</div>
+          <span className="forecast-section-kicker">WEEKLY INTELLIGENCE</span>
+          <h2>物料預測週報</h2>
+          <p>每週濃縮供應變化，快速掌握值得優先關注的類別與訊號。</p>
         </div>
+        <span className="forecast-weekly-count">{reports.length} 期</span>
       </div>
 
-      <div style={{ overflow: 'auto', border: '1px solid #D1FAE5', borderRadius: 8, background: '#fff' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15, minWidth: 720 }}>
-          <thead>
-            <tr style={{ background: '#F0FDF4', color: '#344054' }}>
-              <th style={{ padding: '14px 16px', textAlign: 'left', fontWeight: 800, width: '56%' }}>標題</th>
-              <th style={{ padding: '14px 16px', textAlign: 'left', fontWeight: 800 }}>連結</th>
-              <th style={{ padding: '14px 16px', textAlign: 'left', fontWeight: 800, width: 170 }}>日期</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reports.length === 0 ? (
-              <tr>
-                <td colSpan={3} style={{ padding: 18, color: 'var(--text-3)', borderTop: '1px solid #D1FAE5', fontSize: 15 }}>
-                  週報連結產生中，請稍後重新整理。
-                </td>
-              </tr>
-            ) : (
-              reports.map((report) => (
-                <tr key={report.id} style={{ borderTop: '1px solid #D1FAE5' }}>
-                  <td style={{ padding: '16px', color: '#101828', fontWeight: 800, lineHeight: 1.45 }}>{report.title}</td>
-                  <td style={{ padding: '16px' }}>
-                    <a href={report.href} style={{ color: toneStyle.accent, textDecoration: 'none', fontWeight: 800, fontSize: 15 }}>
-                      開啟週報 ↗
-                    </a>
-                  </td>
-                  <td style={{ padding: '16px', color: '#475467', whiteSpace: 'nowrap', fontWeight: 700 }}>{report.date}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {latest ? (
+        <div className="forecast-weekly-layout">
+          <a href={latest.href} className="forecast-weekly-featured">
+            <div className="forecast-weekly-featured-top">
+              <span>最新一期</span>
+              <Icon name="external" size={16} />
+            </div>
+            <time>{latest.date}</time>
+            <h3>{latest.title}</h3>
+            <div className="forecast-weekly-cta">閱讀本週分析 <span>→</span></div>
+          </a>
+          <div className="forecast-weekly-history">
+            {history.slice(0, 6).map((report) => (
+              <a href={report.href} key={report.id}>
+                <time>{report.date}</time>
+                <strong>{report.title}</strong>
+                <span>閱讀 ↗</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="forecast-weekly-empty">週報連結產生中，請稍後重新整理。</div>
+      )}
     </section>
   );
 }
