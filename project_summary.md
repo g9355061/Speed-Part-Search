@@ -1,6 +1,15 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-24（缺料預測狀態與 150 顆料件版面統一）
+> 最後更新：2026-07-28（帳號申請新增 Division 部門分類）
+
+---
+
+### 2026-07-28 — 帳號申請新增 Division 部門分類
+
+- [x] 將帳號申請頁原本的「部門 / 角色」改為「Division / 部門」分類。
+- [x] 依公司分類提供 `Unspecified`、`PM`、`IE`、`ME`、`PD`、`SCM`、`QA`、`TE` 八個選項，並以 `Unspecified` 作為預設值。
+- [x] 沿用既有 `department` 資料欄位與管理員後台顯示，不需資料庫遷移，也不影響既有使用者資料。
+- **修改檔案**：`src/app/register/page.tsx`、`src/app/api/auth/register/route.ts`、`project_summary.md`
 
 ---
 

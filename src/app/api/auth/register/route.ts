@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
     const { name, email, password, department } = await req.json();
 
     if (!name?.trim() || !email?.trim() || !password || !department?.trim()) {
-      return NextResponse.json({ error: '請填寫所有欄位（含部門/角色）' }, { status: 400 });
+      return NextResponse.json({ error: '請填寫所有欄位（含 Division / 部門）' }, { status: 400 });
     }
     if (password.length < 8) {
       return NextResponse.json({ error: '密碼至少需要 8 個字元' }, { status: 400 });
