@@ -4,20 +4,20 @@ import { useState, FormEvent } from 'react';
 import Link from 'next/link';
 
 const DEPARTMENTS = [
-  'Unspecified',
-  'PM',
-  'IE',
-  'ME',
-  'PD',
-  'SCM',
-  'QA',
-  'TE',
+  '採購',
+  '業務',
+  '工程',
+  '研發',
+  '品保',
+  '生產',
+  '管理',
+  '其他',
 ];
 
 export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [department, setDepartment] = useState(DEPARTMENTS[0]);
+  const [department, setDepartment] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -30,7 +30,7 @@ export default function RegisterPage() {
 
     if (password !== confirm) { setError('兩次輸入的密碼不一致'); return; }
     if (password.length < 8) { setError('密碼至少需要 8 個字元'); return; }
-    if (!department) { setError('請選擇 Division / 部門'); return; }
+    if (!department) { setError('請選擇部門/角色'); return; }
 
     setLoading(true);
     try {
@@ -96,13 +96,14 @@ export default function RegisterPage() {
             </label>
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={labelStyle}>Division / 部門</span>
+              <span style={labelStyle}>部門 / 角色</span>
               <select
                 value={department}
                 onChange={e => setDepartment(e.target.value)}
                 required
-                style={{ ...inputStyle, background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}
+                style={{ ...inputStyle, background: 'var(--surface)', color: department ? 'var(--text)' : 'var(--text-4)', cursor: 'pointer' }}
               >
+                <option value="" disabled>請選擇部門或角色</option>
                 {DEPARTMENTS.map(d => (
                   <option key={d} value={d}>{d}</option>
                 ))}
