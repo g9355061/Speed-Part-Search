@@ -1,6 +1,20 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-07-24（缺料預測狀態與 150 顆料件版面統一）
+> 最後更新：2026-08-29（Playwright Chromium 閒置 10 分鐘自動關閉釋放記憶體）
+
+---
+
+### 2026-08-29 — Playwright Chromium 閒置 10 分鐘自動關閉釋放記憶體（降低 Railway 運行費用）
+
+**背景**：Speed Part Search 在 Railway 上因常駐 Playwright Chromium 瀏覽器，記憶體底銷持續偏高（300MB~500MB+ RAM），導致月運行費用達到 $4.91。
+
+- [x] **加入 Chromium 閒置排程釋放機制**（`src/app/api/hqew/search/route.ts`）：
+  - 設置 `BROWSER_IDLE_TIMEOUT_MS = 10 * 60 * 1000`（10 分鐘）。
+  - 當使用者進行 HQEW 華強查詢或預抓 QQ 企點跳轉連結時，自動啟動/共用單一瀏覽器並排程閒置計時器。
+  - 每次查詢與頁面關閉時自動刷新計時器；若連續 10 分鐘無任何查詢，自動觸發 `browser.close()` 關閉 Chromium 實例並釋放記憶體，清空全域 promise。
+  - 下次若有新的查詢請求，系統會自動無縫冷啟動新的瀏覽器實例，兼顧 BOM 批量查詢效能與常時低負載省資源。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅。
+- **修改檔案**：`src/app/api/hqew/search/route.ts`、`project_summary.md`
 
 ---
 

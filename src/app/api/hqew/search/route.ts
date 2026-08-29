@@ -16,18 +16,51 @@ export const dynamic = 'force-dynamic';
 const HQEW_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 const HQEW_CACHE_PREFIX = 'hqew-search-';
 
+// 瀏覽器閒置自動釋放機制（10 分鐘）：
+// 模組層級共用單一 browser 以避免 28 顆 BOM 逐顆冷啟動，但在無查詢時若一直常駐記憶體會增加
+// Railway 記憶體開銷（約 300MB~500MB RAM）。故設置閒置超時，超過 10 分鐘無任何
+// HQEW/QQ 查詢即自動執行 browser.close() 釋放 RAM，待下次查詢再自動重啟。
+const BROWSER_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
 type LaunchedBrowser = Awaited<ReturnType<typeof chromium.launch>>;
 
-// 模組層級共用 browser：先前每個 request chromium.launch 再 close，28 顆 BOM 就是
-// 28 次瀏覽器冷啟（每次 1–2 秒＋記憶體峰值）。頁面各自建立與關閉，互不影響。
-// 存在 globalThis 以撐過 Next dev 熱重載，避免重複 launch 洩漏。
-const hqewGlobal = globalThis as unknown as { __hqewBrowserPromise?: Promise<LaunchedBrowser> | null };
+const hqewGlobal = globalThis as unknown as {
+  __hqewBrowserPromise?: Promise<LaunchedBrowser> | null;
+  __hqewIdleTimer?: NodeJS.Timeout | null;
+};
+
+function scheduleBrowserIdleClose(browser: LaunchedBrowser) {
+  if (hqewGlobal.__hqewIdleTimer) {
+    clearTimeout(hqewGlobal.__hqewIdleTimer);
+    hqewGlobal.__hqewIdleTimer = null;
+  }
+  hqewGlobal.__hqewIdleTimer = setTimeout(async () => {
+    try {
+      if (browser.isConnected()) {
+        console.log('[HQEW] Playwright Chromium idle for 10m, closing to free memory');
+        await browser.close();
+      }
+    } catch (err) {
+      console.warn('[HQEW] Error closing idle browser:', err);
+    } finally {
+      hqewGlobal.__hqewBrowserPromise = null;
+      hqewGlobal.__hqewIdleTimer = null;
+    }
+  }, BROWSER_IDLE_TIMEOUT_MS);
+
+  if (hqewGlobal.__hqewIdleTimer && typeof hqewGlobal.__hqewIdleTimer.unref === 'function') {
+    hqewGlobal.__hqewIdleTimer.unref();
+  }
+}
 
 async function getSharedBrowser(): Promise<LaunchedBrowser> {
   if (hqewGlobal.__hqewBrowserPromise) {
     try {
       const existing = await hqewGlobal.__hqewBrowserPromise;
-      if (existing.isConnected()) return existing;
+      if (existing.isConnected()) {
+        scheduleBrowserIdleClose(existing);
+        return existing;
+      }
     } catch {
       // 前次 launch 失敗，往下重新啟動
     }
@@ -37,7 +70,9 @@ async function getSharedBrowser(): Promise<LaunchedBrowser> {
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
   try {
-    return await hqewGlobal.__hqewBrowserPromise;
+    const browser = await hqewGlobal.__hqewBrowserPromise;
+    scheduleBrowserIdleClose(browser);
+    return browser;
   } catch (err) {
     hqewGlobal.__hqewBrowserPromise = null;
     throw err;
@@ -99,6 +134,7 @@ async function fetchQqJumpUrl(qq: string): Promise<string | null> {
     return null;
   } finally {
     await page.close().catch(() => undefined);
+    scheduleBrowserIdleClose(browser);
   }
 }
 
@@ -166,9 +202,11 @@ export async function GET(req: NextRequest) {
   }
 
   let page: Awaited<ReturnType<LaunchedBrowser['newPage']>> | null = null;
+  let browserInstance: LaunchedBrowser | null = null;
 
   try {
     const browser = await getSharedBrowser();
+    browserInstance = browser;
     page = await browser.newPage({
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36',
       locale: 'zh-CN',
@@ -297,5 +335,8 @@ export async function GET(req: NextRequest) {
     );
   } finally {
     await page?.close().catch(() => undefined);
+    if (browserInstance) {
+      scheduleBrowserIdleClose(browserInstance);
+    }
   }
 }
