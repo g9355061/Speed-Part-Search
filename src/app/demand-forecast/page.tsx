@@ -209,6 +209,8 @@ interface ForecastPart {
   errors?: string[];
   summary: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險';
   riskReasons?: string[];
+  alertKind?: 'event' | 'structural' | null;
+  eventCodes?: string[];
   queryTime?: number;
 }
 
@@ -374,6 +376,8 @@ export default function DemandForecastPage() {
   const [marketSourceResults, setMarketSourceResults] = useState<any[]>([]);
   const [loadingMarketReports, setLoadingMarketReports] = useState(false);
   const [weeklyReports, setWeeklyReports] = useState<WeeklyReportLink[]>([]);
+  const [backtest, setBacktest] = useState<any | null>(null);
+  const [alertFilter, setAlertFilter] = useState<'all' | 'event' | 'structural'>('all');
 
   const fetchMarketReports = () => {
     setLoadingMarketReports(true);
@@ -504,6 +508,7 @@ export default function DemandForecastPage() {
     { id: 'shortage-category-panel', label: '缺料新聞' },
     { id: 'market-reports-category-panel', label: '市場情報' },
     { id: 'api-parts-panel', label: '料件明細' },
+    { id: 'backtest-panel', label: '規則命中率' },
   ];
 
   const scrollToSection = (id: string) => {
@@ -566,6 +571,12 @@ export default function DemandForecastPage() {
       .then((resp) => resp.json())
       .then((json) => setWeeklyReports(Array.isArray(json.reports) ? json.reports : []))
       .catch((err) => console.error('Failed to load weekly reports:', err));
+
+    // 規則命中率回測（伺服器端 12 小時快取，載入很輕）
+    fetch('/api/demand-forecast/backtest', { cache: 'no-store' })
+      .then((resp) => resp.json())
+      .then((json) => setBacktest(json?.rules ? json : null))
+      .catch((err) => console.error('Failed to load backtest:', err));
   }, []);
 
   // 載入歷史最低價曲線（依目前料件清單批次抓取）
@@ -660,9 +671,15 @@ export default function DemandForecastPage() {
         .join(' ')
         .toLowerCase()
         .includes(normalized);
-      return categoryOk && queryOk;
+      const alertOk = alertFilter === 'all' || part.alertKind === alertFilter;
+      return categoryOk && queryOk && alertOk;
     });
-  }, [parts, category, query]);
+  }, [parts, category, query, alertFilter]);
+
+  // 狀態／事件分流：結構性長紅料（EOL/NRND/庫存長期為 0）與本週新變化分開計數，
+  // 避免每週看到的紅燈裡有六成是同一批老面孔（2026-09-05 體檢結論）。
+  const eventParts = useMemo(() => parts.filter((p) => p.alertKind === 'event'), [parts]);
+  const structuralParts = useMemo(() => parts.filter((p) => p.alertKind === 'structural'), [parts]);
 
   const riskParts = parts.filter((part) => part.summary === '有缺料風險').length;
   // 資料時效：updatedAt 距今天數；> 8 天代表週排程可能失敗
@@ -1041,6 +1058,45 @@ export default function DemandForecastPage() {
           />
         </section>
 
+        <section style={{ marginBottom: 20 }}>
+          <Panel id="alert-split-panel" title="本週新變化 vs 長期觀察" tone="api">
+            <p className="forecast-matrix-intro">
+              亮燈料件分成兩類：<strong>本週新變化</strong>是這一輪快照才出現的異動（趨勢觸發或風險等級升高），需要本週處理；
+              <strong>長期觀察</strong>是持續存在的結構性狀態（EOL／NRND／庫存長期為 0），已知且不會週週變化，列在下方清單即可。
+            </p>
+            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+              <div style={{ border: '1px solid #FECDCA', borderLeft: '4px solid #B42318', borderRadius: 8, background: '#FFFBFA', padding: '14px 16px' }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: '#B42318', letterSpacing: '0.04em', marginBottom: 6 }}>本週新變化</div>
+                <div style={{ fontSize: 30, fontWeight: 900, color: 'var(--text)', lineHeight: 1.1 }}>{eventParts.length}<span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-3)', marginLeft: 6 }}>顆</span></div>
+                {eventParts.length === 0 ? (
+                  <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-3)' }}>本輪快照沒有新的異動。</div>
+                ) : (
+                  <ul style={{ margin: '10px 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
+                    {eventParts.slice(0, 8).map((part) => (
+                      <li key={part.mpn} style={{ fontSize: 13, lineHeight: 1.6 }}>
+                        <strong className="mono" style={{ color: 'var(--text)' }}>{part.mpn}</strong>
+                        <span style={{ color: 'var(--text-3)' }}>｜{categoryName(part.categoryId, part.category)}</span>
+                        <div style={{ color: 'var(--text-2)', fontSize: 12.5 }}>{(part.riskReasons ?? [])[0] ?? ''}</div>
+                      </li>
+                    ))}
+                    {eventParts.length > 8 && (
+                      <li style={{ fontSize: 12.5, color: 'var(--text-3)' }}>另有 {eventParts.length - 8} 顆，見下方清單。</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+              <div style={{ border: '1px solid var(--border)', borderLeft: '4px solid #B54708', borderRadius: 8, background: '#FFFCF5', padding: '14px 16px' }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: '#B54708', letterSpacing: '0.04em', marginBottom: 6 }}>長期觀察（結構性）</div>
+                <div style={{ fontSize: 30, fontWeight: 900, color: 'var(--text)', lineHeight: 1.1 }}>{structuralParts.length}<span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-3)', marginLeft: 6 }}>顆</span></div>
+                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7 }}>
+                  生命週期公告、庫存長期掛零或持續低於安全水位的料。狀態已知、每週不變，
+                  建議以季度為單位處理替代料認證，不必每週重看。
+                </div>
+              </div>
+            </div>
+          </Panel>
+        </section>
+
         <Panel id="api-parts-panel" title="150 顆代表性料件監測" tone="api">
           <div className="forecast-role-guide">
             <div className="forecast-role-guide-copy">
@@ -1059,7 +1115,23 @@ export default function DemandForecastPage() {
               {DEMAND_CATEGORIES.map((item) => <option key={item.categoryId} value={item.categoryId}>{categoryName(item.categoryId, item.category)}</option>)}
             </select>
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜尋料號 / 廠商 / 類別…" />
-            <button className="btn" onClick={() => { setCategory('all'); setQuery(''); }}>清除</button>
+            {([
+              { key: 'all' as const, label: `全部 ${parts.length}` },
+              { key: 'event' as const, label: `本週新變化 ${eventParts.length}` },
+              { key: 'structural' as const, label: `長期觀察 ${structuralParts.length}` },
+            ]).map((chip) => (
+              <button
+                key={chip.key}
+                className="btn"
+                onClick={() => setAlertFilter(chip.key)}
+                style={alertFilter === chip.key
+                  ? { background: '#172B4D', color: '#fff', borderColor: '#172B4D', fontWeight: 700 }
+                  : undefined}
+              >
+                {chip.label}
+              </button>
+            ))}
+            <button className="btn" onClick={() => { setCategory('all'); setQuery(''); setAlertFilter('all'); }}>清除</button>
           </div>
 
           <div className="forecast-table-wrap forecast-parts-wrap">
@@ -1154,6 +1226,67 @@ export default function DemandForecastPage() {
             </table>
           </div>
         </Panel>
+
+        {backtest && (
+          <section style={{ marginTop: 20 }}>
+            <Panel id="backtest-panel" title="規則命中率回測" tone="api">
+              <p className="forecast-matrix-intro">
+                用累積的 {backtest.snapshotWeeks} 週快照重跑一次現行規則，看每條規則「亮燈之後實際發生什麼」。
+                命中＝訊號發生後 {backtest.horizonWeeks} 週內沒有回復；命中率必須明顯高於下方對照組，規則才算有資訊量。
+              </p>
+              <div className="forecast-table-wrap">
+                <table className="forecast-parts-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: '8px 10px' }}>規則</th>
+                      <th style={{ textAlign: 'right', padding: '8px 10px', width: 90 }}>觸發次數</th>
+                      <th style={{ textAlign: 'right', padding: '8px 10px', width: 90 }}>命中</th>
+                      <th style={{ textAlign: 'right', padding: '8px 10px', width: 100 }}>命中率</th>
+                      <th style={{ textAlign: 'left', padding: '8px 10px' }}>命中定義</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backtest.rules.map((rule: any) => {
+                      const weak = rule.signals < 10;
+                      const good = rule.precision !== null && rule.precision >= 70;
+                      return (
+                        <tr key={rule.code}>
+                          <td style={{ padding: '9px 10px', fontWeight: 700, color: 'var(--text)' }}>{rule.label}</td>
+                          <td style={{ padding: '9px 10px', textAlign: 'right' }} className="mono">{rule.signals}</td>
+                          <td style={{ padding: '9px 10px', textAlign: 'right' }} className="mono">{rule.hits}</td>
+                          <td style={{ padding: '9px 10px', textAlign: 'right' }}>
+                            {rule.precision === null ? (
+                              <span style={{ color: 'var(--text-3)' }}>—</span>
+                            ) : (
+                              <span
+                                className="mono"
+                                style={{ fontWeight: 800, borderRadius: 6, padding: '2px 8px', background: good ? '#ECFDF3' : '#FFFAEB', color: good ? '#027A48' : '#B54708' }}
+                              >
+                                {rule.precision}%
+                              </span>
+                            )}
+                            {weak && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>樣本偏少</div>}
+                          </td>
+                          <td style={{ padding: '9px 10px', color: 'var(--text-2)', fontSize: 12.5 }}>{rule.outcome}</td>
+                        </tr>
+                      );
+                    })}
+                    <tr style={{ background: 'var(--surface-2)' }}>
+                      <td style={{ padding: '9px 10px', fontWeight: 700, color: 'var(--text-2)' }}>{backtest.baseRate.label}</td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right' }} className="mono">{backtest.baseRate.observations}</td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right' }} className="mono">{backtest.baseRate.halvedWithin4Weeks}</td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right' }} className="mono">{backtest.baseRate.rate}%</td>
+                      <td style={{ padding: '9px 10px', color: 'var(--text-2)', fontSize: 12.5 }}>{backtest.baseRate.outcome}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p style={{ margin: '12px 0 0', fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.7 }}>
+                {backtest.note}　樣本：{backtest.partsCovered} 顆料件、{backtest.evaluatedObservations} 個可評估觀測點。
+              </p>
+            </Panel>
+          </section>
+        )}
       </main>
 
       {/* Modal Dialog for Thresholds */}

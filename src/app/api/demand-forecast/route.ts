@@ -4,7 +4,8 @@ import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo, getCustomThresholds, getGenericCache, setGenericCache } from '@/lib/db';
-import { readCache, writeCache, buildSupplyCategorySummary, recalculateForecastPart, recalculatePartsCache, readNewsCacheShared, writeNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
+import { readCache, writeCache, buildSupplyCategorySummary, recalculateForecastPart, recalculatePartsCache, buildRiskContexts, readNewsCacheShared, writeNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
+import { evaluatePartRisk, computeBaseline } from '@/lib/demand-forecast/risk';
 
 export const dynamic = 'force-dynamic';
 
@@ -407,7 +408,8 @@ function summarizePart(
   results: PartResult[],
   errors: string[],
   snapshot7DaysAgo?: any,
-  customThresholds?: Record<string, { minStock: number; lowStock: number }>
+  customThresholds?: Record<string, { minStock: number; lowStock: number }>,
+  baseline?: ReturnType<typeof computeBaseline>
 ) {
   const best = bestResult(results);
   // Mouser HK / VN 是同一家公司（同一全球庫存），合併計算避免供應商數與庫存重複計算。
@@ -457,32 +459,19 @@ function summarizePart(
         ? lifecycleStatuses.find((s) => /nrnd|not.recommended/i.test(s)) ?? 'NRND'
         : null;
 
-  const thresholds = (customThresholds && customThresholds[part.categoryId]) || CATEGORY_THRESHOLDS[part.categoryId] || { minStock: 1000, lowStock: 5000 };
-  const noStockAfterMatch = hasApiMatch && totalStock <= 0;
-  const veryLongLead = minLeadTimeDays !== null && minLeadTimeDays >= 140; // >= 20 weeks
-  const mediumLead = minLeadTimeDays !== null && minLeadTimeDays >= 84;   // >= 12 weeks
-
-  // Trend analysis calculations
-  const stockDrop50 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.5;
-  const stockDrop80 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.8;
-  // 供應商數最多 2 家（DigiKey + Mouser，已合併 HK/VN），故門檻由 >=3 調整為 >=2
-  const supplierDrop = snapshot7DaysAgo && snapshot7DaysAgo.supplierCount >= 2 && supplierCount === 1;
-  const priceRise30 = snapshot7DaysAgo && snapshot7DaysAgo.lowestPriceUsd !== null && lowestPriceUsd !== null && lowestPriceUsd > 0 && ((lowestPriceUsd - snapshot7DaysAgo.lowestPriceUsd) / snapshot7DaysAgo.lowestPriceUsd) >= 0.3;
-  const leadTimeIncrease56 = snapshot7DaysAgo && snapshot7DaysAgo.minLeadTimeDays !== null && minLeadTimeDays !== null && (minLeadTimeDays - snapshot7DaysAgo.minLeadTimeDays) >= 56;
-
-  // Three-tier risk: High Risk > Medium Risk > Normal
-  // Obsolete/Discontinued/EOL → always high risk
-  // Last Time Buy → high risk
-  // NRND → medium risk (at minimum)
-  const highRisk = noStockAfterMatch || isObsolete || isLastTimeBuy || (totalStock < thresholds.lowStock && veryLongLead) || !!(snapshot7DaysAgo && stockDrop80);
-  const mediumRisk = !highRisk && (
-    isNRND ||
-    (totalStock < thresholds.minStock) ||
-    (totalStock < thresholds.lowStock && mediumLead) ||
-    !!(snapshot7DaysAgo && (stockDrop50 || supplierDrop || priceRise30 || leadTimeIncrease56))
+  const evaluated = evaluatePartRisk(
+    {
+      categoryId: part.categoryId,
+      hasApiMatch,
+      totalStock,
+      supplierCount,
+      minLeadTimeDays,
+      lowestPriceUsd,
+      lifecycleStatus: lifecycleLabel,
+      availabilityStatus: best?.availabilityStatus ?? '',
+    },
+    { thresholds: customThresholds, prev: snapshot7DaysAgo, baseline }
   );
-
-  const riskLevel: '高風險' | '中風險' | '正常' | '無資料' = !hasApiMatch ? '無資料' : highRisk ? '高風險' : mediumRisk ? '中風險' : '正常';
 
   return {
     ...part,
@@ -498,23 +487,11 @@ function summarizePart(
     productUrl: best?.productUrl ?? '',
     checkedSuppliers: results.map((item) => item.supplier),
     errors,
-    riskLevel,
-    summary: highRisk ? '有缺料風險' : mediumRisk ? '中風險' : (hasApiMatch ? '正常' : '無代理商資料'),
-    riskReasons: [
-      !hasApiMatch ? 'API 未找到此料，無授權代理商通路資料' : '',
-      isObsolete ? `🔴 生命週期：原廠已標示停產 (${lifecycleLabel})，庫存售完即止` : '',
-      isLastTimeBuy ? `🔴 生命週期：原廠已進入最後採購期 (${lifecycleLabel})` : '',
-      isNRND ? `🟡 生命週期：原廠不建議新設計採用 (${lifecycleLabel})` : '',
-      noStockAfterMatch ? '🔴 API 找到料件但授權供應商庫存為 0' : '',
-      (totalStock < thresholds.lowStock && veryLongLead) ? `🔴 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週（超過 20 週）` : '',
-      (snapshot7DaysAgo && stockDrop80) ? `🔴 趨勢警告：庫存 7 天內暴跌超過 80%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',
-      (totalStock < thresholds.lowStock && mediumLead && !veryLongLead) ? `🟡 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週` : '',
-      (totalStock < thresholds.minStock && totalStock > 0 && !veryLongLead && !mediumLead) ? `🟡 庫存僅 ${totalStock.toLocaleString()} 顆（低於安全水位 ${thresholds.minStock.toLocaleString()}）` : '',
-      (snapshot7DaysAgo && stockDrop50 && !stockDrop80) ? `🟡 趨勢警告：庫存 7 天內下降超過 50%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',
-      (snapshot7DaysAgo && supplierDrop) ? `🟡 趨勢警告：可用授權分銷商數量自 ${snapshot7DaysAgo.supplierCount} 家減至 1 家` : '',
-      (snapshot7DaysAgo && priceRise30) ? `🟡 趨勢警告：最低報價 7 天內上漲超過 30%（自 $${snapshot7DaysAgo.lowestPriceUsd.toFixed(4)} 漲至 $${lowestPriceUsd.toFixed(4)}）` : '',
-      (snapshot7DaysAgo && leadTimeIncrease56) ? `🟡 趨勢警告：補貨最短交期 7 天內拉長超過 ${Math.round((minLeadTimeDays! - snapshot7DaysAgo.minLeadTimeDays!) / 7)} 週` : '',
-    ].filter(Boolean),
+    riskLevel: evaluated.riskLevel,
+    summary: evaluated.summary,
+    riskReasons: evaluated.riskReasons,
+    alertKind: evaluated.alertKind,
+    eventCodes: evaluated.eventCodes,
   };
 }
 
@@ -534,7 +511,8 @@ async function runWithConcurrency<T, R>(items: T[], limit: number, task: (item: 
 async function searchBenchmarkPart(
   part: BenchmarkPart,
   activeThresholds: Record<string, { minStock: number; lowStock: number }>,
-  counters?: { snapshotWriteFailures: number }
+  counters?: { snapshotWriteFailures: number },
+  ctx?: { prev: any | null; baseline: ReturnType<typeof computeBaseline> }
 ) {
   const suppliers = getEnabledSuppliers();
   const results: PartResult[] = [];
@@ -553,8 +531,9 @@ async function searchBenchmarkPart(
     }
   }));
 
-  const snapshot7DaysAgo = await getDemandForecastSnapshot7DaysAgo(part.mpn);
-  const summary = summarizePart(part, results, errors, snapshot7DaysAgo, activeThresholds);
+  // ctx 由 runFullForecast 一次備妥（整批查一次歷史）；沒給才單顆查
+  const snapshot7DaysAgo = ctx ? ctx.prev : await getDemandForecastSnapshot7DaysAgo(part.mpn);
+  const summary = summarizePart(part, results, errors, snapshot7DaysAgo, activeThresholds, ctx?.baseline ?? null);
 
   // 儲存今日快照以供後續比對趨勢；寫失敗要計數（快照是週報趨勢的唯一資料來源）
   const snapshotSaved = await saveDemandForecastSnapshot(
@@ -737,12 +716,16 @@ async function runFullForecast() {
   const dbThresholds = await getCustomThresholds();
   const activeThresholds = dbThresholds ? { ...CATEGORY_THRESHOLDS, ...dbThresholds } : CATEGORY_THRESHOLDS;
 
+  // 上次快照與自身歷史基準：整輪查一次（原本每顆料各打一次 DB，150 顆＝150 次查詢）
+  const riskContexts = await buildRiskContexts(BENCHMARK_PARTS.map((p) => p.mpn));
+  const contextFor = (mpn: string) => riskContexts.get(mpn) ?? { prev: null, baseline: null };
+
   // Pre-populate parts array with cached parts or empty placeholders to preserve order
   const parts: any[] = await Promise.all(
     BENCHMARK_PARTS.map(async (part) => {
       const cachedPart = cachedPartsMap.get(part.mpn);
       if (cachedPart) {
-        return await recalculateForecastPart(cachedPart, activeThresholds);
+        return await recalculateForecastPart(cachedPart, activeThresholds, contextFor(part.mpn));
       }
       return {
         ...part,
@@ -776,13 +759,13 @@ async function runFullForecast() {
         cachedPart.supplierCount !== null;
 
       if (isCacheValid) {
-        const recalculated = await recalculateForecastPart(cachedPart, activeThresholds);
+        const recalculated = await recalculateForecastPart(cachedPart, activeThresholds, contextFor(part.mpn));
         parts[idx] = recalculated;
         return recalculated;
       }
 
       // Query live API
-      const result = await searchBenchmarkPart(part, activeThresholds, counters);
+      const result = await searchBenchmarkPart(part, activeThresholds, counters, contextFor(part.mpn));
       const resultWithTime = {
         ...result,
         queryTime: Date.now(),

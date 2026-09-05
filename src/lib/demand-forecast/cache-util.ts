@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { CATEGORY_THRESHOLDS, DEMAND_CATEGORIES } from './benchmark';
-import { getDemandForecastCache, setDemandForecastCache, getDemandForecastSnapshot7DaysAgo, getGenericCache, setGenericCache } from '@/lib/db';
+import { DEMAND_CATEGORIES } from './benchmark';
+import { evaluatePartRisk, computeBaseline, pickPreviousSnapshot, type RiskEvalContext, type RiskThresholds } from './risk';
+import { getDemandForecastCache, setDemandForecastCache, getDemandForecastSnapshot7DaysAgo, getDemandForecastSnapshotHistory, getGenericCache, setGenericCache } from '@/lib/db';
 
 const CACHE_DIR = path.join(process.cwd(), 'data');
 const CACHE_PATH = path.join(CACHE_DIR, 'demand-forecast-cache.json');
@@ -112,86 +113,83 @@ export function buildSupplyCategorySummary(parts: any[]) {
   });
 }
 
-export async function recalculateForecastPart(part: any, customThresholds?: Record<string, { minStock: number; lowStock: number }>) {
+export async function recalculateForecastPart(
+  part: any,
+  customThresholds?: Record<string, RiskThresholds>,
+  ctx?: { prev?: any | null; baseline?: ReturnType<typeof computeBaseline> }
+) {
   if (part.summary === '尚未查詢' || part.supplierCount === null || part.supplierCount === undefined) {
     return part;
   }
 
-  const hasApiMatch = part.supplierCount > 0;
-  const totalStock = part.totalStock ?? 0;
-  const minLeadTimeDays = part.minLeadTimeDays ?? null;
-  const lowestPriceUsd = part.lowestPriceUsd ?? null;
-
-  // --- Lifecycle status detection from cached data ---
-  const lcStatus = (part.lifecycleStatus || part.availabilityStatus || '').toLowerCase().trim();
-  const isObsolete = lcStatus.includes('obsolete') || lcStatus.includes('discontinued') || lcStatus === 'end of life' || lcStatus === 'eol';
-  const isLastTimeBuy = lcStatus.includes('last time buy') || lcStatus.includes('ltb');
-  const isNRND = lcStatus.includes('nrnd') || lcStatus.includes('not recommended');
-  const lifecycleLabel = part.lifecycleStatus || null;
-
-  const thresholds = (customThresholds && customThresholds[part.categoryId]) || CATEGORY_THRESHOLDS[part.categoryId] || { minStock: 1000, lowStock: 5000 };
-  const noStockAfterMatch = hasApiMatch && totalStock <= 0;
-  const veryLongLead = minLeadTimeDays !== null && minLeadTimeDays >= 140; // >= 20 weeks
-  const mediumLead = minLeadTimeDays !== null && minLeadTimeDays >= 84;   // >= 12 weeks
-
-  let snapshot7DaysAgo: any = null;
-  try {
-    snapshot7DaysAgo = await getDemandForecastSnapshot7DaysAgo(part.mpn);
-  } catch (err) {
-    console.error(`[RECALC] Failed to load snapshot for ${part.mpn}:`, err);
+  // ctx 由呼叫端一次備妥（整批查一次歷史）；沒給才回退為單顆查詢，
+  // 否則 mode=cached 每次載入會對 150 顆各打一次 DB。
+  let prev = ctx?.prev ?? null;
+  if (!ctx) {
+    try {
+      prev = await getDemandForecastSnapshot7DaysAgo(part.mpn);
+    } catch (err) {
+      console.error(`[RECALC] Failed to load snapshot for ${part.mpn}:`, err);
+    }
   }
 
-  const stockDrop50 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.5;
-  const stockDrop80 = snapshot7DaysAgo && snapshot7DaysAgo.totalStock > 0 && ((snapshot7DaysAgo.totalStock - totalStock) / snapshot7DaysAgo.totalStock) >= 0.8;
-  const supplierDrop = snapshot7DaysAgo && snapshot7DaysAgo.supplierCount >= 3 && part.supplierCount === 1;
-  const priceRise30 = snapshot7DaysAgo && snapshot7DaysAgo.lowestPriceUsd !== null && lowestPriceUsd !== null && lowestPriceUsd > 0 && ((lowestPriceUsd - snapshot7DaysAgo.lowestPriceUsd) / snapshot7DaysAgo.lowestPriceUsd) >= 0.3;
-  const leadTimeIncrease56 = snapshot7DaysAgo && snapshot7DaysAgo.minLeadTimeDays !== null && minLeadTimeDays !== null && (minLeadTimeDays - snapshot7DaysAgo.minLeadTimeDays) >= 56;
-
-  const highRisk = noStockAfterMatch || isObsolete || isLastTimeBuy || (totalStock < thresholds.lowStock && veryLongLead) || !!(snapshot7DaysAgo && stockDrop80);
-  const mediumRisk = !highRisk && (
-    isNRND ||
-    (totalStock < thresholds.minStock) ||
-    (totalStock < thresholds.lowStock && mediumLead) ||
-    !!(snapshot7DaysAgo && (stockDrop50 || supplierDrop || priceRise30 || leadTimeIncrease56))
+  const evaluated = evaluatePartRisk(
+    {
+      categoryId: part.categoryId,
+      hasApiMatch: part.supplierCount > 0,
+      totalStock: part.totalStock ?? 0,
+      supplierCount: part.supplierCount ?? 0,
+      minLeadTimeDays: part.minLeadTimeDays ?? null,
+      lowestPriceUsd: part.lowestPriceUsd ?? null,
+      lifecycleStatus: part.lifecycleStatus,
+      availabilityStatus: part.availabilityStatus,
+    },
+    { thresholds: customThresholds, prev, baseline: ctx?.baseline ?? null }
   );
-
-  const riskLevel: '高風險' | '中風險' | '正常' | '無資料' = !hasApiMatch ? '無資料' : highRisk ? '高風險' : mediumRisk ? '中風險' : '正常';
-  const summary = highRisk ? '有缺料風險' : mediumRisk ? '中風險' : (hasApiMatch ? '正常' : '無代理商資料');
-
-  const riskReasons = [
-    !hasApiMatch ? 'API 未找到此料，無授權代理商通路資料' : '',
-    isObsolete ? `🔴 生命週期：原廠已標示停產 (${lifecycleLabel})，庫存售完即止` : '',
-    isLastTimeBuy ? `🔴 生命週期：原廠已進入最後採購期 (${lifecycleLabel})` : '',
-    isNRND ? `🟡 生命週期：原廠不建議新設計採用 (${lifecycleLabel})` : '',
-    noStockAfterMatch ? '🔴 API 找到料件但授權供應商庫存為 0' : '',
-    (totalStock < thresholds.lowStock && veryLongLead) ? `🔴 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週（超過 20 週）` : '',
-    (snapshot7DaysAgo && stockDrop80) ? `🔴 趨勢警告：庫存 7 天內暴跌超過 80%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',
-    (totalStock < thresholds.lowStock && mediumLead && !veryLongLead) ? `🟡 庫存不足 ${thresholds.lowStock.toLocaleString()} 且補貨最短交期達 ${Math.round(minLeadTimeDays! / 7)} 週` : '',
-    (totalStock < thresholds.minStock && totalStock > 0 && !veryLongLead && !mediumLead) ? `🟡 庫存僅 ${totalStock.toLocaleString()} 顆（低於安全水位 ${thresholds.minStock.toLocaleString()}）` : '',
-    (snapshot7DaysAgo && stockDrop50 && !stockDrop80) ? `🟡 趨勢警告：庫存 7 天內下降超過 50%（自 ${snapshot7DaysAgo.totalStock.toLocaleString()} 降至 ${totalStock.toLocaleString()}）` : '',
-    (snapshot7DaysAgo && supplierDrop) ? `🟡 趨勢警告：可用授權分銷商數量自 ${snapshot7DaysAgo.supplierCount} 家減至 1 家` : '',
-    (snapshot7DaysAgo && priceRise30) ? `🟡 趨勢警告：最低報價 7 天內上漲超過 30%（自 $${snapshot7DaysAgo.lowestPriceUsd.toFixed(4)} 漲至 $${lowestPriceUsd.toFixed(4)}）` : '',
-    (snapshot7DaysAgo && leadTimeIncrease56) ? `🟡 趨勢警告：補貨最短交期 7 天內拉長超過 ${Math.round((minLeadTimeDays! - snapshot7DaysAgo.minLeadTimeDays!) / 7)} 週` : '',
-  ].filter(Boolean);
 
   return {
     ...part,
-    riskLevel,
-    summary,
-    riskReasons,
+    riskLevel: evaluated.riskLevel,
+    summary: evaluated.summary,
+    riskReasons: evaluated.riskReasons,
+    alertKind: evaluated.alertKind,
+    eventCodes: evaluated.eventCodes,
   };
 }
 
-export async function recalculatePartsCache(partsCache: any, customThresholds?: Record<string, { minStock: number; lowStock: number }>) {
+/** 一次備妥全部料件的「上次快照 + 自身歷史基準」，避免逐顆查 DB */
+export async function buildRiskContexts(mpns: string[]) {
+  const contexts = new Map<string, { prev: any | null; baseline: ReturnType<typeof computeBaseline> }>();
+  if (mpns.length === 0) return contexts;
+  try {
+    const history = await getDemandForecastSnapshotHistory(mpns);
+    const now = new Date();
+    for (const mpn of mpns) {
+      const points = history[mpn];
+      contexts.set(mpn, { prev: pickPreviousSnapshot(points, now), baseline: computeBaseline(points, now) });
+    }
+  } catch (err) {
+    console.error('[RECALC] Failed to load snapshot history:', err);
+  }
+  return contexts;
+}
+
+export async function recalculatePartsCache(partsCache: any, customThresholds?: Record<string, RiskThresholds>) {
   if (!partsCache || !Array.isArray(partsCache.parts)) return partsCache;
+
+  const contexts = await buildRiskContexts(
+    partsCache.parts.map((part: any) => part.mpn).filter(Boolean)
+  );
 
   let changed = false;
   const recalculatedParts = await Promise.all(
     partsCache.parts.map(async (part: any) => {
-      const updated = await recalculateForecastPart(part, customThresholds);
+      const ctx = contexts.get(part.mpn) ?? { prev: null, baseline: null };
+      const updated = await recalculateForecastPart(part, customThresholds, ctx);
       if (
         part.riskLevel !== updated.riskLevel ||
         part.summary !== updated.summary ||
+        part.alertKind !== updated.alertKind ||
         JSON.stringify(part.riskReasons) !== JSON.stringify(updated.riskReasons)
       ) {
         changed = true;
