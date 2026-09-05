@@ -38,11 +38,43 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+// 來源連結存的是 Google 翻譯包裝網址，比對前還原成原始 URL
+function unwrapUrl(url: string) {
+  if (!url.includes('translate.google.com')) return url;
+  const match = url.match(/[?&]u=([^&]+)/);
+  if (!match) return url;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return url;
+  }
+}
+
+function formatShortDate(value: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('zh-TW', { month: '2-digit', day: '2-digit', timeZone: 'Asia/Taipei' }).format(date);
+}
+
 export default async function WeeklyReportPage({ params }: { params: { id: string } }) {
   const report = await getWeeklyReportById(params.id);
   if (!report) notFound();
 
   const tone = riskColor(report.riskLevel);
+
+  // 本週要聞：newsHighlights / marketHighlights / lifecycleHighlights 以前算了卻沒渲染，
+  // 報紙該有的「短訊欄」其實資料早就在了（2026-09 報紙化）。封面故事已寫過的來源不重複列。
+  const featuredUrls = new Set(report.sourceLinks.map((item) => unwrapUrl(item.url)));
+  const briefs = [
+    ...report.newsHighlights.map((item) => ({ ...item, kind: '新聞' as const })),
+    ...report.marketHighlights.map((item) => ({ ...item, kind: '公開報告' as const })),
+    ...report.lifecycleHighlights.map((item) => ({ ...item, kind: 'PCN/EOL' as const })),
+  ]
+    .filter((item) => item.url && item.url !== '#' && !featuredUrls.has(unwrapUrl(item.url)))
+    .filter((item, index, all) => all.findIndex((x) => x.url === item.url) === index)
+    .slice(0, 8)
+    .map((item) => ({ ...item, dateText: formatShortDate(item.publishedAt) }));
 
   return (
     <div>
@@ -56,10 +88,16 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
 
         <section style={{ border: `1px solid ${tone.border}`, borderLeft: `4px solid ${tone.text}`, borderRadius: 8, background: '#fff', padding: 22, marginBottom: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ color: 'var(--text-3)', fontSize: 12, fontWeight: 700, marginBottom: 8 }}>物料預測週報</div>
-              <h1 style={{ margin: 0, fontSize: 26, lineHeight: 1.25, color: 'var(--text)' }}>{report.title}</h1>
-              <p style={{ margin: '12px 0 0', fontSize: 14, color: 'var(--text-2)', lineHeight: 1.7, maxWidth: 760 }}>{report.summary}</p>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10, paddingBottom: 8, borderBottom: '2px solid var(--text)' }}>
+                <span style={{ fontSize: 17, fontWeight: 900, letterSpacing: '0.14em', color: 'var(--text)' }}>物料預測週報</span>
+                <span style={{ fontSize: 11.5, color: 'var(--text-3)', letterSpacing: '0.04em' }}>電子零組件供應鏈週刊</span>
+              </div>
+              <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.25, color: 'var(--text)', fontWeight: 900 }}>{report.title}</h1>
+              <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--text-3)', letterSpacing: '0.02em' }}>
+                本報訊｜{report.date} 出刊｜資料來源：國際媒體 RSS、公開市場報告、DigiKey / Mouser 料件 API 與本站通路監測
+              </div>
+              <p style={{ margin: '14px 0 0', fontSize: 16.5, fontWeight: 650, color: 'var(--text)', lineHeight: 1.8, maxWidth: 760, borderLeft: '3px solid var(--hairline)', paddingLeft: 12 }}>{report.summary}</p>
             </div>
             <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
               <WeeklyRiskStatus level={report.riskLevel} label={tone.label} uniform />
@@ -99,13 +137,19 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                         <p key={paragraph} style={{ margin: 0, fontSize: 15.5, lineHeight: 1.85, color: 'var(--text-2)' }}>{paragraph}</p>
                       ))}
                     </div>
+                    {item.watchpoint && (
+                      <p style={{ margin: '12px 0 0', fontSize: 14, lineHeight: 1.75, color: 'var(--text-3)', borderTop: '1px dotted var(--hairline)', paddingTop: 10 }}>
+                        <strong style={{ color: '#0F766E', fontWeight: 900, marginRight: 6 }}>後續觀察</strong>
+                        {item.watchpoint}
+                      </p>
+                    )}
                   </article>
                 ))}
               </div>
             )}
           </ArticleSection>
 
-          <ArticleSection eyebrow="封面故事後續" title="這週先做這幾件事">
+          <ArticleSection eyebrow="行動建議" title="採購與工程的下一步">
             <div style={{ display: 'grid', gap: 10 }}>
               {report.executiveItems.map((item) => (
                 <div key={`${item.category}-${item.suggestedMove}`} style={{ border: '1px solid #D1FAE5', borderLeft: '4px solid #0F766E', borderRadius: 8, padding: '12px 14px', background: '#F0FDF4', fontSize: 15, lineHeight: 1.7, color: 'var(--text)', fontWeight: 700 }}>
@@ -120,6 +164,33 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
               ))}
             </div>
           </ArticleSection>
+
+
+          {briefs.length > 0 && (
+            <ArticleSection eyebrow="本週要聞" title="其他值得掃一眼的消息">
+              <div style={{ display: 'grid', gap: 0 }}>
+                {briefs.map((item, index) => (
+                  <a
+                    key={`${item.kind}-${item.url}-${item.title}`}
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: 'grid', gap: 4, padding: '12px 0', borderTop: index === 0 ? 'none' : '1px solid var(--hairline)', color: 'inherit', textDecoration: 'none' }}
+                  >
+                    <span style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 11.5, color: 'var(--text-3)' }}>
+                      <span style={{ borderRadius: 4, padding: '2px 6px', background: '#F0FDF4', color: '#0F766E', fontWeight: 800 }}>{item.kind}</span>
+                      <span style={{ fontWeight: 700 }}>{item.source}</span>
+                      {item.dateText && <span>{item.dateText}</span>}
+                    </span>
+                    <strong style={{ fontSize: 15, lineHeight: 1.5, color: 'var(--text)', fontWeight: 800 }}>{item.title}</strong>
+                    {item.summary && (
+                      <span style={{ fontSize: 13.5, lineHeight: 1.7, color: 'var(--text-2)' }}>{item.summary}</span>
+                    )}
+                  </a>
+                ))}
+              </div>
+            </ArticleSection>
+          )}
 
           {report.sourceLinks.length > 0 && (
             <ArticleSection eyebrow="本文參考來源" title="想看原文可以從這裡">

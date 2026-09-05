@@ -9,7 +9,13 @@ import crypto from 'crypto';
 const RECENT_SIGNAL_DAYS = 8;
 const ARTICLE_FETCH_TIMEOUT_MS = 4500;
 const ARTICLE_TEXT_LIMIT = 9000;
-const ARTICLE_POINT_LIMIT = 4;
+const ARTICLE_POINT_LIMIT = 6;
+
+// 週報撰稿模型：預設 Gemini 3.8 Flash（產出比 2.5 Flash 明顯更像產業版報導）。
+// 需要退版或換模型時設 GEMINI_MODEL 環境變數即可，程式不必動。
+const GEMINI_WRITER_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+// 降級鏈：新模型在免費層常回 503（高需求）。主模型重試用盡就換下一個，最後才走本地 fallback。
+const GEMINI_WRITER_MODELS = Array.from(new Set([GEMINI_WRITER_MODEL, 'gemini-2.5-flash']));
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -155,6 +161,7 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     headline: string;
     story: string[];
     suggestedMove: string;
+    watchpoint?: string;   // AI 生成的「後續觀察」一句話（歷史期數沒有這欄）
     evidence: string[];
   }>;
   categorySignals: Array<{
@@ -323,6 +330,14 @@ function sentenceScore(sentence: string, categoryId: string) {
   for (const keyword of riskKeywords) {
     if (lower.includes(keyword.toLowerCase())) score += 2;
   }
+  // 事實密度加權：報導的原料要有數字與時間，否則模型只寫得出形容詞（2026-09 報紙化修正）
+  if (/\d+(\.\d+)?\s*%|百分之/.test(sentence)) score += 4;                    // 漲跌幅
+  if (/(\$|US\$|USD|NT\$|人民幣|美元|元)\s*\d|\d+\s*(美元|元)/.test(sentence)) score += 3; // 價格
+  if (/\d+\s*(週|周|weeks?|個月|months?|天|days?)/i.test(sentence)) score += 3; // 交期
+  if (/\b(Q[1-4]|20\d{2})\b|\d+\s*月/.test(sentence)) score += 2;             // 時間點
+  if (/\d/.test(sentence)) score += 1;                                        // 任何量化數字
+  // 具名主體（原廠/通路）：報導要有主詞
+  if (/[A-Z][a-zA-Z]{2,}(\s+[A-Z][a-zA-Z]+)?|三星|美光|台積電|聯電|村田|國巨|英飛凌|意法|德儀|恩智浦|安森美|日月光|力積電|南亞科|華邦|旺宏|鎧俠|海力士/.test(sentence)) score += 2;
   if (sentence.length >= 60 && sentence.length <= 220) score += 1;
   return score;
 }
@@ -406,27 +421,73 @@ async function categoryEvidence(categoryId: string, items: any[], limit = 3) {
 }
 
 
-async function synthesizeWeeklyReportStoryWithGemini(
-  reportId: string,
-  categoryId: string,
-  categoryName: string,
-  data: CategoryDataSignal,
-  evidence: string[],
-  fallbackStory: string[]
-): Promise<string[]> {
-  if (evidence.length === 0) {
-    return fallbackStory;
-  }
+// 純文字渲染：剝掉 Gemini 偶爾夾帶的 Markdown 符號與標題行裝飾（**、##、- 條列、【】標題）
+function stripMarkdownDecoration(value: unknown): string {
+  return String(value ?? '')
+    .replace(/^#{1,4}\s*/, '')
+    .replace(/\*\*/g, '')
+    .replace(/^[-•*]\s+/, '')
+    .replace(/^【([^】]+)】$/, '$1')
+    .trim();
+}
 
-  const evidenceHash = crypto.createHash('md5').update(`${data.text}\n${evidence.join('\n')}`).digest('hex');
-  // key 帶 rev：建構邏輯升版時不沿用舊版產出的故事（例如 v3 前的快取含 Markdown 符號）
-  const cacheKey = `weekly-report-story-gemini-r${REPORT_BUILD_REV}-${reportId}-${categoryId}-${evidenceHash}`;
+function toParagraphs(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value.map((p) => String(p)) : String(value ?? '').split(/\n+/);
+  return raw.flatMap((p) => p.split(/\n+/)).map(stripMarkdownDecoration).filter(Boolean);
+}
+
+// 空詞黑名單：標題出現這些就退回本地標題（報紙標題要有主體與事實，不是形容詞）
+const HOLLOW_HEADLINE_PATTERNS = [
+  /訊號升溫/, /值得留意/, /值得關注/, /壓力浮現/, /水溫上升/, /納入觀察/,
+  /維持觀察/, /蠢蠢欲動/, /待觀察/, /宜先預備/,
+];
+
+function isHollowHeadline(headline: string) {
+  if (!headline || headline.length < 6 || headline.length > 40) return true;
+  return HOLLOW_HEADLINE_PATTERNS.some((pattern) => pattern.test(headline));
+}
+
+export interface WeeklyIssueSection {
+  categoryId: string;
+  categoryName: string;
+  channelText: string;
+  evidence: string[];
+}
+
+interface WeeklyIssueDraft {
+  leadHeadline: string;
+  lede: string;
+  items: Array<{ categoryId: string; headline: string; story: string[]; watchpoint: string }>;
+}
+
+/**
+ * 整期一次生成（2026-09 報紙化 rev 4）：以前是每個類別各打一次 Gemini，彼此不知道對方寫了
+ * 什麼，所以沒有整期的編輯視角、頭條也只能用罐頭句拼。現在一次把全期素材送進去，讓模型
+ * 決定頭條、導言與各篇的主線，呼叫次數反而從 4 次降為 1 次。
+ * 失敗或未設定 API key 時回傳 null，呼叫端走本地 fallback（標題與敘述皆為資料驅動）。
+ */
+async function synthesizeWeeklyIssueWithGemini(
+  reportId: string,
+  sections: WeeklyIssueSection[]
+): Promise<WeeklyIssueDraft | null> {
+  const usable = sections.filter((section) => section.evidence.length > 0);
+  if (usable.length === 0) return null;
+
+  const materialText = usable
+    .map((section, index) => {
+      const evidence = section.evidence.map((line) => `  - ${line}`).join('\n');
+      return `[${index + 1}] categoryId=${section.categoryId}｜類別：${section.categoryName}\n 外部素材：\n${evidence}\n 本站通路觀測（僅供一句旁證）：${section.channelText || '（本週通路平穩）'}`;
+    })
+    .join('\n\n');
+
+  const evidenceHash = crypto.createHash('md5').update(materialText).digest('hex');
+  const cacheKey = `weekly-issue-gemini-r${REPORT_BUILD_REV}-${GEMINI_WRITER_MODEL}-${reportId}-${evidenceHash}`;
 
   try {
     const cached = await getGenericCache(cacheKey);
-    if (cached && Array.isArray(cached)) {
+    if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
       console.log(`[WeeklyReport Gemini] Cache HIT for key: ${cacheKey}`);
-      return cached;
+      return cached as WeeklyIssueDraft;
     }
   } catch (err) {
     console.warn(`[WeeklyReport Gemini] Failed to read cache for key: ${cacheKey}`, err);
@@ -434,11 +495,11 @@ async function synthesizeWeeklyReportStoryWithGemini(
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.log(`[WeeklyReport Gemini] GEMINI_API_KEY not configured. Using fallback story.`);
-    return fallbackStory;
+    console.log('[WeeklyReport Gemini] GEMINI_API_KEY not configured. Using local fallback.');
+    return null;
   }
 
-  const currentMonth = new Date().toISOString().slice(0, 7); // e.g. "2026-06"
+  const currentMonth = new Date().toISOString().slice(0, 7); // e.g. "2026-09"
   const tracking = (await getGenericCache('gemini_monthly_usage')) || {
     month: currentMonth,
     cost: 0,
@@ -453,39 +514,44 @@ async function synthesizeWeeklyReportStoryWithGemini(
 
   if (tracking.cost >= 5.0 || tracking.calls >= 4000) {
     console.warn(`[WeeklyReport Gemini] Monthly API budget cap reached ($${tracking.cost.toFixed(4)} USD). Skipping Gemini synthesis.`);
-    return fallbackStory;
+    return null;
   }
 
-  const evidenceText = evidence.join('\n');
-  const prompt = `你是一位供應鏈線記者，正在為公司內部刊物撰寫「${categoryName}」這個元件類別的本週供應動態報導。讀者是採購、PM 與工程師，他們想像讀報紙一樣輕鬆掌握重點。
+  const prompt = `你是公司內部電子供應鏈週刊的主編，本期要寫 ${usable.length} 篇產業版報導。讀者是採購、PM 與工程師。
 
-【本週市場素材（報導主體，請充分使用其中的事實與細節）】
-"${evidenceText}"
-
-【本站通路觀測（只能輕輕帶過一句，當作旁證）】
-${data.text || '（本週通路平穩）'}
+【本期素材】
+${materialText}
 
 寫作要求：
-1. 以「市場素材」的實際內容為文章主體——誰報導了什麼、哪些原廠或通路有什麼動作、交期價格的趨勢方向。要融會貫通寫成流暢的報導，不是逐條翻譯拼貼。
-2. 通路觀測最多佔一句，例如「本站監測的通路庫存亦同步走低」，嚴禁列出任何顆數、百分比或統計數字清單。
-3. 兩到三段，總長 280–420 個中文字：盡量把上面每一則素材的重點都用進去（不同消息來源、不同角度都帶到）。前面講市場正在發生什麼事（自然提及消息來源名稱）；最後一段講這對讀者的意義——採購、交期或成本上該留意什麼。
-4. 筆調像報紙產業版：自然、口語、好讀。禁止空泛詞堆疊（「壓力顯著升高」「水溫上升」），禁止 meta 說明。
-5. 繁體中文輸出，段落間空一行，只輸出報導本身。純文字段落——禁止任何 Markdown 符號（**、#、- 條列）與獨立標題行，開頭直接進入敘述。`;
+1. 每篇挑一條最有份量的線索當導言（誰、做了什麼、多少），其餘素材當佐證或對照；與主線無關的素材可以捨棄。不要平均分配篇幅，不要逐條並列翻譯。
+2. 每篇走倒金字塔：先寫發生了什麼，再寫為什麼會這樣（背景與成因），最後寫對採購、交期或成本的實際影響。
+3. 素材裡的具體數字必須寫進報導——價格、漲跌幅、交期週數、產能、月份、營收、廠區、產品型號都要保留，這是產業報導的重點。唯一禁止的是「本站通路觀測」的顆數與百分比，那個只能用一句質性描述帶過（例如「本站監測的通路庫存亦同步走低」）。
+4. headline 要像報紙標題：主體＋動作＋（有的話）數字，例如「三星減產 DDR4，記憶體現貨價一週漲 12%」。必須取材自該篇素材的具體事實，20 字以內。禁止出現「訊號升溫」「值得留意」「壓力浮現」「水溫上升」「納入觀察」這類空詞，禁止只寫類別名加形容詞。
+5. story 兩到三段、每篇合計 280–420 個中文字，筆調像報紙產業版：自然、好讀、有主詞、有動作動詞。禁止空泛詞堆疊，禁止 meta 說明（不要說「本段整理」「根據素材」）。自然帶出消息來源名稱。
+6. watchpoint：一句 25–45 字的「後續觀察」，說明接下來一兩週該盯哪個指標、價格或事件。是觀察點，不是待辦清單，不要寫「請採購確認…」這種指令句。
+7. leadHeadline：整期頭條，取本期最重要的一條事實寫成 25 字以內的標題，規則同第 4 點。
+8. lede：整期導言一段 80–120 字，說明本期最值得看的是什麼、為什麼。
+9. 全部繁體中文純文字。禁止任何 Markdown 符號（**、#、- 條列）與獨立標題行。
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  
+只輸出 JSON，不要任何其他文字：
+{"leadHeadline":"","lede":"","items":[{"categoryId":"${usable[0].categoryId}","headline":"","story":["",""],"watchpoint":""}]}
+items 必須依序涵蓋上面每一個 categoryId，一個都不能少、不能多。`;
+
+  const runWithModel = async (model: string): Promise<WeeklyIssueDraft | null> => {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
   let attempts = 0;
-  const maxAttempts = 2; // 降到 2 次：週報已快取，毋須為單次建構卡太久；失敗就走 data-grounded fallback
+  const maxAttempts = 2; // 週報已快取，毋須為單次建構卡太久；失敗就換模型／走本地 fallback
   let delayMs = 2000;
 
   while (attempts < maxAttempts) {
     attempts++;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 9000); // 9s timeout
+    const timer = setTimeout(() => controller.abort(), 25000); // 整期一次寫，輸出較長
 
     try {
-      console.log(`[WeeklyReport Gemini] Cache MISS. Invoking Gemini API for category ${categoryName} (Attempt ${attempts}/${maxAttempts})...`);
-      
+      console.log(`[WeeklyReport Gemini] Cache MISS. Writing whole issue with ${model} (${usable.length} stories, attempt ${attempts}/${maxAttempts})...`);
+
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -496,8 +562,9 @@ ${data.text || '（本週通路平穩）'}
             parts: [{ text: prompt }]
           }],
           generationConfig: {
-            maxOutputTokens: 4096,
-            temperature: 0.3,
+            maxOutputTokens: 8192,
+            temperature: 0.6, // 0.3 太保守，產出樣板化；報導文體需要一點變化
+            responseMimeType: 'application/json',
             thinkingConfig: {
               thinkingBudget: 0
             }
@@ -511,28 +578,41 @@ ${data.text || '（本週通路平穩）'}
       if (res.ok) {
         const json = await res.json();
         const resultText = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (!resultText) return null;
 
-        if (!resultText) {
-          return fallbackStory;
+        let parsed: any = null;
+        try {
+          parsed = JSON.parse(resultText);
+        } catch {
+          const match = resultText.match(/\{[\s\S]*\}/);
+          if (match) {
+            try { parsed = JSON.parse(match[0]); } catch { parsed = null; }
+          }
         }
 
-        // 頁面是純文字渲染：剝掉 Gemini 偶爾夾帶的 Markdown 符號與標題行裝飾，
-        // 避免 **、## 原樣顯示在報導裡
-        const paragraphs = resultText
-          .split(/\n+/)
-          .map((p: string) => p.trim()
-            .replace(/^#{1,4}\s*/, '')
-            .replace(/\*\*/g, '')
-            .replace(/^【([^】]+)】$/, '$1'))
-          .map((p: string) => p.trim())
-          .filter(Boolean);
+        const rawItems = Array.isArray(parsed?.items) ? parsed.items : [];
+        const items = rawItems
+          .map((item: any) => ({
+            categoryId: String(item?.categoryId ?? '').trim(),
+            headline: stripMarkdownDecoration(item?.headline),
+            story: toParagraphs(item?.story),
+            watchpoint: stripMarkdownDecoration(item?.watchpoint),
+          }))
+          .filter((item: WeeklyIssueDraft['items'][number]) => item.categoryId && item.story.length > 0);
 
-        if (paragraphs.length === 0) {
-          return fallbackStory;
+        if (items.length === 0) {
+          console.warn('[WeeklyReport Gemini] Response contained no usable stories. Using local fallback.');
+          return null;
         }
+
+        const draft: WeeklyIssueDraft = {
+          leadHeadline: stripMarkdownDecoration(parsed?.leadHeadline),
+          lede: toParagraphs(parsed?.lede).join(''),
+          items,
+        };
 
         // Update cost tracking
-        const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
+        const estimatedInputTokens = Math.ceil(prompt.length / 3.5);
         const estimatedOutputTokens = Math.ceil(resultText.length * 2.5);
         const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
 
@@ -541,31 +621,35 @@ ${data.text || '（本週通路平穩）'}
         await setGenericCache('gemini_monthly_usage', tracking);
 
         try {
-          await setGenericCache(cacheKey, paragraphs);
-          console.log(`[WeeklyReport Gemini] Cached successfully for key: ${cacheKey}`);
+          await setGenericCache(cacheKey, draft);
+          console.log(`[WeeklyReport Gemini] Cached issue draft for key: ${cacheKey}`);
         } catch (err) {
-          console.warn(`[WeeklyReport Gemini] Failed to cache generated story for key: ${cacheKey}`, err);
+          console.warn(`[WeeklyReport Gemini] Failed to cache issue draft for key: ${cacheKey}`, err);
         }
 
-        return paragraphs;
+        return draft;
       }
 
-      console.warn(`[WeeklyReport Gemini] API error (Attempt ${attempts}): ${res.status} ${res.statusText}`);
+      const errorBody = await res.text().catch(() => '');
+      console.warn(`[WeeklyReport Gemini] API error (Attempt ${attempts}): ${res.status} ${res.statusText} ${errorBody.slice(0, 300)}`);
       if (res.status === 429 || res.status >= 500) {
         if (attempts < maxAttempts) {
+          // 429＝免費層 RPM 上限（Flash 系列每分鐘 5 次）。Google 會在 retryDelay 告知
+          // 還要等多久，2 秒的指數退避對它無效——照它給的秒數等（上限 70 秒）。
+          const retryHint = Number(errorBody.match(/"retryDelay"\s*:\s*"(\d+)s"/)?.[1] ?? 0) * 1000;
           const jitter = Math.floor(Math.random() * 2000);
-          const sleepMs = delayMs + jitter;
+          const sleepMs = Math.min(Math.max(retryHint + 3000, delayMs), 70000) + jitter;
           console.log(`[WeeklyReport Gemini] Retrying in ${sleepMs}ms...`);
           await new Promise((resolve) => setTimeout(resolve, sleepMs));
-          delayMs *= 2; // 指數倒退 (8000ms)
+          delayMs *= 2;
           continue;
         }
       }
-      return fallbackStory;
+      return null;
     } catch (err: any) {
       clearTimeout(timer);
       if (err.name === 'AbortError') {
-        console.warn(`[WeeklyReport Gemini] Request timed out after 12 seconds (Attempt ${attempts}).`);
+        console.warn(`[WeeklyReport Gemini] Request timed out (Attempt ${attempts}).`);
       } else {
         console.error(`[WeeklyReport Gemini] Error during AI synthesis (Attempt ${attempts}):`, err.message);
       }
@@ -577,11 +661,19 @@ ${data.text || '（本週通路平穩）'}
         delayMs *= 2;
         continue;
       }
-      return fallbackStory;
+      return null;
     }
   }
 
-  return fallbackStory;
+  return null;
+  };
+
+  for (const model of GEMINI_WRITER_MODELS) {
+    const draft = await runWithModel(model);
+    if (draft) return draft;
+    console.warn(`[WeeklyReport Gemini] ${model} unavailable, falling back to next writer model.`);
+  }
+  return null;
 }
 
 // 報紙式標題：數據只決定「講哪件事」，標題本身不出現顆數/百分比
@@ -613,28 +705,22 @@ function dataDrivenSuggestedMove(d: CategoryDataSignal, newsCount: number, lifec
   return moves.join('；') + '。';
 }
 
-async function buildExecutiveItem(
-  reportId: string,
+// 組裝單篇報導：AI 稿優先，缺項（AI 失敗、空詞標題、無此類別）逐欄退回資料驅動的本地版本
+function buildExecutiveItem(
   signal: WeeklyReportDetail['categorySignals'][number],
-  evidence: string[]
+  evidence: string[],
+  aiItem?: { headline: string; story: string[]; watchpoint: string }
 ) {
   const category = signal.category;
   const d = signal.data;
-  const headline = dataDrivenHeadline(category, d, signal.lifecycleCount, signal.crossHit);
+  const localHeadline = dataDrivenHeadline(category, d, signal.lifecycleCount, signal.crossHit);
   const suggestedMove = dataDrivenSuggestedMove(d, signal.newsCount, signal.lifecycleCount, signal.crossHit);
 
-  // 只要有市場素材（新聞/報告內容）就請 Gemini 寫成報導——報紙化的主體就是這些素材。
-  // 無素材或 AI 失敗時，走本地敘述（引用第一條素材 + high-level 通路觀察）。
-  // 成本保護：$5/月熔斷 + 週報 6 小時快取 + 每期最多 4 個類別。
-  let story: string[];
-  if (evidence.length > 0) {
-    const fallbackStory = dataGroundedFallbackStory(signal, evidence);
-    story = await synthesizeWeeklyReportStoryWithGemini(reportId, signal.categoryId, category, signal.data, evidence, fallbackStory);
-  } else {
-    story = dataGroundedFallbackStory(signal, evidence);
-  }
+  const headline = aiItem && !isHollowHeadline(aiItem.headline) ? aiItem.headline : localHeadline;
+  const story = aiItem && aiItem.story.length > 0 ? aiItem.story : dataGroundedFallbackStory(signal, evidence);
+  const watchpoint = aiItem?.watchpoint || '';
 
-  return { category, headline, story, suggestedMove, evidence };
+  return { category, headline, story, suggestedMove, watchpoint, evidence };
 }
 
 // 不呼叫 AI 時的本地敘述：把新聞/報告內容織進文章，輔以 high-level 通路觀察，不列統計、不掰劇本
@@ -800,7 +886,9 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // 建構邏輯版本：升版會讓「本週」既有的固化快取重建一次（歷史期數不受影響）。
 // v2＝2026-07-20 修正「相鄰兩期一模一樣」：新聞窗縮為 8 天＋與上一期 URL 去重。
 // v3＝2026-07-20 剝除 Gemini 報導中的 Markdown 符號（頁面純文字渲染會原樣顯示）。
-const REPORT_BUILD_REV = 3;
+// v4＝2026-09-04 報紙化：整期一次生成（頭條/導言/各篇標題與後續觀察皆取自素材事實），
+//     素材抽句加權含數字與具名主體的句子，報導保留素材裡的價格、漲跌幅與交期數字。
+const REPORT_BUILD_REV = 4;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
@@ -999,24 +1087,9 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     : '目前無明顯高風險類別';
 
   const dateText = formatDate(start);
-  const title = buildWeeklyTitle(dateText, focusSignalList);
 
-  // 導語：high-level 報紙式，只說「哪幾個類別值得看」，不堆數字
-  const summary = riskLevel === 'high'
-    ? `本週 ${focusText} 的供應訊號明顯升溫——市場消息與本站通路觀測同步轉緊，建議用到這些類別的專案提早確認未來一至兩個月的需求與交期。`
-    : riskLevel === 'medium'
-      ? `本週供應鏈大致平穩，惟 ${focusText} 出現值得留意的早期訊號，建議相關採購窗口順手確認交期走勢即可。`
-      : '本週市場與通路皆平穩，主要元件交期與供貨正常，維持例行監控即可。';
-
-  const openingNotes = [
-    riskLevel === 'high'
-      ? `本週先看 ${focusText}。這幾個類別的市場消息與通路供應同步出現變化，詳見下方報導；用不到這些類別的專案維持常規作業即可。`
-      : dataAlertCategories > 0
-        ? `本週先看 ${focusText}。市場消息尚平靜，但通路端已有早期變化的跡象，提早留意總是便宜的。`
-        : `本週整體平靜，${focusText} 有些零星消息，順手翻閱即可，研發端暫無需介入。`,
-  ];
-
-  const executiveItems = [];
+  // 先把全期素材收齊，再一次交給 Gemini 寫整期（頭條、導言、各篇主線由同一個編輯視角決定）
+  const evidenceByCategory = new Map<string, string[]>();
   for (const signal of executiveSignals) {
     const reportEvidenceList = await Promise.all(marketReports
       .filter((item: any) => item.categoryIds?.includes(signal.categoryId))
@@ -1031,10 +1104,44 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       ...lifecycleEvidence,
       ...reportEvidenceList,
     ].slice(0, 6);
-
-    const item = await buildExecutiveItem(id, signal, evidence);
-    executiveItems.push(item);
+    evidenceByCategory.set(signal.categoryId, evidence);
   }
+
+  const issueDraft = await synthesizeWeeklyIssueWithGemini(
+    id,
+    executiveSignals.map((signal) => ({
+      categoryId: signal.categoryId,
+      categoryName: signal.category,
+      channelText: signal.data.text,
+      evidence: evidenceByCategory.get(signal.categoryId) ?? [],
+    }))
+  );
+  const draftItems = new Map((issueDraft?.items ?? []).map((item) => [item.categoryId, item]));
+
+  const executiveItems = executiveSignals.map((signal) =>
+    buildExecutiveItem(signal, evidenceByCategory.get(signal.categoryId) ?? [], draftItems.get(signal.categoryId)));
+
+  // 週報大標：AI 頭條取自本期最重要的事實；沒有 AI 稿或產出空詞時退回資料驅動標題
+  const aiLead = issueDraft?.leadHeadline ?? '';
+  const title = aiLead && !isHollowHeadline(aiLead)
+    ? `物料預測週報｜${dateText}｜${aiLead}`
+    : buildWeeklyTitle(dateText, focusSignalList);
+
+  // 導語：AI 導言優先；否則用 high-level 報紙式罐頭句（只說哪幾個類別值得看，不堆數字）
+  const localSummary = riskLevel === 'high'
+    ? `本週 ${focusText} 的供應訊號明顯升溫——市場消息與本站通路觀測同步轉緊，建議用到這些類別的專案提早確認未來一至兩個月的需求與交期。`
+    : riskLevel === 'medium'
+      ? `本週供應鏈大致平穩，惟 ${focusText} 出現值得留意的早期訊號，建議相關採購窗口順手確認交期走勢即可。`
+      : '本週市場與通路皆平穩，主要元件交期與供貨正常，維持例行監控即可。';
+  const summary = issueDraft?.lede && issueDraft.lede.length >= 40 ? issueDraft.lede : localSummary;
+
+  const openingNotes = [
+    riskLevel === 'high'
+      ? `本週先看 ${focusText}。這幾個類別的市場消息與通路供應同步出現變化，詳見下方報導；用不到這些類別的專案維持常規作業即可。`
+      : dataAlertCategories > 0
+        ? `本週先看 ${focusText}。市場消息尚平靜，但通路端已有早期變化的跡象，提早留意總是便宜的。`
+        : `本週整體平靜，${focusText} 有些零星消息，順手翻閱即可，研發端暫無需介入。`,
+  ];
 
   const newsHighlights = shortageNews.slice(0, 5).map((item: any) => ({
     title: pickTitle(item),
