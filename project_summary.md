@@ -1,6 +1,25 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-08-29（Playwright Chromium 閒置 10 分鐘自動關閉釋放記憶體）
+> 最後更新：2026-09-04（週報報紙化 rev4：整期一次生成、標題取自素材事實、Gemini 3.8 Flash）
+
+---
+
+### 2026-09-04 — 週報「報紙化」rev 4：標題與內文改由素材事實決定
+
+**背景**：Danny 回饋「不像經濟新聞」。檢視後判定是結構性問題，不是文筆：(A) 標題是 if/else 罐頭句（「X供應訊號升溫」），不含任何原廠名、產品或數字，每期看起來都一樣；(B) prompt 明文「嚴禁任何百分比與統計數字」——這是 6/10 修「像股票行情表」的後遺症，把新聞素材裡的價格與漲幅一起禁掉了，只剩形容詞；(C) prompt 要求「每則素材都用進去」，必然產出「A 說…；另一方面 B 提到…」的並列拼貼；(D) 版面像簡報（「本週先讀這段」「這週先做這幾件事」），且 newsHighlights / marketHighlights / lifecycleHighlights 每期都算了卻從未渲染；(E) 每個類別各打一次 Gemini，彼此不知道對方寫什麼，沒有整期編輯視角。五項全部修正。
+
+- [x] **(E) 整期一次生成**（`synthesizeWeeklyIssueWithGemini`）：舊的 per-category `synthesizeWeeklyReportStoryWithGemini` 移除，改為把全期素材一次送出，responseMimeType=application/json 取回 `{leadHeadline, lede, items[{categoryId, headline, story[], watchpoint}]}`。呼叫次數 4 → 1（免費層 RPM=5，順帶降低撞限風險）。快取 key 帶 rev 與模型名。
+- [x] **(A) 標題改由素材事實生成**：週報大標吃 `leadHeadline`、各篇吃 `headline`；`isHollowHeadline` 空詞黑名單（訊號升溫／值得留意／壓力浮現／水溫上升…）把關，命中或無 AI 稿時逐欄退回原本的 `dataDrivenHeadline` / `buildWeeklyTitle`。
+- [x] **(B) 解除數字禁令**：prompt 改為「素材裡的價格、漲跌幅、交期週數、產能、月份必須寫進報導」，只禁「本站通路快照」的顆數與百分比（仍限一句質性描述）。temperature 0.3 → 0.6。
+- [x] **(C) 倒金字塔＋主線**：改要求「挑一條最有份量的線索當導言，其餘當佐證，不相關可捨棄」，結構為 發生什麼 → 成因 → 對採購/交期/成本的影響；新增每篇一句 `watchpoint`（後續觀察）。
+- [x] **(C) 素材事實密度**：`sentenceScore` 加權含百分比、價格、交期週數、時間點、任何數字與具名主體（原廠/通路）的句子；`ARTICLE_POINT_LIMIT` 4 → 6。
+- [x] **(D) 詳情頁報紙化**：加報頭與「本報訊｜出刊日｜資料來源」署名行、導言改 lede 樣式（16.5px 加粗＋左側線）、每篇報導下方加「後續觀察」、「封面故事後續／這週先做這幾件事」改名為「行動建議／採購與工程的下一步」、新增「本週要聞」短訊欄（用上一直算了卻沒渲染的三組 highlights，並排除封面故事已引用的來源）。
+- [x] **模型升級與降級鏈**：撰稿模型改由 `GEMINI_MODEL` 環境變數控制，預設 `gemini-3.8-flash`（實測產出明顯優於 2.5 Flash）。新模型在免費層常回 503，故降級鏈為 3.8 → 3.7 → 2.5 Flash，三者皆失敗才走本地 fallback。429 的退避改為讀 Google 回傳的 `retryDelay`（原本固定 2 秒指數退避對 RPM 限制無效）。
+- [x] **成本確認**：這把 key 是 **免費層**（gemini-2.5-flash RPM 5、2.5-flash 另有 20/分 的計量），實際不計費；`gemini_monthly_usage` 的 $5/月、4000 次熔斷保留。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅；直連 Railway Postgres 實際建構 2026/08/31 期——4 篇全數取得 AI 稿與後續觀察，大標為「三星電機全線MLCC調漲30%反映AI高階需求」（舊版為「MCU、MLCC 供應訊號升溫，建議提早確認交期與需求」），內文含 DDR5 模組 7 萬→35 萬韓元、TrendForce Q3 DRAM 合約價 +13–18%、MLCC 全線調漲 30% 等具體數字。報告已寫入正式快取（REPORT_BUILD_REV 4），`railway up` 部署完成，正式站週報頁回應正常（未登入 307 導向 login）。
+- **已知小瑕疵**：PMIC 篇的 watchpoint 結尾出現一個無意義殘字「堆疊」（模型偶發），下期觀察是否重現再決定要不要加尾綴清理。
+- **注意**：本期已固化，整週不再重建；下期由 weekly-report-build workflow 於台北時間週一 08:10 自動產出。
+- **修改檔案**：`src/lib/demand-forecast/weekly-report.ts`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`、`project_summary.md`
 
 ---
 
