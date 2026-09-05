@@ -15,7 +15,8 @@ const ARTICLE_POINT_LIMIT = 6;
 // 需要退版或換模型時設 GEMINI_MODEL 環境變數即可，程式不必動。
 const GEMINI_WRITER_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 // 降級鏈：新模型在免費層常回 503（高需求）。主模型重試用盡就換下一個，最後才走本地 fallback。
-const GEMINI_WRITER_MODELS = Array.from(new Set([GEMINI_WRITER_MODEL, 'gemini-2.5-flash']));
+// 先退同代（3.7 Flash）保住文筆，2.5 Flash 只當最後一道保險。
+const GEMINI_WRITER_MODELS = Array.from(new Set([GEMINI_WRITER_MODEL, 'gemini-3.7-flash', 'gemini-2.5-flash']));
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
