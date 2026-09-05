@@ -1976,6 +1976,45 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   border: 35px solid rgba(255, 255, 255, 0.035);
 }
 
+/* 首屏減重（2026-09-05）：hero 原本 261px 高，把「本週新變化」推到第 9 個螢幕。
+   壓成單行帶狀，標題縮小、留白減半、裝飾圓環縮小。 */
+.forecast-hero-slim {
+  min-height: 0;
+  padding: 20px 26px;
+  border-radius: 16px;
+}
+
+.forecast-hero-slim .forecast-eyebrow {
+  margin-bottom: 8px;
+  padding: 4px 9px;
+  font-size: 10.5px;
+}
+
+.forecast-hero-slim h1 {
+  margin: 0 0 6px;
+  font-size: clamp(22px, 2vw, 28px);
+}
+
+.forecast-hero-slim p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.forecast-hero-slim::before {
+  width: 180px;
+  height: 180px;
+  top: -110px;
+  right: -60px;
+}
+
+.forecast-hero-slim::after {
+  width: 120px;
+  height: 120px;
+  right: 50px;
+  bottom: -100px;
+  border-width: 22px;
+}
+
 .forecast-hero-copy,
 .forecast-hero-actions {
   position: relative;
