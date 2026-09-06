@@ -379,6 +379,9 @@ export default function DemandForecastPage() {
   const [backtest, setBacktest] = useState<any | null>(null);
   const [alertFilter, setAlertFilter] = useState<'all' | 'event' | 'structural'>('all');
   const [partsPage, setPartsPage] = useState(1);
+  const [showRules, setShowRules] = useState(false);
+  const [showAllNews, setShowAllNews] = useState(false);
+  const [showAllReports, setShowAllReports] = useState(false);
 
   const fetchMarketReports = () => {
     setLoadingMarketReports(true);
@@ -735,7 +738,15 @@ export default function DemandForecastPage() {
     });
   }, [marketReports, categoryMarketSignal]);
   const shortageNewsCount = (data?.news ?? []).filter((item) => item.riskHit).length;
-  const updatedAt = data?.updatedAt ? new Date(data.updatedAt).toLocaleString() : '尚未更新';
+  // 原本用 toLocaleString() 會輸出美式格式「8/31/2026, 12:24:24 AM」——
+  // 中文介面應為台北時間、到分鐘即可（2026-09-05 UI 修正）
+  const updatedAt = data?.updatedAt
+    ? new Intl.DateTimeFormat('zh-TW', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+        timeZone: 'Asia/Taipei',
+      }).format(new Date(data.updatedAt)) + '（台北）'
+    : '尚未更新';
   const newsByCategory = useMemo(() => {
     const map = new Map<string, ForecastNews[]>();
     for (const item of data?.news ?? []) {
@@ -920,6 +931,16 @@ export default function DemandForecastPage() {
             <p className="forecast-matrix-intro">
               整合兩種預警偵測管道（RSS 新聞、實時通路代理商庫存）及市場情報佐證，橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
+            {/* 判定規則屬「看一次就懂」的說明，原本常駐佔 1,564px 的一半。
+                預設收合，需要時再展開（2026-09-05 UI 減重） */}
+            <button
+              className="btn"
+              onClick={() => setShowRules((v) => !v)}
+              style={{ marginBottom: showRules ? 14 : 0, fontWeight: 700 }}
+            >
+              {showRules ? '▲ 收合判定規則' : '▼ 判定規則說明（庫存優先於交期、水位定義、趨勢警告門檻）'}
+            </button>
+            {showRules && (
             <div className="forecast-rule-grid">
               <div className="forecast-rule-card">
                 <div className="forecast-rule-heading">
@@ -970,6 +991,8 @@ export default function DemandForecastPage() {
                 </button>
               </div>
             </div>
+            )}
+
             <div className="forecast-table-wrap">
               <table className="forecast-matrix-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
                 <thead>
@@ -1262,13 +1285,19 @@ export default function DemandForecastPage() {
                     <Td label="總庫存 / 趨勢" align="right">
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                         <span>{part.totalStock === null ? '-' : part.totalStock.toLocaleString()}</span>
-                        <MetricSparkline
-                          points={history[part.mpn]?.map((p) => ({ date: p.date, value: p.stock }))}
-                          fallbackValue={part.totalStock}
-                          format={(v) => Math.round(v).toLocaleString()}
-                          title="歷史總庫存"
-                          invert
-                        />
+                        {/* 庫存為 0 的料（目前 25 顆）畫出來只是一條平線、佔一整欄卻零資訊，
+                            改標「目前無庫存」（2026-09-05 UI 修正） */}
+                        {part.totalStock === 0 ? (
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#B42318' }}>目前無庫存</span>
+                        ) : (
+                          <MetricSparkline
+                            points={history[part.mpn]?.map((p) => ({ date: p.date, value: p.stock }))}
+                            fallbackValue={part.totalStock}
+                            format={(v) => Math.round(v).toLocaleString()}
+                            title="歷史總庫存"
+                            invert
+                          />
+                        )}
                       </div>
                     </Td>
                     <Td label="最低價 / 趨勢" align="right">
@@ -1897,6 +1926,9 @@ function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string
   const toneStyle = PANEL_TONES[tone];
   const [lifecycleFilter, setLifecycleFilter] = useState<'all' | 'EOL' | 'NRND' | 'PCN' | 'LTB'>('all');
 
+  // 預設只顯示 5 則：這一區原本一次攤開 18 則、佔 1,863px（2026-09-05 UI 減重）
+  const [expanded, setExpanded] = useState(false);
+
   const filteredItems = useMemo(() => {
     if (lifecycleFilter === 'all') return items;
     return items.filter((item) => {
@@ -1966,7 +1998,7 @@ function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string
       </div>
 
       <div style={{ display: 'grid', gap: 8 }}>
-        {filteredItems.slice(0, 18).map((item, idx) => {
+        {filteredItems.slice(0, expanded ? 18 : 5).map((item, idx) => {
           const lifecycleTags = getLifecycleTags(item.title, item.titleZh);
           return (
             <div key={`${item.link}-${idx}`} style={{ border: `1px solid ${toneStyle.border}`, borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
@@ -2031,6 +2063,18 @@ function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string
           <EmptyLine text={items.length ? '此篩選分類下無符合條件之內容。' : emptyText} />
         )}
       </div>
+
+      {filteredItems.length > 5 && (
+        <button
+          className="btn"
+          onClick={() => setExpanded((v) => !v)}
+          style={{ marginTop: 10, width: '100%', fontWeight: 700 }}
+        >
+          {expanded
+            ? '▲ 收合'
+            : `▼ 顯示其餘 ${Math.min(filteredItems.length, 18) - 5} 則（共 ${filteredItems.length} 則）`}
+        </button>
+      )}
     </Panel>
   );
 }
@@ -2515,10 +2559,15 @@ function MarketReportsListPanel({
     shadow: 'rgba(99, 102, 241, 0.12)',
   };
 
+  // 預設 5 則：這一區原本一次攤開全部、佔 3,259px（2026-09-05 UI 減重）
+  const [expanded, setExpanded] = useState(false);
+
   const filteredReports = useMemo(() => {
     if (category === 'all') return reports;
     return reports.filter((r: any) => r.categoryIds.includes(category));
   }, [reports, category]);
+
+  const visibleReports = expanded ? filteredReports : filteredReports.slice(0, 5);
 
   const selectedCategoryLabel = category === 'all'
     ? '全部類別'
@@ -2580,7 +2629,7 @@ function MarketReportsListPanel({
           </div>
         )}
 
-        {filteredReports.map((report: any, idx: number) => {
+        {visibleReports.map((report: any, idx: number) => {
           const reportDate = report.publishedAt
             ? new Date(report.publishedAt).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' })
             : '時間未提供';
@@ -2723,6 +2772,16 @@ function MarketReportsListPanel({
           <div style={{ border: '1px dashed var(--border)', borderRadius: 8, padding: 14, color: 'var(--text-3)', fontSize: 13 }}>
             此類別目前無對應的市場情報。
           </div>
+        )}
+
+        {filteredReports.length > 5 && (
+          <button
+            className="btn"
+            onClick={() => setExpanded((v) => !v)}
+            style={{ marginTop: 4, width: '100%', fontWeight: 700 }}
+          >
+            {expanded ? '▲ 收合' : `▼ 顯示其餘 ${filteredReports.length - 5} 份（共 ${filteredReports.length} 份）`}
+          </button>
         )}
       </div>
     </section>
