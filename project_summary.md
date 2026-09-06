@@ -1,10 +1,25 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-05（缺料預測 UI 減重第二輪：說明收合、清單預設 5 則、日期與零庫存顯示）
+> 最後更新：2026-09-05（缺料預測 UI：移除與風險矩陣重複的兩張類別總覽面板）
 
 ---
 
-### 2026-09-05 — 缺料預測 UI 減重（第三輪，收尾）
+### 2026-09-05 — 移除與風險矩陣重複的兩張類別總覽面板
+
+**背景**：UI 減重收尾。前一輪後剩下最大的三塊是「RSS 新聞風險總覽」1,614px、「市場情報類別總覽」1,354px 與料件明細 2,374px。前兩者與最上方的「缺料預測風險對照矩陣」是**同一份資訊的第二次陳列**——矩陣已同時呈現 RSS 新聞、市場情報、通路庫存三個管道的 15 類別狀態。
+
+- [x] **移除兩個總覽面板**：`CategoryRiskPanel`、`MarketReportsCategoryPanel` 的呼叫與元件定義，以及只服務它們的 `marketCategorySummary` / `newsByCategory` memo。
+- [x] **矩陣點擊與導航錨點改指向清單面板**：`handleMatrixClick(cat, 'shortage-category-panel')` → `'shortage-news-panel'`；`SECTION_NAV` 的「缺料新聞」「市場情報」改指 `shortage-news-panel` / `market-reports-panel`。
+- [x] **兩個清單面板加「← 全部類別」重設鈕**：類別篩選原本要靠被移除的總覽面板才能切回全部（下方料件表格的「清除」鈕離太遠），只在 `category !== 'all'` 時出現。
+- [x] **兩欄改等寬**（`.forecast-two-column-lists`）：原本 `0.82fr / 1.18fr` 是為了「總覽窄 + 清單寬」，總覽移除後兩個清單應等寬。
+- [x] **驗證（本機接正式站資料實測）**：桌機 9,297px → **7,685px**；手機 28,131px → **25,082px**，無水平溢位。點矩陣第 4 列的 RSS 欄後，兩個清單標題同步變為「記憶體 / Flash / DDR」且出現 2 顆重設鈕；點「← 全部類別」後標題回到「全部類別」、重設鈕消失。`npx tsc --noEmit` ✅、`npm test` ✅、`npm run build` ✅。
+- **累計成果（今日三輪 UI 改動）**：桌機 **21,561px → 7,685px（-64%）**、手機 **103,015px → 25,082px（-76%）**。
+- **過程中的小插曲**：以「下一個頂層 function」為界刪除元件時，連帶刪掉了夾在中間的 `interface LifecycleTag`，由 typecheck 抓出後補回。
+- **修改檔案**：`src/app/demand-forecast/page.tsx`、`src/app/globals.css`、`project_summary.md`
+
+---
+
+### 2026-09-05 — 缺料預測 UI 減重（第三輪）
 
 **背景**：接續同日的 UI 減重，把前一輪列為「第二級／第三級、尚未做」的五項一次做完。
 
