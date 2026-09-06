@@ -3128,6 +3128,11 @@ tbody tr.row-shortage:hover .sticky-col { background: var(--warn-soft); }
   margin-bottom: 2px;
 }
 
+/* 兩張類別總覽面板移除後，剩下的兩個清單面板改等寬（2026-09-05） */
+.forecast-two-column-lists {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .forecast-filter-bar {
   display: flex;
   gap: 10px;

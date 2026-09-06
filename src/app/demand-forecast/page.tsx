@@ -514,8 +514,8 @@ export default function DemandForecastPage() {
     { id: 'weekly-reports-panel', label: '週報' },
     { id: 'risk-matrix-panel', label: '風險矩陣' },
     { id: 'backtest-panel', label: '規則命中率' },
-    { id: 'shortage-category-panel', label: '缺料新聞' },
-    { id: 'market-reports-category-panel', label: '市場情報' },
+    { id: 'shortage-news-panel', label: '缺料新聞' },
+    { id: 'market-reports-panel', label: '市場情報' },
     { id: 'api-parts-panel', label: '料件明細' },
   ];
 
@@ -723,20 +723,6 @@ export default function DemandForecastPage() {
     summary: '正常' as const,
   }));
   const riskCategories = shortageCategorySummary.filter((item) => item.summary === '有缺料風險').length;
-  const marketCategorySummary = useMemo(() => {
-    return DEMAND_CATEGORIES.map((cat) => {
-      const catReports = marketReports.filter((r: any) => r.categoryIds.includes(cat.categoryId));
-      const signal = categoryMarketSignal[cat.categoryId] || 'none';
-      
-      return {
-        categoryId: cat.categoryId,
-        category: cat.category,
-        subCategory: cat.subCategory,
-        reportCount: catReports.length,
-        signal,
-      };
-    });
-  }, [marketReports, categoryMarketSignal]);
   const shortageNewsCount = (data?.news ?? []).filter((item) => item.riskHit).length;
   // 原本用 toLocaleString() 會輸出美式格式「8/31/2026, 12:24:24 AM」——
   // 中文介面應為台北時間、到分鐘即可（2026-09-05 UI 修正）
@@ -747,15 +733,6 @@ export default function DemandForecastPage() {
         timeZone: 'Asia/Taipei',
       }).format(new Date(data.updatedAt)) + '（台北）'
     : '尚未更新';
-  const newsByCategory = useMemo(() => {
-    const map = new Map<string, ForecastNews[]>();
-    for (const item of data?.news ?? []) {
-      for (const categoryId of item.categoryIds) {
-        map.set(categoryId, [...(map.get(categoryId) ?? []), item]);
-      }
-    }
-    return map;
-  }, [data?.news]);
   const displayNews = useMemo(() => {
     const riskNews = (data?.news ?? []).filter((item) => item.riskHit);
     if (category === 'all') return riskNews;
@@ -1038,7 +1015,7 @@ export default function DemandForecastPage() {
                         <td
                           className="matrix-cell-interactive"
                           title="點擊跳轉查看該類別的風險總覽"
-                          onClick={() => handleMatrixClick(cat.categoryId, 'shortage-category-panel')}
+                          onClick={() => handleMatrixClick(cat.categoryId, 'shortage-news-panel')}
                           style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 600 }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1166,19 +1143,7 @@ export default function DemandForecastPage() {
           </section>
         )}
 
-        <section className="forecast-two-column">
-          <CategoryRiskPanel
-            id="shortage-category-panel"
-            title="RSS 新聞風險總覽"
-            tone="shortage"
-            items={shortageCategorySummary}
-            category={category}
-            onSelect={setCategory}
-            relatedByCategory={newsByCategory}
-            countLabel="新聞"
-            riskLabel="缺料新聞"
-            timeLabel="缺料新聞時間"
-          />
+        <section className="forecast-two-column forecast-two-column-lists">
           <NewsPanel
             id="shortage-news-panel"
             title={`RSS 缺料新聞：${selectedCategoryLabel}`}
@@ -1186,14 +1151,7 @@ export default function DemandForecastPage() {
             items={translatedDisplayNews}
             emptyText={category === 'all' ? '目前沒有缺料相關新聞。' : '此類別無缺料相關新聞。'}
             badge="缺料訊號"
-          />
-          <MarketReportsCategoryPanel
-            id="market-reports-category-panel"
-            category={category}
-            onSelect={setCategory}
-            items={marketCategorySummary}
-            marketReports={translatedMarketReports}
-            sourceResults={marketSourceResults}
+            onClearCategory={category === 'all' ? undefined : () => setCategory('all')}
           />
           <MarketReportsListPanel
             id="market-reports-panel"
@@ -1817,77 +1775,6 @@ function Panel({ title, children, tone, id }: { title: string; children: ReactNo
   );
 }
 
-function CategoryRiskPanel({
-  title,
-  tone,
-  items,
-  category,
-  onSelect,
-  relatedByCategory,
-  countLabel,
-  riskLabel,
-  timeLabel,
-  id,
-}: {
-  title: string;
-  tone: PanelTone;
-  items: CategorySummary[];
-  category: string;
-  onSelect: (categoryId: string) => void;
-  relatedByCategory: Map<string, ForecastNews[]>;
-  countLabel: string;
-  riskLabel: string;
-  timeLabel: string;
-  id?: string;
-}) {
-  const toneStyle = PANEL_TONES[tone];
-  return (
-    <Panel title={title} tone={tone} id={id}>
-      <div style={{ display: 'grid', gap: 8 }}>
-        {items.map((item) => {
-          const relatedNews = relatedByCategory.get(item.categoryId) ?? [];
-          const selected = category === item.categoryId;
-          return (
-            <button
-              key={item.categoryId}
-              onClick={() => onSelect(item.categoryId)}
-              style={{
-                textAlign: 'left',
-                border: selected ? `1px solid ${toneStyle.accent}` : `1px solid ${toneStyle.border}`,
-                borderLeft: selected ? `4px solid ${toneStyle.accent}` : '4px solid transparent',
-                borderRadius: 8,
-                background: selected ? toneStyle.soft : '#fff',
-                padding: '10px 12px',
-                cursor: 'pointer',
-                boxShadow: selected ? `0 8px 22px ${toneStyle.shadow}` : 'none',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr)', gap: 8, alignItems: 'start' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 7, background: selected ? '#fff' : 'var(--surface-2)', color: selected ? toneStyle.title : 'var(--text-2)', fontSize: 11, fontWeight: 800 }}>
-                    {categoryNumber(item.categoryId)}
-                  </span>
-                  <div>
-                    <strong style={{ fontSize: 13, display: 'block' }}>{categoryTitle(item.categoryId, item.category)}</strong>
-                    <span style={{ fontSize: 11, color: 'var(--text-3)', display: 'block', marginTop: 2 }}>{categorySubtitle(item.categoryId, item.category)}</span>
-                  </div>
-                </div>
-                <RiskBadge value={item.summary} />
-              </div>
-              <div style={{ marginTop: 5, fontSize: 11, color: 'var(--text-3)' }}>
-                {countLabel} {item.newsCount} 則 · {riskLabel} {item.riskNewsCount} 則
-              </div>
-              <div style={{ marginTop: 4, fontSize: 11, color: item.riskNewsCount > 0 ? '#B42318' : 'var(--text-3)', lineHeight: 1.4 }}>
-                {timeLabel}：{riskNewsTimeText(relatedNews)}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-}
-
 interface LifecycleTag {
   text: string;
   bg: string;
@@ -1922,7 +1809,7 @@ function getLifecycleTags(title: string, titleZh?: string): LifecycleTag[] {
   return tags;
 }
 
-function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string; tone: PanelTone; items: ForecastNews[]; emptyText: string; badge: string; id?: string }) {
+function NewsPanel({ title, tone, items, emptyText, badge, id, onClearCategory }: { title: string; tone: PanelTone; items: ForecastNews[]; emptyText: string; badge: string; id?: string; onClearCategory?: () => void }) {
   const toneStyle = PANEL_TONES[tone];
   const [lifecycleFilter, setLifecycleFilter] = useState<'all' | 'EOL' | 'NRND' | 'PCN' | 'LTB'>('all');
 
@@ -1945,6 +1832,15 @@ function NewsPanel({ title, tone, items, emptyText, badge, id }: { title: string
     <Panel title={title} tone={tone} id={id}>
       {/* 篩選標籤列 */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+        {onClearCategory && (
+          <button
+            className="btn"
+            onClick={onClearCategory}
+            style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
+          >
+            ← 全部類別
+          </button>
+        )}
         <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginRight: 4 }}>內容篩選:</span>
         {(['all', 'EOL', 'NRND', 'PCN', 'LTB'] as const).map((filter) => {
           const config = {
@@ -2450,93 +2346,6 @@ function WeeklyReportsPanel({ reports }: { reports: WeeklyReportLink[] }) {
   );
 }
 
-function MarketReportsCategoryPanel({
-  id,
-  category,
-  onSelect,
-  items,
-  marketReports,
-  sourceResults,
-}: {
-  id: string;
-  category: string;
-  onSelect: (catId: string) => void;
-  items: { categoryId: string; category: string; subCategory: string; reportCount: number; signal: string }[];
-  marketReports: any[];
-  sourceResults: any[];
-}) {
-  const toneStyle = {
-    bg: '#F8FAFC',
-    border: '#E2E8F0',
-    accent: '#6366F1',
-    title: '#312E81',
-    soft: '#EEF2FF',
-    shadow: 'rgba(99, 102, 241, 0.12)',
-  };
-
-  const totalSources = sourceResults.length;
-  const okSources = sourceResults.filter((s: any) => s.sourceStatus === 'ok').length;
-
-  return (
-    <section
-      id={id}
-      style={{
-        border: `1px solid ${toneStyle.border}`,
-        borderLeft: `4px solid ${toneStyle.accent}`,
-        borderRadius: 8,
-        background: toneStyle.bg,
-        padding: 16,
-      }}
-    >
-      <h2 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, color: toneStyle.title }}>市場報告與產業情報佐證</h2>
-      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
-        自動擷取公開情報來源，僅供類別級佐證參考，不取代 RSS / PCN/EOL / 通路庫存 API 判定。
-        <br />
-        來源狀態：{okSources}/{totalSources} 個成功取得
-      </div>
-      <div style={{ display: 'grid', gap: 8 }}>
-        {items.map((item) => {
-          const selected = category === item.categoryId;
-          const signal = (item.signal || 'no_signal') as keyof typeof SIGNAL_BADGE_CONFIG;
-          return (
-            <button
-              key={item.categoryId}
-              onClick={() => onSelect(item.categoryId)}
-              style={{
-                textAlign: 'left',
-                border: selected ? `1px solid ${toneStyle.accent}` : `1px solid ${toneStyle.border}`,
-                borderLeft: selected ? `4px solid ${toneStyle.accent}` : '4px solid transparent',
-                borderRadius: 8,
-                background: selected ? toneStyle.soft : '#fff',
-                padding: '10px 12px',
-                cursor: 'pointer',
-                boxShadow: selected ? `0 8px 22px ${toneStyle.shadow}` : 'none',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr)', gap: 8, alignItems: 'start', width: '100%' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 7, background: selected ? '#fff' : 'var(--surface-2)', color: selected ? toneStyle.title : 'var(--text-2)', fontSize: 11, fontWeight: 800 }}>
-                    {categoryNumber(item.categoryId)}
-                  </span>
-                  <div>
-                    <strong style={{ fontSize: 13, display: 'block' }}>{categoryTitle(item.categoryId, item.category)}</strong>
-                    <span style={{ fontSize: 11, color: 'var(--text-3)', display: 'block', marginTop: 2 }}>{categorySubtitle(item.categoryId, item.category)}</span>
-                  </div>
-                </div>
-                <MarketSignalBadge level={signal} />
-              </div>
-              <div style={{ marginTop: 5, fontSize: 11, color: 'var(--text-3)' }}>
-                情報 {item.reportCount} 筆
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
 function MarketReportsListPanel({
   id,
   category,
@@ -2586,8 +2395,17 @@ function MarketReportsListPanel({
         padding: 16,
       }}
     >
-      <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: toneStyle.title }}>
-        市場情報佐證：{selectedCategoryLabel}
+      <h2 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: toneStyle.title, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span>市場情報佐證：{selectedCategoryLabel}</span>
+        {category !== 'all' && (
+          <button
+            className="btn"
+            onClick={() => onSelectCategory('all')}
+            style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
+          >
+            ← 全部類別
+          </button>
+        )}
       </h2>
 
       {/* Source Status Summary */}
