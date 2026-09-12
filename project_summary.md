@@ -1,6 +1,20 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-12（第三輪 review 全部落實：週報主動投遞、死料降級、名單瘦身 133 顆、週報訊號接 risk.ts、AI 行動建議）
+> 最後更新：2026-09-13（類別可得性指數＋名單全自動成分審查：每類配額 20 顆，死料 4 週除名，熱料／搜尋遞補）
+
+---
+
+### 2026-09-13 — 類別可得性指數＋名單全自動成分審查（S&P 500 式汰換）
+
+**背景**：Danny 問「150 顆取樣有意義嗎？我只是想看類別有沒有缺料」。用 13 週快照算類別三條線後證明取樣法有效——MLCC 有貨比例 8/8→6/11、交期 20→24 週、庫存中位數一路掉到 −98%，比 8/30 三星電機漲價新聞早兩個月；MOSFET 交期 8→16 週。問題是看板從沒算過類別趨勢，只數幾顆料亮燈，MLCC 的紅燈其實是 4 顆死料撐的。Danny 決定：(1) 類別判定改為可得性指數；(2) 名單像 S&P 500 有汰換機制，**連續 4 週零庫存就除名、全自動不用核准**（150 顆只是隨機抽樣，換一顆不嚴重）；(3) 每類配額 20 顆（有貨比例 10 顆一顆就 10 個百分點，太跳）；(4) 維持每週六一次，不加頻率；(5) 烽火 30 顆熱料不取代固定樣本（名單每天換做不出時間序列、只覆蓋 9 類、熱門≠缺料），但當遞補來源。
+
+- [x] **類別可得性指數**（`src/lib/demand-forecast/availability.ts`，`GET /api/demand-forecast/availability` 6 小時快取）：每類每週三條線——有貨比例、最短交期中位數、庫存中位數；基準＝最新兩週以外往前 12 週的中位數（需 ≥6 週）；單週評分＝有貨 −15 點 1 分＋交期 ≥+20% 且 ≥2 週 2 分（庫存與有貨同時回補時降 1 分，首輪實測 MLCC 庫存 +140% 卻因交期 +4 週亮燈）＋庫存中位數 ≤60% 1 分；≥2 分算偏離，**連續 2 週才亮**（單週標「待確認」），3 分以上高、否則中；轉鬆＝庫存 ≥150% 或交期 −20% 連續兩週。記憶體（C04）為 `EXTERNAL_PRIMARY`：DRAM 缺料在合約價與現貨，DigiKey 模組庫存不動（實測有貨比例反而升、交期 36 週不動），樣本最多給 medium 並註明以外部訊號為主。矩陣「實時通路庫存」欄改為「類別可得性」：連續 N 週轉緊／單週偏離待確認／供應轉鬆／供應穩定，第一行三個數字對基準，逐顆紅燈退居第二行。
+- [x] **名單成分審查**（`src/lib/demand-forecast/roster.ts`，`POST /api/demand-forecast/benchmark-roster`，`?dry=1` 試算）：名單＝benchmark.ts 底稿＋DB 覆蓋層 `benchmark-roster-v1`（removed／added／log），所有伺服器端一律 `getActiveBenchmarkParts()`（route.ts 對齊與 full run、health、field-suggestions、backtest、weekly-report、availability）。除名：EOL／LTB／NRND、連續 4 次零庫存、連續 4 次無代理商資料、連續 8 次庫存與價格不動。遞補到每類 20 顆：候選①華強熱料連續 ≥3 週在榜且歸類到有缺額類別（thermometer）②站內 90 天搜尋 ≥3 次且能歸類（field）；經 DigiKey/Mouser 查驗「查得到、非 EOL、任一家有庫存」（Mouser 鎖 TI 故不要求兩家）；26 週內除名者不回鍋；每次最多查驗 12 顆。排在 weekly-forecast 的 mode=full 之前，讓新成分當週有第一筆快照；失敗只 warning。
+- [x] **週報**（REPORT_BUILD_REV 9）：類別 tone 以可得性指數為主，逐顆事件為輔——指數未轉緊時事件最多抬到 medium；`crossHit` 改需「指數轉緊且有外部佐證」，指數轉鬆時新聞再多也不判高。轉鬆敘述只列變好的項目（「惟交期拉長」放括號）。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅（新增 `tests/availability-roster.test.ts`：三條線重組、單週待確認、連續兩週高／中、記憶體上限、基準不足、四種除名、候選來源與冷卻、缺額）、`npm run build` ✅。正式站：成分審查試算→實跑，除名 7 顆（GRM21BR61C106KE15L、TPS7A4700RGWR、TPS62130RGTR、MX25L25645GM2I-08G、STM32H743VIT6、88E1512、AR8035，全為 4–12 次零庫存），遞補 6 顆（TXB0104YZTR、BAV99、MMBD1203、MMBD4148SE、MMBD1403、LT1763CS8-3,3，來自站內搜尋、代理商查驗通過），STM32H563ZIT6 與 STM32F405RGT6 因代理商無庫存被拒；名單 133→132，缺額合計 158 顆待遞補。可得性指數本週：無類別連續兩週轉緊，MOSFET（交期 +4 週、有貨降）與介面 IC（交期 +3 週）單週偏離待確認，MLCC／MCU／類比／鋁電容轉鬆。週報 9/7 期以 rev 9 重建——**14 期以來第一次不是「高風險」**（中風險），大標「HBM合約價飆漲五成，華為寒武紀調高AI晶片報價」。
+- **過程插曲**：第一次 `?dry=1` 試算與正式跑之間 DB 出現重複 log（除名寫入時間為試算那次），來龍去脈未完全釐清；已加 `structuredClone` 與寫入去重，並清掉正式站重複紀錄。
+- **待觀察**：缺額 158 顆要靠烽火熱料累積 3 週在榜與站內搜尋回升才會補；記憶體類的類別判定實際上等同「看新聞與烽火指數」。
+- **修改檔案**：`src/lib/demand-forecast/availability.ts`（新）、`src/lib/demand-forecast/roster.ts`（新）、`src/app/api/demand-forecast/availability/route.ts`（新）、`src/app/api/demand-forecast/benchmark-roster/route.ts`（新）、`tests/availability-roster.test.ts`（新）、`src/app/api/demand-forecast/route.ts`、`src/app/api/demand-forecast/benchmark-health/route.ts`、`src/app/api/demand-forecast/field-suggestions/route.ts`、`src/app/api/demand-forecast/backtest/route.ts`、`src/lib/demand-forecast/weekly-report.ts`、`src/app/demand-forecast/page.tsx`、`.github/workflows/weekly-forecast.yml`、`package.json`、`project_summary.md`
 
 ---
 
