@@ -8,7 +8,7 @@
     "postinstall": "playwright install chromium",
     "start": "next start -p ${PORT:-5280}",
     "lint": "next lint",
-    "test": "tsx tests/digikey.test.ts && tsx tests/qq-quote-utils.test.ts && tsx tests/hqew-parse.test.ts && tsx tests/news-match.test.ts && tsx tests/fenghuo.test.ts && tsx tests/risk-digest.test.ts"
+    "test": "tsx tests/digikey.test.ts && tsx tests/qq-quote-utils.test.ts && tsx tests/hqew-parse.test.ts && tsx tests/news-match.test.ts && tsx tests/fenghuo.test.ts && tsx tests/risk-digest.test.ts && tsx tests/availability-roster.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

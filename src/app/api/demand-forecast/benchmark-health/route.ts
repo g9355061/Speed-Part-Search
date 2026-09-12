@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server';
-import { BENCHMARK_PARTS } from '@/lib/demand-forecast/benchmark';
+import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
 import { getDemandForecastCache, getDemandForecastSnapshotHistory } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-// 名單季度體檢：對每顆基準料打「訊號品質」檢查，提出汰換建議（僅報告、不自動改名單）。
+// 名單體檢：對每顆基準料打「訊號品質」檢查（報告用）。實際除名／遞補由 benchmark-roster 每週自動執行（2026-09-13）。
 // 檢查項：
 //   eol        生命週期 EOL/NRND/LTB —— 應挑同 family 現役替代
 //   no-data    最近快照為「無資料」或完全沒有快照 —— API 查不到，應換料
 //   flat       連續 ≥8 個快照庫存與價格完全不動 —— 死訊號（永遠不會觸發警報），建議換活躍料
 //   duplicate  名單內 MPN 重複
 export async function GET() {
+  const BENCHMARK_PARTS = await getActiveBenchmarkParts();
   const mpns = BENCHMARK_PARTS.map((p) => p.mpn);
   const [cache, history] = await Promise.all([
     getDemandForecastCache(),

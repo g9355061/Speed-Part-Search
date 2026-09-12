@@ -7,6 +7,7 @@ import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
 import { BENCHMARK_PARTS, DEMAND_CATEGORIES, CATEGORY_THRESHOLDS } from '@/lib/demand-forecast/benchmark';
 import type { FenghuoView, FenghuoHotPartView } from '@/lib/demand-forecast/fenghuo';
+import type { AvailabilityIndex, CategoryAvailability } from '@/lib/demand-forecast/availability';
 
 // --- Client-side translation utilities ---
 const clientTranslationCache = new Map<string, string>();
@@ -380,6 +381,8 @@ export default function DemandForecastPage() {
   const [backtest, setBacktest] = useState<any | null>(null);
   // 華強烽火指數（現貨市場熱料）——獨立於 150 顆基準料的需求端指標
   const [fenghuo, setFenghuo] = useState<FenghuoView | null>(null);
+  // 類別可得性指數（有貨比例／交期中位數／庫存中位數 對自身 12 週基準）——矩陣「實時通路庫存」欄改看這個
+  const [availability, setAvailability] = useState<AvailabilityIndex | null>(null);
   const [alertFilter, setAlertFilter] = useState<'all' | 'event' | 'structural'>('all');
   const [partsPage, setPartsPage] = useState(1);
   const [showRules, setShowRules] = useState(false);
@@ -579,6 +582,10 @@ export default function DemandForecastPage() {
     // 載入市場報告 (產業情報佐證)
     fetchMarketReports();
 
+    fetch('/api/demand-forecast/availability?t=' + Date.now(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((json) => setAvailability(json && json.categories ? json : null))
+      .catch((err) => console.error('Failed to load availability index:', err));
     fetch('/api/demand-forecast/fenghuo?t=' + Date.now(), { cache: 'no-store' })
       .then((r) => r.json())
       .then((json) => setFenghuo(json && json.available ? json : null))
@@ -767,7 +774,7 @@ export default function DemandForecastPage() {
               <Icon name="trend" size={14} /> 缺料預測雷達
             </div>
             <h1>供應風險，一眼掌握</h1>
-            <p>{BENCHMARK_PARTS.length} 顆代表性料件的通路庫存、交期與價格趨勢，加上產業新聞、市場情報與華強現貨熱搜。</p>
+            <p>{data?.parts?.length ?? BENCHMARK_PARTS.length} 顆代表性料件的通路庫存、交期與價格趨勢，加上產業新聞、市場情報與華強現貨熱搜。名單每週自動汰換（死料除名、熱料與站內搜尋遞補）。</p>
           </div>
           <div className="forecast-hero-actions">
             <button className="forecast-btn forecast-btn-secondary" disabled={loading} onClick={() => loadForecast('summary')}>
@@ -779,7 +786,7 @@ export default function DemandForecastPage() {
                 ? fullProgress
                   ? `查詢中 ${fullProgress.done}/${fullProgress.total}`
                   : '處理中，請耐心等待'
-                : `查詢 ${BENCHMARK_PARTS.length} 顆料件`}
+                : `查詢 ${data?.parts?.length ?? BENCHMARK_PARTS.length} 顆料件`}
             </button>
           </div>
         </section>
@@ -1003,10 +1010,10 @@ export default function DemandForecastPage() {
                       <div className="forecast-matrix-head-note">烽火指數當日熱料歸類；需求端訊號，獨立於基準料</div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
-                      <div className="forecast-matrix-head-title">實時通路庫存 <span>API</span></div>
+                      <div className="forecast-matrix-head-title">類別可得性 <span>API</span></div>
                       <div className="forecast-matrix-head-note forecast-matrix-head-rules">
-                        <span><i className="high" />零庫存、停產、低水位且交期 ≥ 20 週、庫存暴跌</span>
-                        <span><i className="medium" />低於安全或自身低水位、低水位且交期 ≥ 12 週、趨勢異常</span>
+                        <span><i className="high" />有貨比例、交期中位數、庫存中位數對自身 12 週基準，連續 2 週偏離</span>
+                        <span><i className="medium" />交期拉長為主訊號；單週偏離只標「待確認」</span>
                       </div>
                     </th>
                   </tr>
@@ -1090,21 +1097,13 @@ export default function DemandForecastPage() {
                           onClick={() => handleMatrixClick(cat.categoryId, 'api-parts-panel')}
                           style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
                         >
-                          {hasApiCheck ? (
-                            <MatrixRiskStatus
-                              level={apiRiskLevel}
-                              label={apiRiskLevel === 'high' ? '高風險' : apiRiskLevel === 'medium' ? '中風險' : '供應穩定'}
-                              detail={apiRiskLevel === 'none'
-                                ? `${apiSum?.checkedPartCount ?? 0} 顆料件已監測`
-                                : `${apiSum?.riskPartCount ?? 0} 顆料件需關注`}
-                            />
-                          ) : (
-                            <MatrixRiskStatus
-                              level="unavailable"
-                              label="尚未查詢"
-                              detail="等待授權通路資料"
-                            />
-                          )}
+                          <AvailabilityCell
+                            avail={availability?.categories?.[cat.categoryId] ?? null}
+                            loaded={!!availability}
+                            hasApiCheck={!!hasApiCheck}
+                            riskPartCount={apiSum?.riskPartCount ?? 0}
+                            checkedPartCount={apiSum?.checkedPartCount ?? 0}
+                          />
                         </td>
                       </tr>
                     );
@@ -1199,7 +1198,7 @@ export default function DemandForecastPage() {
           <FenghuoPanel view={fenghuo} category={category} onClearCategory={() => setCategory('all')} />
         </section>
 
-        <Panel id="api-parts-panel" title={`${BENCHMARK_PARTS.length} 顆代表性料件監測`} tone="api">
+        <Panel id="api-parts-panel" title={`${data?.parts?.length ?? BENCHMARK_PARTS.length} 顆代表性料件監測`} tone="api">
           <div className="forecast-role-guide">
             <div className="forecast-role-guide-copy">
               <strong>三種料件分類</strong>
@@ -2359,6 +2358,27 @@ function FenghuoPanel({ view, category, onClearCategory }: { view: FenghuoView |
       )}
     </Panel>
   );
+}
+
+// 類別可得性格：三條線對自身基準的方向，連續兩週偏離才亮燈；逐顆紅燈退居第二行
+function AvailabilityCell({ avail, loaded, hasApiCheck, riskPartCount, checkedPartCount }: {
+  avail: CategoryAvailability | null; loaded: boolean; hasApiCheck: boolean; riskPartCount: number; checkedPartCount: number;
+}) {
+  if (!loaded || !avail) {
+    return <MatrixRiskStatus level="unavailable" label={hasApiCheck ? '指數計算中' : '尚未查詢'} detail={hasApiCheck ? `${checkedPartCount} 顆料件已監測` : '等待授權通路資料'} />;
+  }
+  const pct = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v * 100)}%`);
+  const wk = (d: number | null | undefined) => (d == null ? '—' : `${Math.round(d / 7)} 週`);
+  const l = avail.latest; const b = avail.baseline;
+  const stockDelta = avail.deltas.stockPct == null ? '—' : `${avail.deltas.stockPct >= 0 ? '+' : ''}${Math.round(avail.deltas.stockPct)}%`;
+  const lines = `有貨 ${pct(l?.inStockRatio)}（基準 ${pct(b.inStockRatio)}）｜交期 ${wk(l?.leadTimeMedianDays)}（${wk(b.leadTimeMedianDays)}）｜庫存中位數 ${stockDelta}`;
+  const second = riskPartCount > 0 ? `　逐顆：${riskPartCount} 顆需關注` : '';
+  if (avail.level === 'insufficient') return <MatrixRiskStatus level="unavailable" label="資料累積中" detail={avail.text} />;
+  if (avail.level === 'high') return <MatrixRiskStatus level="high" label={`連續 ${avail.consecutiveTightWeeks} 週轉緊`} detail={lines + second} />;
+  if (avail.level === 'medium') return <MatrixRiskStatus level="medium" label={avail.externalPrimary ? '樣本轉緊（輔助）' : `連續 ${avail.consecutiveTightWeeks} 週轉緊`} detail={lines + second} />;
+  if (avail.pending) return <MatrixRiskStatus level="none" label="單週偏離，待確認" detail={lines + second} />;
+  if (avail.trend === 'loosening') return <MatrixRiskStatus level="none" label="供應轉鬆" detail={lines + second} />;
+  return <MatrixRiskStatus level="none" label="供應穩定" detail={lines + second} />;
 }
 
 function MatrixRiskStatus({

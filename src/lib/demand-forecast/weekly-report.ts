@@ -1,5 +1,7 @@
-import { getMarketReportsCache, getGenericCache, listGenericCacheByPrefix, setGenericCache } from '@/lib/db';
-import { DEMAND_CATEGORIES, BENCHMARK_PARTS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
+import { getMarketReportsCache, getGenericCache, listGenericCacheByPrefix, setGenericCache, getDemandForecastSnapshotHistory } from '@/lib/db';
+import { computeAvailabilityIndex, type CategoryAvailability } from '@/lib/demand-forecast/availability';
+import { DEMAND_CATEGORIES, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
+import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
 import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
 import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import { keywordMatches } from '@/lib/demand-forecast/news-match';
@@ -42,7 +44,9 @@ export interface CategoryDataSignal {
   leadTimeUp: number;          // 最短交期較上週拉長 ≥8 週——主訊號
   supplierDrop: number;        // 授權分銷商 2 家降 1 家
   relLow: number;              // 庫存低於自身歷史 P20 低水位
-  tone: WeeklyRiskLevel;       // 純數據嚴重度
+  /** 類別可得性指數（三條線對自身 12 週基準；2026-09-13 起為類別主判定） */
+  availability?: { level: CategoryAvailability['level']; trend: CategoryAvailability['trend']; pending: boolean; consecutiveTightWeeks: number; externalPrimary: boolean; text: string };
+  tone: WeeklyRiskLevel;       // 類別嚴重度：可得性指數為主，逐顆事件為輔
   text: string;                // 類別層級的質性敘述（不輸出顆數／百分比）
 }
 
@@ -51,8 +55,9 @@ const EMPTY_DATA_SIGNAL: CategoryDataSignal = {
   priceRise30: 0, leadTimeUp: 0, supplierDrop: 0, relLow: 0, tone: 'normal', text: '',
 };
 
-// 由 parts cache（mode=full 週六寫入、mode=cached 讀取時以 risk.ts 重算）彙總單一類別
-function computeCategoryDataSignal(categoryId: string, parts: any[]): CategoryDataSignal {
+// 由 parts cache（mode=full 週六寫入、mode=cached 讀取時以 risk.ts 重算）彙總單一類別，
+// 再疊上類別可得性指數：指數說轉緊就是轉緊（連續兩週偏離才算），逐顆事件只能把等級往上抬。
+function computeCategoryDataSignal(categoryId: string, parts: any[], avail?: CategoryAvailability | null): CategoryDataSignal {
   const signal: CategoryDataSignal = { ...EMPTY_DATA_SIGNAL };
   for (const part of parts) {
     if (part.categoryId !== categoryId) continue;
@@ -70,15 +75,30 @@ function computeCategoryDataSignal(categoryId: string, parts: any[]): CategoryDa
     if ((part.riskReasons ?? []).some((r: string) => r.includes('低於自身歷史低水位'))) signal.relLow += 1;
   }
 
-  // 交期拉長升為主訊號（回測 95% 命中）；庫存暴跌同級；其餘事件為中
-  signal.tone =
+  // 逐顆事件層：交期拉長升為主訊號（回測 95% 命中）；庫存暴跌同級；其餘事件為中
+  const eventTone: WeeklyRiskLevel =
     signal.leadTimeUp > 0 || signal.stockDrop80 > 0 || signal.eventParts >= 2
       ? 'high'
       : signal.eventParts > 0 || signal.relLow > 0
         ? 'medium'
         : 'normal';
 
-  signal.text = buildDataSignalText(categoryId, signal);
+  // 類別層：可得性指數（連續兩週偏離才亮）。記憶體等外部主判定類別最多只給 medium。
+  const order: Record<WeeklyRiskLevel, number> = { normal: 0, medium: 1, high: 2 };
+  let tone: WeeklyRiskLevel = eventTone;
+  if (avail && avail.level !== 'insufficient') {
+    const availTone: WeeklyRiskLevel = avail.level === 'high' ? 'high' : avail.level === 'medium' ? 'medium' : 'normal';
+    // 指數未轉緊時，逐顆事件最多抬到 medium（單顆料的事件不足以說整類缺料）
+    tone = availTone === 'normal' ? (order[eventTone] > 1 ? 'medium' : eventTone) : (order[availTone] >= order[eventTone] ? availTone : eventTone);
+    if (avail.externalPrimary && tone === 'high') tone = 'medium';
+    signal.availability = { level: avail.level, trend: avail.trend, pending: avail.pending, consecutiveTightWeeks: avail.consecutiveTightWeeks, externalPrimary: avail.externalPrimary, text: avail.text };
+  }
+  signal.tone = tone;
+
+  const eventText = buildDataSignalText(categoryId, signal);
+  signal.text = avail && avail.level !== 'insufficient'
+    ? `${categoryLabel(categoryId)}類別可得性：${avail.text}${eventTone !== 'normal' ? ` ${eventText}` : ''}`
+    : eventText;
   return signal;
 }
 
@@ -905,7 +925,8 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // v6＝2026-09-12 接入華強烽火指數：大盤三指數進導言脈絡、當日熱料當各類別的現貨熱搜訊號（獨立於 150 顆）。
 // v7＝2026-09-12 類別訊號改讀 risk.ts 結果（交期升主訊號）、行動建議改由 Gemini 依報導事實生成、
 //     市場報告罐頭摘要退回原文片段、名單瘦身至 133 顆。
-const REPORT_BUILD_REV = 7;
+// v8＝2026-09-13 類別判定改為可得性指數（三條線對自身基準、連續兩週）；名單改為每週自動汰換的現行名單。
+const REPORT_BUILD_REV = 8;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
@@ -1085,7 +1106,16 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const partsCache = await readPartsCache();
   // 自家通路訊號直接用看板的判定結果（parts cache 內的 eventCodes / alertKind，由 risk.ts 產生），
   // 週報與看板不再各算一套。只算現行名單（快取在下一次 mode=full 前仍含已汰換的料）。
-  const benchmarkMpns = new Set(BENCHMARK_PARTS.map((p) => p.mpn.toUpperCase()));
+  const rosterParts = await getActiveBenchmarkParts();
+  const benchmarkMpns = new Set(rosterParts.map((p) => p.mpn.toUpperCase()));
+  // 類別可得性指數：三條線對自身 12 週基準（2026-09-13 起為類別主判定）
+  let availabilityByCat: Record<string, CategoryAvailability> = {};
+  try {
+    const history = await getDemandForecastSnapshotHistory(rosterParts.map((p) => p.mpn), 30);
+    availabilityByCat = computeAvailabilityIndex(history, rosterParts, now).categories;
+  } catch (err) {
+    console.warn('[WeeklyReport] availability index failed:', err);
+  }
   const benchmarkParts: any[] = ((partsCache?.parts ?? []) as any[]).filter((p) => benchmarkMpns.has(String(p.mpn).toUpperCase()));
   const lifecycleRegistry = await loadLifecycleRegistry(previousIssues);
   const flaggedParts = benchmarkParts
@@ -1137,7 +1167,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     const lifecycleCount = lifecycleParts.filter((item) => item.part.categoryId === cat.categoryId).length;
     const reportNotes = categoryReportNotes(cat.categoryId, marketReports);
     const marketReportCount = reportNotes.length;
-    const data = computeCategoryDataSignal(cat.categoryId, benchmarkParts);
+    const data = computeCategoryDataSignal(cat.categoryId, benchmarkParts, availabilityByCat[cat.categoryId] ?? null);
     const hotInCat = hotPartsInCategory(cat.categoryId);
     const hotSearchCount = hotInCat.length;
     const hotSearchNew = hotInCat.filter((p) => p.isNew).length;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { BENCHMARK_PARTS, DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
+import { DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
 import { detectCategories, isBlockedNewsSource } from '@/lib/demand-forecast/news-match';
 import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
@@ -7,6 +7,7 @@ import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo, getCustomThresholds, getGenericCache, setGenericCache } from '@/lib/db';
 import { readCache, writeCache, buildSupplyCategorySummary, recalculateForecastPart, recalculatePartsCache, buildRiskContexts, readNewsCacheShared, writeNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
 import { evaluatePartRisk, computeBaseline } from '@/lib/demand-forecast/risk';
+import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
 
 export const dynamic = 'force-dynamic';
 
@@ -382,14 +383,14 @@ function bestResult(results: PartResult[]): PartResult | null {
 
 // 快取內可能是「舊名單」的料件：以現行 benchmark 為準——補 role/subCategory、
 // 剔除已汰換的料、名單新料補「尚未查詢」佔位（等下一次 mode=full 查到真資料）。
-function alignPartsWithBenchmark(cachedParts: any[] | undefined) {
+function alignPartsWithBenchmark(cachedParts: any[] | undefined, roster: BenchmarkPart[]) {
   const emptyPart = (part: BenchmarkPart) => ({
     ...part, supplierCount: null, totalStock: null, lowestPriceUsd: null, maxLeadTimeDays: null,
     summary: '尚未查詢', riskReasons: [],
   });
-  if (!cachedParts || cachedParts.length === 0) return BENCHMARK_PARTS.map(emptyPart);
+  if (!cachedParts || cachedParts.length === 0) return roster.map(emptyPart);
   const byKey = new Map(cachedParts.map((p: any) => [`${p.categoryId}-${String(p.mpn).toUpperCase()}`, p]));
-  return BENCHMARK_PARTS.map((part) => {
+  return roster.map((part) => {
     const hit = byKey.get(`${part.categoryId}-${part.mpn.toUpperCase()}`);
     return hit ? { ...hit, role: part.role, subCategory: part.subCategory } : emptyPart(part);
   });
@@ -643,7 +644,7 @@ export async function GET(req: NextRequest) {
     const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
       ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
     }));
-    const cachedParts = alignPartsWithBenchmark(partsCache?.parts);
+    const cachedParts = alignPartsWithBenchmark(partsCache?.parts, await getActiveBenchmarkParts());
     return NextResponse.json({
       updatedAt: newsCache?.updatedAt ?? partsCache?.updatedAt ?? new Date().toISOString(),
       mode,
@@ -668,7 +669,7 @@ export async function GET(req: NextRequest) {
     const emptyCategories = DEMAND_CATEGORIES.map((cat) => ({
       ...cat, newsCount: 0, riskNewsCount: 0, checkedPartCount: 0, riskPartCount: 0, summary: '正常' as const,
     }));
-    const summaryParts = alignPartsWithBenchmark(partsCache?.parts);
+    const summaryParts = alignPartsWithBenchmark(partsCache?.parts, await getActiveBenchmarkParts());
     return NextResponse.json({
       updatedAt: newsData.updatedAt,
       mode,
@@ -718,12 +719,14 @@ async function runFullForecast() {
   const activeThresholds = dbThresholds ? { ...CATEGORY_THRESHOLDS, ...dbThresholds } : CATEGORY_THRESHOLDS;
 
   // 上次快照與自身歷史基準：整輪查一次（原本每顆料各打一次 DB，150 顆＝150 次查詢）
-  const riskContexts = await buildRiskContexts(BENCHMARK_PARTS.map((p) => p.mpn));
+  // 名單＝底稿＋DB 覆蓋層（成分審查的除名／遞補），每輪查一次
+  const rosterParts = await getActiveBenchmarkParts();
+  const riskContexts = await buildRiskContexts(rosterParts.map((p) => p.mpn));
   const contextFor = (mpn: string) => riskContexts.get(mpn) ?? { prev: null, baseline: null, zeroStreak: 0 };
 
   // Pre-populate parts array with cached parts or empty placeholders to preserve order
   const parts: any[] = await Promise.all(
-    BENCHMARK_PARTS.map(async (part) => {
+    rosterParts.map(async (part) => {
       const cachedPart = cachedPartsMap.get(part.mpn);
       if (cachedPart) {
         return await recalculateForecastPart(cachedPart, activeThresholds, contextFor(part.mpn));
@@ -749,7 +752,7 @@ async function runFullForecast() {
 
   // Query parts with concurrency (10 parallel workers for faster completion)
   await runWithConcurrency(
-    BENCHMARK_PARTS.map((part, idx) => ({ part, idx })),
+    rosterParts.map((part, idx) => ({ part, idx })),
     10,
     async ({ part, idx }) => {
       const cachedPart = cachedPartsMap.get(part.mpn);

@@ -32,6 +32,16 @@ jobs:
             exit 1
           fi
 
+          # 0) 名單成分審查（2026-09-13，全自動不用核准）：除名死料／EOL，從華強熱料與站內搜尋遞補到每類 20 顆。
+          #    排在 mode=full 之前，讓新成分當週就有第一筆快照。失敗只 warning，沿用現行名單。
+          echo "--- 名單成分審查（benchmark-roster） ---"
+          set +e
+          ROSTER=$(curl -s --max-time 300 -X POST -H "x-cron-secret: $CRON_SECRET" "$BASE_URL/api/demand-forecast/benchmark-roster")
+          set -e
+          echo "$ROSTER" | jq -c '{before, after, removed: (.removed|length), added: (.added|length), rejected: (.rejected|length), validationsUsed}' 2>/dev/null \
+            || echo "::warning::成分審查回應無法解析：$(echo "$ROSTER" | head -c 300)"
+          echo "$ROSTER" | jq -r '(.removed[]? | "  除名 \(.categoryId) \(.mpn)：\(.reason)"), (.added[]? | "  遞補 \(.categoryId) \(.mpn)（\(.manufacturer)）：\(.note)")' 2>/dev/null || true
+
           DONE=0
           for i in $(seq 1 8); do
             echo "--- 第 $i 次 mode=full ---"

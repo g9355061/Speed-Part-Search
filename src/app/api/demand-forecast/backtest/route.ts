@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { BENCHMARK_PARTS } from '@/lib/demand-forecast/benchmark';
+import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
 import { getDemandForecastSnapshotHistory, type SnapshotPoint } from '@/lib/db';
 import { getGenericCache, setGenericCache } from '@/lib/db';
 
@@ -47,7 +47,7 @@ export async function GET() {
     console.warn('[BACKTEST] cache read failed:', err);
   }
 
-  const mpns = BENCHMARK_PARTS.map((p) => p.mpn);
+  const mpns = (await getActiveBenchmarkParts()).map((p) => p.mpn);
   const history = await getDemandForecastSnapshotHistory(mpns, 52);
 
   const stats: Record<string, { signals: number; hits: number }> = {};

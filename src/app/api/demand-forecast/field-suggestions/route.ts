@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { BENCHMARK_PARTS } from '@/lib/demand-forecast/benchmark';
+import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
 import { getTopSearchedMpns } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 // 已在 benchmark 內的會標示；不在名單內且搜尋次數高的，就是下一批實戰料候選。
 // candidate 正式進名單前仍須經 /api/search 驗證「查得到 + Active + 有庫存」。
 export async function GET() {
+  const BENCHMARK_PARTS = await getActiveBenchmarkParts();
   const top = await getTopSearchedMpns(90, 30);
   const benchmarkMpns = new Set(BENCHMARK_PARTS.map((p) => p.mpn.toUpperCase()));
   const currentFieldParts = BENCHMARK_PARTS.filter((p) => p.role === 'field').map((p) => ({
