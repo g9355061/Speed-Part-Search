@@ -3,6 +3,7 @@ import { DEMAND_CATEGORIES, BENCHMARK_PARTS, CATEGORY_NEWS_KEYWORDS } from '@/li
 import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
 import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import { keywordMatches } from '@/lib/demand-forecast/news-match';
+import { getFenghuoView, type FenghuoMarketTrend, type FenghuoView } from '@/lib/demand-forecast/fenghuo';
 import crypto from 'crypto';
 
 // 一週一刊：本期只收「這一週」的新聞。原本 45 天窗會讓相鄰兩期素材幾乎全同，
@@ -172,6 +173,8 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     newsCount: number;
     lifecycleCount: number;
     marketReportCount: number;
+    hotSearchCount?: number;   // 華強當日熱料歸此類的顆數（2026-09-12 起）
+    hotSearchNew?: number;     // 其中本週新上榜
     tone: WeeklyRiskLevel;
     plainText: string;
     reportNotes: string[];
@@ -212,6 +215,17 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
   materialHashes?: string[];
   /** 前幾期已報過、本週仍在異常狀態的生命週期料（不再重複當新聞寫，只列一行長期觀察） */
   lifecycleOngoing?: Array<{ mpn: string; manufacturer: string; category: string; status: string; sinceDate: string }>;
+  /** 華強烽火指數（現貨市場需求端）：大盤三指數＋當日熱料，獨立於 150 顆基準料（2026-09-12 起） */
+  spotMarket?: {
+    updatedAt: string | null;
+    sourceUrl: string;
+    trend: FenghuoMarketTrend | null;
+    hasPrevious: boolean;
+    hotParts: Array<{
+      mpn: string; brand: string; priceCny: number | null; categoryId: string | null; categoryLabel: string;
+      isNew: boolean; weeksOnList: number;
+    }>;
+  };
 }
 
 // 週界線與日期顯示一律以台北時間為準（台灣無夏令時間，固定 UTC+8）。
@@ -456,6 +470,7 @@ export interface WeeklyIssueSection {
   categoryId: string;
   categoryName: string;
   channelText: string;
+  spotText?: string;      // 華強現貨熱搜（可點名型號與人民幣參考價）
   evidence: string[];
 }
 
@@ -473,7 +488,8 @@ interface WeeklyIssueDraft {
  */
 async function synthesizeWeeklyIssueWithGemini(
   reportId: string,
-  sections: WeeklyIssueSection[]
+  sections: WeeklyIssueSection[],
+  marketContext = ''
 ): Promise<WeeklyIssueDraft | null> {
   const usable = sections.filter((section) => section.evidence.length > 0);
   if (usable.length === 0) return null;
@@ -481,9 +497,10 @@ async function synthesizeWeeklyIssueWithGemini(
   const materialText = usable
     .map((section, index) => {
       const evidence = section.evidence.map((line) => `  - ${line}`).join('\n');
-      return `[${index + 1}] categoryId=${section.categoryId}｜類別：${section.categoryName}\n 外部素材：\n${evidence}\n 本站通路觀測（僅供一句旁證）：${section.channelText || '（本週通路平穩）'}`;
+      const spot = section.spotText ? `\n 華強現貨熱搜（可點名型號與人民幣參考價）：${section.spotText}` : '';
+      return `[${index + 1}] categoryId=${section.categoryId}｜類別：${section.categoryName}\n 外部素材：\n${evidence}${spot}\n 本站通路觀測（僅供一句旁證）：${section.channelText || '（本週通路平穩）'}`;
     })
-    .join('\n\n');
+    .join('\n\n') + (marketContext ? `\n\n【市場大盤】${marketContext}` : '');
 
   const evidenceHash = crypto.createHash('md5').update(materialText).digest('hex');
   const cacheKey = `weekly-issue-gemini-r${REPORT_BUILD_REV}-${GEMINI_WRITER_MODEL}-${reportId}-${evidenceHash}`;
@@ -530,7 +547,7 @@ ${materialText}
 寫作要求：
 1. 每篇挑一條最有份量的線索當導言（誰、做了什麼、多少），其餘素材當佐證或對照；與主線無關的素材可以捨棄。不要平均分配篇幅，不要逐條並列翻譯。
 2. 每篇走倒金字塔：先寫發生了什麼，再寫為什麼會這樣（背景與成因），最後寫對採購、交期或成本的實際影響。
-3. 素材裡的具體數字必須寫進報導——價格、漲跌幅、交期週數、產能、月份、營收、廠區、產品型號都要保留，這是產業報導的重點。唯一禁止的是「本站通路觀測」的顆數與百分比，那個只能用一句質性描述帶過（例如「本站監測的通路庫存亦同步走低」）。
+3. 素材裡的具體數字必須寫進報導——價格、漲跌幅、交期週數、產能、月份、營收、廠區、產品型號都要保留，這是產業報導的重點。唯一禁止的是「本站通路觀測」的顆數與百分比，那個只能用一句質性描述帶過（例如「本站監測的通路庫存亦同步走低」）。「華強現貨熱搜」的型號與人民幣參考價可以引用，代表深圳現貨市場買家正在找的料；【市場大盤】可在 lede 用一句帶過。
 4. headline 要像報紙標題：主體＋動作＋（有的話）數字，例如「三星減產 DDR4，記憶體現貨價一週漲 12%」。必須取材自該篇素材的具體事實，20 字以內。禁止出現「訊號升溫」「值得留意」「壓力浮現」「水溫上升」「納入觀察」這類空詞，禁止只寫類別名加形容詞。
 5. story 兩到三段、每篇合計 280–420 個中文字，筆調像報紙產業版：自然、好讀、有主詞、有動作動詞。禁止空泛詞堆疊，禁止 meta 說明（不要說「本段整理」「根據素材」）。自然帶出消息來源名稱。
 6. watchpoint：一句 25–45 字的「後續觀察」，說明接下來一兩週該盯哪個指標、價格或事件。是觀察點，不是待辦清單，不要寫「請採購確認…」這種指令句。
@@ -895,7 +912,8 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 //     素材抽句加權含數字與具名主體的句子，報導保留素材裡的價格、漲跌幅與交期數字。
 // v5＝2026-09-12 素材正確性：新聞分類改字邊界比對＋股票站黑名單、市場報告抽正文並以 contentHash 去重、
 //     生命週期只算本期首次出現（舊 NRND 歸長期觀察）。
-const REPORT_BUILD_REV = 5;
+// v6＝2026-09-12 接入華強烽火指數：大盤三指數進導言脈絡、當日熱料當各類別的現貨熱搜訊號（獨立於 150 顆）。
+const REPORT_BUILD_REV = 6;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
@@ -1111,21 +1129,36 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const allMpns = BENCHMARK_PARTS.map((p) => p.mpn);
   const snapshotHistory = await getDemandForecastSnapshotHistory(allMpns);
 
+  // 華強烽火指數：現貨市場需求端。熱料清單獨立於 150 顆，不互相比對。
+  // 「外部訊號」只算本週新上榜的料——STM32F103 這種常年在榜的不算事件。
+  let fenghuo: FenghuoView | null = null;
+  try {
+    fenghuo = await getFenghuoView();
+    if (!fenghuo.available) fenghuo = null;
+  } catch (err) {
+    console.warn('[WeeklyReport] fenghuo view failed:', err);
+  }
+  const hotPartsInCategory = (categoryId: string) => (fenghuo?.hotParts ?? []).filter((p) => p.categoryId === categoryId);
+
   const categorySignals = DEMAND_CATEGORIES.map((cat) => {
     const newsCount = shortageNews.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
     const lifecycleCount = lifecycleParts.filter((item) => item.part.categoryId === cat.categoryId).length;
     const reportNotes = categoryReportNotes(cat.categoryId, marketReports);
     const marketReportCount = reportNotes.length;
     const data = computeCategoryDataSignal(cat.categoryId, snapshotHistory);
+    const hotInCat = hotPartsInCategory(cat.categoryId);
+    const hotSearchCount = hotInCat.length;
+    const hotSearchNew = hotInCat.filter((p) => p.isNew).length;
+    const hotSignal = hotSearchNew > 0;
 
-    // 交叉命中：自家數據異常「且」同類別有外部新聞佐證 → 最高價值訊號
-    const crossHit = data.tone !== 'normal' && (newsCount > 0 || lifecycleCount > 0);
+    // 交叉命中：自家數據異常「且」同類別有外部佐證（新聞／新生命週期事件／現貨熱搜事件）→ 最高價值訊號
+    const crossHit = data.tone !== 'normal' && (newsCount > 0 || lifecycleCount > 0 || hotSignal);
 
-    // 類別 tone：數據異常為主，新聞為輔
+    // 類別 tone：數據異常為主，外部訊號為輔
     const tone: WeeklyRiskLevel =
       crossHit || data.tone === 'high'
         ? 'high'
-        : data.tone === 'medium' || newsCount > 0 || lifecycleCount > 0 || marketReportCount > 0
+        : data.tone === 'medium' || newsCount > 0 || lifecycleCount > 0 || marketReportCount > 0 || hotSignal
           ? 'medium'
           : 'normal';
 
@@ -1135,20 +1168,22 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       newsCount,
       lifecycleCount,
       marketReportCount,
+      hotSearchCount,
+      hotSearchNew,
       tone,
       plainText: describeCategorySignal(cat.categoryId, data, newsCount, lifecycleCount, marketReportCount),
       reportNotes,
       data,
       crossHit,
     };
-  }).filter((item) => item.data.tone !== 'normal' || item.newsCount > 0 || item.lifecycleCount > 0 || item.marketReportCount > 0)
+  }).filter((item) => item.data.tone !== 'normal' || item.newsCount > 0 || item.lifecycleCount > 0 || item.marketReportCount > 0 || item.hotSearchNew > 0)
     .sort((a, b) => {
       // 排序權重：交叉命中 > 數據 high > 數據 medium > 外部訊號數量
       const score = (x: typeof a) =>
         (x.crossHit ? 100 : 0) +
         (x.data.tone === 'high' ? 40 : x.data.tone === 'medium' ? 20 : 0) +
         x.data.stockDrop30 * 3 + x.data.priceRise10 * 3 + x.data.supplierDrop * 3 +
-        x.newsCount + x.lifecycleCount + x.marketReportCount;
+        x.newsCount + x.lifecycleCount + x.marketReportCount + x.hotSearchNew * 2;
       return score(b) - score(a);
     })
     .slice(0, 10);
@@ -1208,14 +1243,27 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     evidenceByCategory.set(signal.categoryId, evidence);
   }
 
+  const spotTextFor = (categoryId: string) => {
+    const list = hotPartsInCategory(categoryId);
+    if (list.length === 0) return '';
+    const describe = (p: (typeof list)[number]) => {
+      const flags = p.isNew ? '本週新上榜' : p.weeksOnList > 1 ? `連續 ${p.weeksOnList} 次在榜` : '';
+      return `${p.mpn}（${p.brand}${p.priceCny != null ? `，參考價 ¥${p.priceCny}` : ''}${flags ? `；${flags}` : ''}）`;
+    };
+    const sorted = [...list].sort((a, b) => (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0) || b.weeksOnList - a.weeksOnList);
+    return sorted.slice(0, 5).map(describe).join('；');
+  };
+
   const issueDraft = await synthesizeWeeklyIssueWithGemini(
     id,
     executiveSignals.map((signal) => ({
       categoryId: signal.categoryId,
       categoryName: signal.category,
       channelText: signal.data.text,
+      spotText: spotTextFor(signal.categoryId),
       evidence: evidenceByCategory.get(signal.categoryId) ?? [],
-    }))
+    })),
+    fenghuo?.trend?.text ?? ''
   );
   const draftItems = new Map((issueDraft?.items ?? []).map((item) => [item.categoryId, item]));
 
@@ -1350,6 +1398,16 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     recommendedActions,
     materialHashes,
     lifecycleOngoing,
+    spotMarket: fenghuo ? {
+      updatedAt: fenghuo.updatedAt,
+      sourceUrl: fenghuo.sourceUrl,
+      trend: fenghuo.trend,
+      hasPrevious: fenghuo.hasPrevious,
+      hotParts: fenghuo.hotParts.map((p) => ({
+        mpn: p.mpn, brand: p.brand, priceCny: p.priceCny, categoryId: p.categoryId, categoryLabel: p.categoryLabel,
+        isNew: p.isNew, weeksOnList: p.weeksOnList,
+      })),
+    } : undefined,
   };
 }
 

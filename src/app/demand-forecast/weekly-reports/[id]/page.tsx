@@ -192,6 +192,59 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             </ArticleSection>
           )}
 
+          {report.spotMarket && (() => {
+            const spot = report.spotMarket;
+            const fmtPct = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`);
+            const featured = [...spot.hotParts]
+              .sort((a, b) => ((b.isNew ? 10 : 0) + Math.min(b.weeksOnList, 9)) - ((a.isNew ? 10 : 0) + Math.min(a.weeksOnList, 9)))
+              .slice(0, 12);
+            const newCount = spot.hotParts.filter((p) => p.isNew).length;
+            return (
+              <ArticleSection eyebrow="現貨市場" title="深圳現貨買家本週在找什麼">
+                {spot.trend && (
+                  <p style={{ margin: '0 0 10px', fontSize: 15, lineHeight: 1.8, color: 'var(--text-2)' }}>
+                    {spot.trend.text}
+                    <span style={{ color: 'var(--text-3)', fontSize: 12.5 }}>（搜索 {spot.trend.search?.value ?? '—'}、庫存 {spot.trend.stock?.value ?? '—'}、價格 {spot.trend.price?.value ?? '—'}；年增 {fmtPct(spot.trend.search?.yoyPct)}／{fmtPct(spot.trend.stock?.yoyPct)}／{fmtPct(spot.trend.price?.yoyPct)}）</span>
+                  </p>
+                )}
+                <p style={{ margin: '0 0 12px', fontSize: 14, lineHeight: 1.8, color: 'var(--text-2)' }}>
+                  華強烽火指數當日熱料共 {spot.hotParts.length} 顆；
+                  {spot.hasPrevious ? `本週新上榜 ${newCount} 顆。` : '本期為首次快照，下期起可比較新上榜。'}
+                  這份清單與本站 150 顆基準料無關，不互相比對。
+                </p>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 640 }}>
+                    <thead>
+                      <tr style={{ color: 'var(--text-3)', fontSize: 11.5, textAlign: 'left' }}>
+                        <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)' }}>料號</th>
+                        <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)' }}>品牌</th>
+                        <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)', textAlign: 'right' }}>參考價（¥）</th>
+                        <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)' }}>歸類</th>
+                        <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)' }}>狀態</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {featured.map((p) => (
+                        <tr key={p.mpn}>
+                          <td style={{ padding: '7px 8px', fontWeight: 700, fontFamily: 'ui-monospace, Menlo, monospace', borderBottom: '1px solid var(--hairline)' }}>{p.mpn}</td>
+                          <td style={{ padding: '7px 8px', borderBottom: '1px solid var(--hairline)' }}>{p.brand}</td>
+                          <td style={{ padding: '7px 8px', textAlign: 'right', borderBottom: '1px solid var(--hairline)' }}>{p.priceCny == null ? '—' : p.priceCny}</td>
+                          <td style={{ padding: '7px 8px', borderBottom: '1px solid var(--hairline)', color: p.categoryId ? 'var(--text)' : 'var(--text-3)' }}>{p.categoryLabel}</td>
+                          <td style={{ padding: '7px 8px', borderBottom: '1px solid var(--hairline)', color: 'var(--text-2)' }}>
+                            {p.isNew ? '本週新上榜' : p.weeksOnList > 1 ? `連續 ${p.weeksOnList} 次在榜` : '在榜'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--text-3)' }}>
+                  來源：華強電子網 烽火指數（{spot.sourceUrl}）。列出前 12 顆，新上榜與連續在榜優先；完整清單見缺料預測頁「華強現貨熱料」面板。
+                </p>
+              </ArticleSection>
+            );
+          })()}
+
           {(report.lifecycleOngoing?.length ?? 0) > 0 && (
             <ArticleSection eyebrow="長期觀察" title="前幾期已報過、仍在異常狀態的料號">
               <p style={{ margin: 0, fontSize: 14, lineHeight: 1.8, color: 'var(--text-2)' }}>

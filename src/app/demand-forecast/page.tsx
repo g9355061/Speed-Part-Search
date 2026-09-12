@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
 import { BENCHMARK_PARTS, DEMAND_CATEGORIES, CATEGORY_THRESHOLDS } from '@/lib/demand-forecast/benchmark';
+import type { FenghuoView, FenghuoHotPartView } from '@/lib/demand-forecast/fenghuo';
 
 // --- Client-side translation utilities ---
 const clientTranslationCache = new Map<string, string>();
@@ -377,6 +378,8 @@ export default function DemandForecastPage() {
   const [loadingMarketReports, setLoadingMarketReports] = useState(false);
   const [weeklyReports, setWeeklyReports] = useState<WeeklyReportLink[]>([]);
   const [backtest, setBacktest] = useState<any | null>(null);
+  // 華強烽火指數（現貨市場熱料）——獨立於 150 顆基準料的需求端指標
+  const [fenghuo, setFenghuo] = useState<FenghuoView | null>(null);
   const [alertFilter, setAlertFilter] = useState<'all' | 'event' | 'structural'>('all');
   const [partsPage, setPartsPage] = useState(1);
   const [showRules, setShowRules] = useState(false);
@@ -516,6 +519,7 @@ export default function DemandForecastPage() {
     { id: 'backtest-panel', label: '規則命中率' },
     { id: 'shortage-news-panel', label: '缺料新聞' },
     { id: 'market-reports-panel', label: '市場情報' },
+    { id: 'fenghuo-panel', label: '現貨熱料' },
     { id: 'api-parts-panel', label: '料件明細' },
   ];
 
@@ -575,6 +579,10 @@ export default function DemandForecastPage() {
     // 載入市場報告 (產業情報佐證)
     fetchMarketReports();
 
+    fetch('/api/demand-forecast/fenghuo?t=' + Date.now(), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((json) => setFenghuo(json && json.available ? json : null))
+      .catch((err) => console.error('Failed to load fenghuo index:', err));
     fetch('/api/demand-forecast/weekly-reports?t=' + Date.now(), { cache: 'no-store' })
       .then((resp) => resp.json())
       .then((json) => setWeeklyReports(Array.isArray(json.reports) ? json.reports : []))
@@ -906,7 +914,7 @@ export default function DemandForecastPage() {
         <section style={{ marginBottom: 20 }}>
           <Panel id="risk-matrix-panel" title="缺料預測風險對照矩陣" tone="api">
             <p className="forecast-matrix-intro">
-              整合兩種預警偵測管道（RSS 新聞、實時通路代理商庫存）及市場情報佐證，橫向比對 15 個關鍵料件類別的缺料風險狀況：
+              整合兩種預警偵測管道（RSS 新聞、實時通路代理商庫存）、市場情報佐證與華強現貨熱搜，橫向比對 15 個關鍵料件類別的缺料風險狀況：
             </p>
             {/* 判定規則屬「看一次就懂」的說明，原本常駐佔 1,564px 的一半。
                 預設收合，需要時再展開（2026-09-05 UI 減重） */}
@@ -971,7 +979,7 @@ export default function DemandForecastPage() {
             )}
 
             <div className="forecast-table-wrap">
-              <table className="forecast-matrix-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
+              <table className="forecast-matrix-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1150 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
                     <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, whiteSpace: 'nowrap', width: '20%' }}>
@@ -985,6 +993,10 @@ export default function DemandForecastPage() {
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
                       <div className="forecast-matrix-head-title">市場情報佐證</div>
                       <div className="forecast-matrix-head-note">公開情報僅供參考，不作為主判定</div>
+                    </th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '16%' }}>
+                      <div className="forecast-matrix-head-title">現貨熱搜 <span>華強</span></div>
+                      <div className="forecast-matrix-head-note">烽火指數當日熱料歸類；需求端訊號，獨立於 150 顆</div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
                       <div className="forecast-matrix-head-title">實時通路庫存 <span>API</span></div>
@@ -1009,6 +1021,7 @@ export default function DemandForecastPage() {
                     
                     // Determine Market Signal level (情報佐證, not risk)
                     const marketSignal = categoryMarketSignal[cat.categoryId] || 'no_signal';
+                    const hot = fenghuo?.categoryCounts?.[cat.categoryId];
                     
                     return (
                       <tr key={cat.categoryId} style={{ borderTop: '1px solid var(--hairline)', background: '#fff' }}>
@@ -1050,6 +1063,22 @@ export default function DemandForecastPage() {
                           style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
                         >
                           <MatrixMarketStatus level={marketSignal} />
+                        </td>
+                        <td
+                          className="matrix-cell-interactive"
+                          title="點擊跳轉查看華強現貨熱料清單"
+                          onClick={() => handleMatrixClick(cat.categoryId, 'fenghuo-panel')}
+                          style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'middle' }}
+                        >
+                          {!fenghuo ? (
+                            <MatrixRiskStatus level="unavailable" label="尚未取得" detail="等待烽火指數快照" />
+                          ) : (hot?.fresh ?? 0) > 0 ? (
+                            <MatrixRiskStatus level="medium" label="新上榜" detail={`${hot!.fresh} 顆新上榜／共 ${hot!.total} 顆`} />
+                          ) : (hot?.total ?? 0) > 0 ? (
+                            <MatrixRiskStatus level="none" label="持續在榜" detail={`${hot!.total} 顆熱料屬此類`} />
+                          ) : (
+                            <MatrixRiskStatus level="none" label="未見熱搜" detail="當日熱料無此類" />
+                          )}
                         </td>
                         <td
                           className="matrix-cell-interactive"
@@ -1160,6 +1189,10 @@ export default function DemandForecastPage() {
             sourceResults={marketSourceResults}
             onSelectCategory={setCategory}
           />
+        </section>
+
+        <section style={{ marginBottom: 20 }}>
+          <FenghuoPanel view={fenghuo} category={category} onClearCategory={() => setCategory('all')} />
         </section>
 
         <Panel id="api-parts-panel" title="150 顆代表性料件監測" tone="api">
@@ -2225,6 +2258,100 @@ function MetricSparkline({
       {weekChip}
       {tooltip}
     </span>
+  );
+}
+
+// 華強烽火指數面板：現貨市場熱料清單，與 150 顆基準料完全獨立（不比對、不混算）。
+function FenghuoPanel({ view, category, onClearCategory }: { view: FenghuoView | null; category: string; onClearCategory: () => void }) {
+  const fmtPct = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`);
+  const trend = view?.trend ?? null;
+  const parts: FenghuoHotPartView[] = (view?.hotParts ?? [])
+    .filter((p) => category === 'all' || p.categoryId === category)
+    .slice()
+    .sort((a, b) => {
+      const score = (x: FenghuoHotPartView) => (x.isNew ? 10 : 0) + Math.min(x.weeksOnList, 9) / 10;
+      return score(b) - score(a);
+    });
+  const updatedText = view?.updatedAt
+    ? new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(view.updatedAt))
+    : null;
+  const newCount = (view?.hotParts ?? []).filter((p) => p.isNew).length;
+
+  return (
+    <Panel id="fenghuo-panel" title="華強現貨熱料（烽火指數）" tone="shortage">
+      <p className="forecast-matrix-intro">
+        華強電子網烽火指數每日公布的現貨熱料，是買家「正在找什麼」的需求端訊號，通常比代理商庫存更早反映搶料。
+        這份清單獨立於上方 150 顆基準料，不互相比對；看的是「哪些型號、哪些類別正在被搶」，以及一顆料連續在榜幾週。
+        {updatedText && <span style={{ color: 'var(--text-3)' }}>　資料時間 {updatedText}（台北）</span>}
+      </p>
+      {!view ? (
+        <div className="forecast-weekly-empty">尚未取得烽火指數快照。每週一由排程抓取；也可由管理員手動觸發。</div>
+      ) : (
+        <>
+          {trend && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+              {([['搜索指數', trend.search], ['庫存指數', trend.stock], ['價格指數', trend.price]] as const).map(([label, m]) => (
+                <div key={label} style={{ border: '1px solid var(--hairline)', borderRadius: 10, padding: '8px 12px', minWidth: 150, background: 'var(--surface-2)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700 }}>{label}　{trend.month}</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <strong style={{ fontSize: 18 }}>{m ? m.value.toLocaleString() : '—'}</strong>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: (m?.momPct ?? 0) > 0 ? '#B42318' : (m?.momPct ?? 0) < 0 ? '#027A48' : 'var(--text-3)' }}>月 {fmtPct(m?.momPct)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)' }}>年 {fmtPct(m?.yoyPct)}</span>
+                  </div>
+                </div>
+              ))}
+              <div style={{ alignSelf: 'center', fontSize: 13, color: 'var(--text-2)', maxWidth: 420 }}>
+                {trend.tone === 'tightening' ? '搜索升溫且庫存去化，現貨市場整體轉緊。' : trend.tone === 'loosening' ? '搜索降溫且庫存回補，現貨市場整體轉鬆。' : '三項指數變動不大，現貨市場大盤平穩。'}
+                {' '}指數以 2025 年初為基期，庫存指數上升代表市場可售現貨變多。
+              </div>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10, fontSize: 12.5, color: 'var(--text-2)' }}>
+            <span>當日熱料 <strong>{view.hotParts.length}</strong> 顆</span>
+            <span>｜本週新上榜 <strong>{view.hasPrevious ? newCount : '—'}</strong>{!view.hasPrevious && <span style={{ color: 'var(--text-3)' }}>（首次快照，下週起可比較）</span>}</span>
+            <span>｜累積快照 {view.snapshotCount} 次</span>
+            {category !== 'all' && (
+              <button className="btn" onClick={onClearCategory} style={{ marginLeft: 'auto', fontWeight: 700 }}>← 全部類別</button>
+            )}
+          </div>
+          <div className="forecast-table-wrap">
+            <table className="forecast-parts-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 680 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '8px 10px' }}>料號</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px' }}>品牌</th>
+                  <th style={{ textAlign: 'right', padding: '8px 10px', width: 100 }}>參考價（¥）</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', width: 190 }}>歸類</th>
+                  <th style={{ textAlign: 'left', padding: '8px 10px', width: 140 }}>上榜</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parts.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding: 14, color: 'var(--text-3)' }}>此類別當日無熱料。</td></tr>
+                ) : parts.map((p) => (
+                  <tr key={p.mpn}>
+                    <td style={{ padding: '8px 10px', fontWeight: 700, fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                      <a href={`https://www.hqew.com/search/${encodeURIComponent(p.mpn)}`} target="_blank" rel="noreferrer" style={{ color: 'var(--text)', textDecoration: 'none' }} title="到華強電子網查看">{p.mpn}</a>
+                    </td>
+                    <td style={{ padding: '8px 10px' }}>{p.brand}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'right' }}>{p.priceCny == null ? '—' : p.priceCny.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                    <td style={{ padding: '8px 10px', color: p.categoryId ? 'var(--text)' : 'var(--text-3)' }}>{p.categoryLabel}</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      {p.isNew
+                        ? <span className="forecast-inline-status forecast-inline-status-medium">新上榜</span>
+                        : <span style={{ color: 'var(--text-2)' }}>{p.weeksOnList > 1 ? `連續 ${p.weeksOnList} 次` : '在榜'}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--text-3)' }}>
+            來源：<a href={view.sourceUrl} target="_blank" rel="noreferrer">華強電子網 烽火指數</a>。熱料為華強「雲報價」當日名單（14:00 前為前一日），參考價為人民幣現貨報價；歸類由品牌與料號字首規則判定，「未歸類」代表不屬於 15 類監測範圍。
+          </p>
+        </>
+      )}
+    </Panel>
   );
 }
 

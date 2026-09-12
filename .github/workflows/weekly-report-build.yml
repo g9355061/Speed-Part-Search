@@ -30,6 +30,24 @@ jobs:
             exit 1
           fi
 
+          # 0) 華強烽火指數：由 Actions runner 抓首頁（Railway 的 IP 曾被華強封鎖且不會解封，不能讓它出面），
+          #    再把 HTML POST 給 Railway 解析入庫。抓不到就沿用上一次快取，不視為失敗。
+          echo "--- 抓取華強烽火指數（fh.hqew.com） ---"
+          set +e
+          curl -sL --max-time 30 -o /tmp/fh.html \
+            -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+            -H "Accept: text/html,application/xhtml+xml" -H "Accept-Language: zh-CN,zh;q=0.9" \
+            https://fh.hqew.com/
+          if [ -s /tmp/fh.html ] && grep -q "mockData.market" /tmp/fh.html; then
+            jq -Rs '{html: .}' /tmp/fh.html > /tmp/fh.json
+            curl -s -w "\nfenghuo http=%{http_code}\n" --max-time 90 \
+              -H "x-cron-secret: $CRON_SECRET" -H "Content-Type: application/json" \
+              --data-binary @/tmp/fh.json "$BASE_URL/api/demand-forecast/fenghuo"
+          else
+            echo "::warning::烽火指數首頁抓取失敗或版面不含 mockData.market，本期沿用上一次快取"
+          fi
+          set -e
+
           # 1) mode=summary 抓最新新聞寫入 DB 快取。Railway 邊緣約 50 秒會切斷（502），
           #    但伺服器端會繼續完成，所以逾時/502 都不視為失敗，等一下再進下一步。
           echo "--- 抓取最新新聞（mode=summary） ---"
