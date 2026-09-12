@@ -1,6 +1,35 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-05（缺料預測 UI：移除與風險矩陣重複的兩張類別總覽面板）
+> 最後更新：2026-09-12（週報素材正確性三項修正：分類誤中、市場報告抽正文去重、生命週期只算本期新增）
+
+---
+
+### 2026-09-12 — 週報素材正確性三項修正（承同日 review 第 1 優先）
+
+**背景**：同日 review 指出週報最大的問題不是文筆而是餵給 Gemini 的素材有錯。Danny 指示三項都改：(1) 新聞分類子字串誤中；(2) 市場報告素材是導覽列文字且固定網址報告隔週重出；(3) 長期 NRND 料每週被當新事件寫成封面故事。
+
+- [x] **(1) 新聞分類改字邊界比對＋股票站黑名單**（`src/lib/demand-forecast/news-match.ts` 新，route.ts／weekly-report.ts 共用）：ASCII 關鍵字字邊界比對；4 字內縮寫（TVS／NOR／DDR／PSU）要求原文大寫；允許複數與世代數字（MCUs、DDR5、HBM3E）但縮寫後不能接字母（RAMageddon 不算 RAM）；中文維持子字串。route.ts **不再硬貼「查詢類別」**（以前對 C15 查詢回的任何新聞都貼成散熱／電源模組，是垃圾素材主因）。股票評論站黑名單（timothysykes、StocksToTrade、TradingView、24/7 Wall St.、CryptoRank…）在 RSS 解析與解碼後各過濾一次。關鍵字表順手拿掉 C04 `samsung`（MLCC 新聞被貼記憶體）、C07 `clock`、C10 `interface`、C15 `fan`/`thermal`/`cooling`，C04 加 `ram`、C15 加 `thermal management`。
+  - 正式站 67 則新聞重貼實測：C15 9→1、C08 9→0、C07 1→0、C04 52→20（其餘為消費電子漲價泛文），11 則股票站被擋。
+- [x] **(2) 市場報告抽正文＋contentHash 去重**（`market-report-fetcher.ts`，schema v10）：`extractArticle` 先剝 nav/header/footer/aside/form，再依 `<article>` 全部→`<main>`→整頁逐層抽 `<p>/<h1-3>/<li>` 段落（每層不足 500 字就退下一層；JS 渲染的空殼 `<article>` 才不會把正文吃掉），濾掉 cookie／訂閱段落；抓 og:title／`<title>` 當報告標題、`article:published_time`／JSON-LD `datePublished`／`<time>` 當發布日（未來與 2015 前不採信）；正文 md5 為 `contentHash`。週報改以 contentHash **跨全部歷史期數**去重（舊快取無 hash 才退回 URL 比對），內容沒變的報告只進「本文參考來源」並標「內容與前期相同」，不算本週素材、不進 tone／crossHit；本期用掉的 hash 存在 `materialHashes`。
+  - 實測：Future Electronics 抽出 1,655 字正文（副總裁交期談話），evidence 不再是選單；Fusion Worldwide insights 頁是純 JS 渲染（HTML 只有 6 個連結、剝完 63 字）→ 正確判 `no_new_report`，不再供應「Windows 10 日落…NVIDIA 獨家優惠」；TTI 兩來源 403（既有狀況）。
+- [x] **(3) 生命週期只算本期首次出現**（`weekly-report.ts`）：登錄簿 `lifecycle-seen-v1`（mpn → status／firstSeenIssueId／firstSeenDate），首次部署由歷史期數的 lifecycleHighlights／PCN 連結回填；只有登錄簿沒有、狀態改變或首見期別＝本期的料才算本週事件（進 lifecycleCount／crossHit／封面素材）；其餘列 `lifecycleOngoing`，詳情頁新增「長期觀察」一行（料號、原廠、狀態、自何期起）。恢復正常的料自動移出登錄簿。
+- [x] **週邊調整**：`REPORT_BUILD_REV` 5；`reportHasContent` 加「快照已載入」條件（三項變嚴後安靜週不能整週每 6 小時重建）；workflow 建構前先打 `market-reports`（7 天 TTL 只有人開頁面才背景更新）；`tests/news-match.test.ts` 新增（誤中案例 fixture＋正文抽取／hash／日期解析），納入 `npm test`。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅、`npm run build` ✅。push main 自動部署後依序打正式站 `mode=summary`（新聞重貼）、`market-reports`（v10 重抓：8 份、有標題與 hash）、`weekly-reports`（9/7 期以 rev 5 重建，Gemini 1 次）。重建結果：封面故事由 4 篇（含假的「晶體／振盪器」DRAM 文與每週重播的 PMIC NRND）變 2 篇（記憶體 HBM 漲價、MLCC 三星電機訂單），大標「HBM短缺推升AI晶片報價，華為與寒武紀調漲逾兩成」；`lifecycleNews` 3→0，三顆 NRND 進長期觀察（自 07/20）；本機 dev 接該筆資料以臨時帳號登入實測詳情頁渲染正常（帳號驗後已刪）。
+- **已知限制／後續**：(a) 市場報告的 Gemini 一句摘要這輪重抓時退回罐頭句（「來源頁面在相近段落中提及…」），應是 8 份連續呼叫撞免費層 RPM，下次 7 天刷新會再試；(b) Fusion Worldwide 要有素材需走瀏覽器渲染，暫無；(c) 新聞標題半中半英（「RAM 漲價: the latest on the 全球 記憶體 缺料」）是 gtx 翻譯失敗後的詞彙級兜底，與本次無關；(d) review 第 2 優先（週報訊號接 risk.ts、交期升主訊號）與第 3（點名料號、cron 改週日）未動。
+- **修改檔案**：`src/lib/demand-forecast/news-match.ts`（新）、`tests/news-match.test.ts`（新）、`src/lib/demand-forecast/benchmark.ts`、`src/app/api/demand-forecast/route.ts`、`src/lib/demand-forecast/market-report-fetcher.ts`、`src/lib/demand-forecast/market-report-types.ts`、`src/lib/demand-forecast/weekly-report.ts`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`、`.github/workflows/weekly-report-build.yml`、`package.json`、`project_summary.md`
+
+---
+
+### 2026-09-12 — 缺料預測與週報 review（僅評估，未改程式）
+
+**背景**：Danny 要求檢視缺料預測、尤其週報還有什麼可改。方法：讀完 `weekly-report.ts`／詳情頁／workflow，並唯讀直連 Railway Postgres 抓出全部 14 期正式週報、`news-cache-v1`（67 則）、`market_reports`（11 份）與最近 6 週快照對照。
+
+- **內容正確性（優先）**：(1) 新聞分類關鍵字用子字串比對誤中——C07 `clock` 命中 Overclocking.com，9/7 期「晶體／振盪器」封面故事其實是 SK 海力士 DRAM 新聞，AI 被迫硬掰關聯；C08 `tvs` 命中 "TVs"（電視價格文）、C15 `fan`/`cooling`/`power module` 命中尼泊爾救援設備、冰箱處理、美國電力設備短缺；67 則新聞中 C04 佔 52 則。(2) 市場報告素材是導覽列文字（Fusion Worldwide evidence 為「Windows 10 日落…NVIDIA 獨家優惠」選單）與過期內容（PPSI Q2 報告 9 月仍當新素材），`publishedAt` 全 null、標題是「PPSI Electronics — C04 類別情報」佔位字；去重只比上一期 URL，固定 URL 報告隔週重出。(3) 14 期有 12 期判「高風險」——`crossHit` 把長期 NRND（ATMEGA328P、MP1584EN、LAN8720A 連續多週）當外部訊號，C02/C05 每週都交叉命中，9/7 期 PMIC 封面故事唯一素材就是那顆 NRND。
+- **與 9/5 改版脫節**：週報自有一套類別數據規則（週減 30/50%、漲 10/20%），與 `risk.ts` 單一事實來源（50/80%、30%、交期 +8 週）不同，且完全沒看交期——回測命中率最高（95%）的訊號；快照 144/150 顆有交期、102 顆 ≥12 週。相對水位（P20）與 event/structural 分流都沒進週報。
+- **流程**：GitHub cron 排 08:10（台北）但 8 次實際觸發皆延遲 1.5–5 小時（09:51–13:24 台北），週一早上第一位訪客會觸發現場建構。`tests/` 無週報測試。
+- **版面**：「行動建議」仍是 if/else 罐頭句（4 篇有 3 篇同一句）；`openingNotes` 與 lede 重複；市場報告佔位標題直接顯示在「本週要聞」。
+- **建議順序**：先修分類誤中＋市場報告抽正文／內容 hash 去重＋生命週期只算「本週新增」；再讓週報類別訊號改由 `evaluatePartRisk` 的 `eventCodes` 彙總（交期升主訊號）；週報是否點名 event 料號需 Danny 決定（6/10 曾要求不點名）。
+- **修改檔案**：`project_summary.md`（僅此）
 
 ---
 
