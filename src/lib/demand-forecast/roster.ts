@@ -66,7 +66,17 @@ export async function readRoster(): Promise<RosterOverrides> {
 }
 
 export async function writeRoster(roster: RosterOverrides) {
-  await setGenericCache(ROSTER_KEY, { ...roster, log: roster.log.slice(-200) });
+  // 寫入前去重：added 以 mpn 為準（保留最後一筆）、log 以 action+mpn+時間為準
+  const addedByMpn = new Map<string, BenchmarkPart>();
+  for (const p of roster.added) addedByMpn.set(p.mpn.toUpperCase(), p);
+  const seenLog = new Set<string>();
+  const log = roster.log.filter((e) => {
+    const key = `${e.action}|${e.mpn.toUpperCase()}|${e.at.slice(0, 16)}`;
+    if (seenLog.has(key)) return false;
+    seenLog.add(key);
+    return true;
+  });
+  await setGenericCache(ROSTER_KEY, { ...roster, added: [...addedByMpn.values()], log: log.slice(-200) });
 }
 
 export function applyRoster(base: BenchmarkPart[], roster: RosterOverrides): BenchmarkPart[] {
@@ -200,7 +210,7 @@ export async function rebalanceRoster(input: {
 }): Promise<RebalanceReport> {
   const now = input.now ?? new Date();
   const at = now.toISOString();
-  const roster = await readRoster();
+  const roster = structuredClone(await readRoster()); // 不動快取物件本身，dry run 才不會外漏
   const before = applyRoster(BENCHMARK_PARTS, roster);
 
   const removed = decideDelistings(before, input.history, input.partsCache);
@@ -234,7 +244,7 @@ export async function rebalanceRoster(input: {
       mpn: c.mpn, manufacturer: result.manufacturer || c.manufacturerHint || '',
       family: result.description?.slice(0, 60) || c.note, role: c.role,
     };
-    roster.added.push(part);
+    if (!roster.added.some((p) => p.mpn.toUpperCase() === c.mpn.toUpperCase())) roster.added.push(part);
     roster.log.push({ at, action: 'add', mpn: c.mpn, categoryId: c.categoryId, reason: `${c.note}（${c.source}）` });
     vacancies[c.categoryId] -= 1;
     added.push({ ...c, manufacturer: part.manufacturer });

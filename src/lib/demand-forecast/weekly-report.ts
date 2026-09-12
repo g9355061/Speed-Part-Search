@@ -926,7 +926,7 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // v7＝2026-09-12 類別訊號改讀 risk.ts 結果（交期升主訊號）、行動建議改由 Gemini 依報導事實生成、
 //     市場報告罐頭摘要退回原文片段、名單瘦身至 133 顆。
 // v8＝2026-09-13 類別判定改為可得性指數（三條線對自身基準、連續兩週）；名單改為每週自動汰換的現行名單。
-const REPORT_BUILD_REV = 8;
+const REPORT_BUILD_REV = 9; // v9：crossHit 改需可得性指數轉緊；轉鬆敘述只列變好的項目
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
@@ -1173,14 +1173,18 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     const hotSearchNew = hotInCat.filter((p) => p.isNew).length;
     const hotSignal = hotSearchNew > 0;
 
-    // 交叉命中：自家數據異常「且」同類別有外部佐證（新聞／新生命週期事件／現貨熱搜事件）→ 最高價值訊號
-    const crossHit = data.tone !== 'normal' && (newsCount > 0 || lifecycleCount > 0 || hotSignal);
+    // 交叉命中：類別可得性指數轉緊「且」同類別有外部佐證（新聞／新生命週期事件／現貨熱搜事件）→ 最高價值訊號。
+    // 指數沒轉緊（或轉鬆）時，個別料件的事件加新聞不足以說整類缺料，最多 medium（2026-09-13）。
+    const availTight = data.availability
+      ? data.availability.level === 'high' || data.availability.level === 'medium'
+      : data.tone !== 'normal';
+    const crossHit = availTight && (newsCount > 0 || lifecycleCount > 0 || hotSignal);
 
-    // 類別 tone：數據異常為主，外部訊號為輔
+    // 類別 tone：可得性指數為主，外部訊號為輔
     const tone: WeeklyRiskLevel =
-      crossHit || data.tone === 'high'
+      crossHit || (availTight && data.tone === 'high')
         ? 'high'
-        : data.tone === 'medium' || newsCount > 0 || lifecycleCount > 0 || marketReportCount > 0 || hotSignal
+        : data.tone !== 'normal' || newsCount > 0 || lifecycleCount > 0 || marketReportCount > 0 || hotSignal
           ? 'medium'
           : 'normal';
 

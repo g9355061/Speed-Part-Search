@@ -195,14 +195,18 @@ export function evaluateCategoryAvailability(categoryId: string, weeksIn: Availa
     stockPct: latest.stockMedian != null && baseline.stockMedian != null && baseline.stockMedian > 0 ? (latest.stockMedian / baseline.stockMedian - 1) * 100 : null,
   };
 
-  const parts: string[] = [];
-  if (deltas.leadTimeWeeks != null && Math.abs(deltas.leadTimeWeeks) >= 2) parts.push(`交期中位數${deltas.leadTimeWeeks > 0 ? '拉長' : '縮短'} ${Math.abs(deltas.leadTimeWeeks).toFixed(0)} 週`);
-  if (deltas.inStockRatio != null && Math.abs(deltas.inStockRatio) >= 0.15) parts.push(`有貨比例${deltas.inStockRatio < 0 ? '下降' : '回升'}`);
-  if (deltas.stockPct != null && (deltas.stockPct <= -40 || deltas.stockPct >= 50)) parts.push(`庫存中位數較基準${deltas.stockPct < 0 ? '減' : '增'} ${Math.abs(deltas.stockPct).toFixed(0)}%`);
+  // 敘述分「變差」與「變好」兩組：轉緊只講變差的，轉鬆只講變好的，避免「轉鬆：交期拉長 12 週」這種矛盾句
+  const worse: string[] = [];
+  const better: string[] = [];
+  if (deltas.leadTimeWeeks != null && Math.abs(deltas.leadTimeWeeks) >= 2) {
+    (deltas.leadTimeWeeks > 0 ? worse : better).push(`交期中位數${deltas.leadTimeWeeks > 0 ? '拉長' : '縮短'} ${Math.abs(deltas.leadTimeWeeks).toFixed(0)} 週`);
+  }
+  if (deltas.inStockRatio != null && Math.abs(deltas.inStockRatio) >= 0.15) (deltas.inStockRatio < 0 ? worse : better).push(`有貨比例${deltas.inStockRatio < 0 ? '下降' : '回升'}`);
+  if (deltas.stockPct != null && (deltas.stockPct <= -40 || deltas.stockPct >= 50)) (deltas.stockPct < 0 ? worse : better).push(`庫存中位數較基準${deltas.stockPct < 0 ? '減' : '增'} ${Math.abs(deltas.stockPct).toFixed(0)}%`);
   let text: string;
-  if (confirmed) text = `連續 ${consecutive} 週偏離自身基準：${parts.join('、')}。`;
-  else if (pending) text = `本週偏離基準（${parts.join('、')}），尚未連續兩週，待下週確認。`;
-  else if (loosening) text = `供應轉鬆：${parts.join('、') || '庫存回補'}。`;
+  if (confirmed) text = `連續 ${consecutive} 週偏離自身基準：${worse.join('、') || '多項指標轉弱'}。`;
+  else if (pending) text = `本週偏離基準（${worse.join('、') || '多項指標轉弱'}），尚未連續兩週，待下週確認。`;
+  else if (loosening) text = `供應轉鬆：${better.join('、') || '庫存回補'}${worse.length ? `（惟${worse.join('、')}）` : ''}。`;
   else text = '有貨比例、交期與庫存均在自身 12 週基準範圍內。';
   if (externalPrimary) text += ' 此類別以新聞、市場報告與現貨指數為主判定，樣本料僅供參考。';
 
