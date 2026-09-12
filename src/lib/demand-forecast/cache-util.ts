@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { DEMAND_CATEGORIES } from './benchmark';
-import { evaluatePartRisk, computeBaseline, pickPreviousSnapshot, type RiskEvalContext, type RiskThresholds } from './risk';
+import { evaluatePartRisk, computeBaseline, pickPreviousSnapshot, computeZeroStreak, type RiskEvalContext, type RiskThresholds } from './risk';
 import { getDemandForecastCache, setDemandForecastCache, getDemandForecastSnapshot7DaysAgo, getDemandForecastSnapshotHistory, getGenericCache, setGenericCache } from '@/lib/db';
 
 const CACHE_DIR = path.join(process.cwd(), 'data');
@@ -116,7 +116,7 @@ export function buildSupplyCategorySummary(parts: any[]) {
 export async function recalculateForecastPart(
   part: any,
   customThresholds?: Record<string, RiskThresholds>,
-  ctx?: { prev?: any | null; baseline?: ReturnType<typeof computeBaseline> }
+  ctx?: { prev?: any | null; baseline?: ReturnType<typeof computeBaseline>; zeroStreak?: number }
 ) {
   if (part.summary === '尚未查詢' || part.supplierCount === null || part.supplierCount === undefined) {
     return part;
@@ -144,7 +144,7 @@ export async function recalculateForecastPart(
       lifecycleStatus: part.lifecycleStatus,
       availabilityStatus: part.availabilityStatus,
     },
-    { thresholds: customThresholds, prev, baseline: ctx?.baseline ?? null }
+    { thresholds: customThresholds, prev, baseline: ctx?.baseline ?? null, zeroStreak: ctx?.zeroStreak ?? 0 }
   );
 
   return {
@@ -159,14 +159,14 @@ export async function recalculateForecastPart(
 
 /** 一次備妥全部料件的「上次快照 + 自身歷史基準」，避免逐顆查 DB */
 export async function buildRiskContexts(mpns: string[]) {
-  const contexts = new Map<string, { prev: any | null; baseline: ReturnType<typeof computeBaseline> }>();
+  const contexts = new Map<string, { prev: any | null; baseline: ReturnType<typeof computeBaseline>; zeroStreak: number }>();
   if (mpns.length === 0) return contexts;
   try {
     const history = await getDemandForecastSnapshotHistory(mpns);
     const now = new Date();
     for (const mpn of mpns) {
       const points = history[mpn];
-      contexts.set(mpn, { prev: pickPreviousSnapshot(points, now), baseline: computeBaseline(points, now) });
+      contexts.set(mpn, { prev: pickPreviousSnapshot(points, now), baseline: computeBaseline(points, now), zeroStreak: computeZeroStreak(points) });
     }
   } catch (err) {
     console.error('[RECALC] Failed to load snapshot history:', err);
@@ -184,7 +184,7 @@ export async function recalculatePartsCache(partsCache: any, customThresholds?: 
   let changed = false;
   const recalculatedParts = await Promise.all(
     partsCache.parts.map(async (part: any) => {
-      const ctx = contexts.get(part.mpn) ?? { prev: null, baseline: null };
+      const ctx = contexts.get(part.mpn) ?? { prev: null, baseline: null, zeroStreak: 0 };
       const updated = await recalculateForecastPart(part, customThresholds, ctx);
       if (
         part.riskLevel !== updated.riskLevel ||

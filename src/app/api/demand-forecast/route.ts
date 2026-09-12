@@ -409,7 +409,8 @@ function summarizePart(
   errors: string[],
   snapshot7DaysAgo?: any,
   customThresholds?: Record<string, { minStock: number; lowStock: number }>,
-  baseline?: ReturnType<typeof computeBaseline>
+  baseline?: ReturnType<typeof computeBaseline>,
+  zeroStreak = 0
 ) {
   const best = bestResult(results);
   // Mouser HK / VN 是同一家公司（同一全球庫存），合併計算避免供應商數與庫存重複計算。
@@ -470,7 +471,7 @@ function summarizePart(
       lifecycleStatus: lifecycleLabel,
       availabilityStatus: best?.availabilityStatus ?? '',
     },
-    { thresholds: customThresholds, prev: snapshot7DaysAgo, baseline }
+    { thresholds: customThresholds, prev: snapshot7DaysAgo, baseline, zeroStreak }
   );
 
   return {
@@ -512,7 +513,7 @@ async function searchBenchmarkPart(
   part: BenchmarkPart,
   activeThresholds: Record<string, { minStock: number; lowStock: number }>,
   counters?: { snapshotWriteFailures: number },
-  ctx?: { prev: any | null; baseline: ReturnType<typeof computeBaseline> }
+  ctx?: { prev: any | null; baseline: ReturnType<typeof computeBaseline>; zeroStreak?: number }
 ) {
   const suppliers = getEnabledSuppliers();
   const results: PartResult[] = [];
@@ -533,7 +534,7 @@ async function searchBenchmarkPart(
 
   // ctx 由 runFullForecast 一次備妥（整批查一次歷史）；沒給才單顆查
   const snapshot7DaysAgo = ctx ? ctx.prev : await getDemandForecastSnapshot7DaysAgo(part.mpn);
-  const summary = summarizePart(part, results, errors, snapshot7DaysAgo, activeThresholds, ctx?.baseline ?? null);
+  const summary = summarizePart(part, results, errors, snapshot7DaysAgo, activeThresholds, ctx?.baseline ?? null, ctx?.zeroStreak ?? 0);
 
   // 儲存今日快照以供後續比對趨勢；寫失敗要計數（快照是週報趨勢的唯一資料來源）
   const snapshotSaved = await saveDemandForecastSnapshot(
@@ -718,7 +719,7 @@ async function runFullForecast() {
 
   // 上次快照與自身歷史基準：整輪查一次（原本每顆料各打一次 DB，150 顆＝150 次查詢）
   const riskContexts = await buildRiskContexts(BENCHMARK_PARTS.map((p) => p.mpn));
-  const contextFor = (mpn: string) => riskContexts.get(mpn) ?? { prev: null, baseline: null };
+  const contextFor = (mpn: string) => riskContexts.get(mpn) ?? { prev: null, baseline: null, zeroStreak: 0 };
 
   // Pre-populate parts array with cached parts or empty placeholders to preserve order
   const parts: any[] = await Promise.all(

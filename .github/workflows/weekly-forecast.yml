@@ -1,6 +1,6 @@
 name: Weekly Demand Forecast Refresh
 
-# 每週日凌晨 03:00（深圳時間 UTC+8）查詢 150 顆料件（mode=full），累積每週一筆價格曲線資料點。
+# 每週日凌晨 03:00（深圳時間 UTC+8）查詢全部基準料（mode=full；2026-09-12 起 133 顆），累積每週一筆價格曲線資料點。
 # GitHub Actions cron 使用 UTC：深圳週日 03:00 = UTC 週六 19:00（中國無 DST，全年固定）。
 on:
   schedule:
@@ -64,17 +64,20 @@ jobs:
           # 150 顆全沒更新也沒人知道，直到下週趨勢訊號全部靜默才發現。
           CUTOFF=$(( ( $(date +%s) - 86400 ) * 1000 ))
           FRESH=0
+          TOTAL=0
           for i in $(seq 1 10); do
             curl -s --max-time 60 -H "x-cron-secret: $CRON_SECRET" \
               "$BASE_URL/api/demand-forecast?mode=cached" -o cached.json || true
+            TOTAL=$(jq '.parts | length' cached.json 2>/dev/null || echo 0)
             FRESH=$(jq --argjson cutoff "$CUTOFF" '[.parts[] | select(.queryTime != null and .queryTime > $cutoff)] | length' cached.json 2>/dev/null || echo 0)
-            echo "驗證第 $i 次：24 小時內查過的料件 $FRESH/150"
-            if [ "$FRESH" -ge 140 ]; then break; fi
+            echo "驗證第 $i 次：24 小時內查過的料件 $FRESH/$TOTAL"
+            # 名單顆數由伺服器回傳（2026-09-12 瘦身後為 133），允許 10 顆以內未更新
+            if [ "$TOTAL" -gt 0 ] && [ "$FRESH" -ge $(( TOTAL - 10 )) ]; then break; fi
             sleep 60   # 邊緣切斷後伺服器仍在背景查，等它收尾再驗一次
           done
 
-          if [ "$FRESH" -lt 140 ]; then
-            echo "::error::本週查詢未完成：僅 $FRESH/150 顆料件在 24 小時內有新資料，趨勢快照可能斷檔（週報主訊號來源）。請檢查 Railway logs 與 DigiKey/Mouser API 狀態。"
+          if [ "$TOTAL" -eq 0 ] || [ "$FRESH" -lt $(( TOTAL - 10 )) ]; then
+            echo "::error::本週查詢未完成：僅 $FRESH/$TOTAL 顆料件在 24 小時內有新資料，趨勢快照可能斷檔（週報主訊號來源）。請檢查 Railway logs 與 DigiKey/Mouser API 狀態。"
             exit 1
           fi
 
@@ -85,4 +88,4 @@ jobs:
             echo "::error::本輪有 $SNAPFAIL 顆料件的趨勢快照寫入失敗（週報趨勢資料將出現缺口），請檢查 Railway Postgres 狀態。"
             exit 1
           fi
-          echo "Weekly forecast refresh OK（$FRESH/150 顆資料新鮮、快照寫入失敗 $SNAPFAIL 顆）。"
+          echo "Weekly forecast refresh OK（$FRESH/$TOTAL 顆資料新鮮、快照寫入失敗 $SNAPFAIL 顆）。"

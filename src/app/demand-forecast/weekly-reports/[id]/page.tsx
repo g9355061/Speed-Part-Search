@@ -107,11 +107,11 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
         </section>
 
         <div style={{ display: 'grid', gap: 18 }}>
-          <ArticleSection eyebrow="編輯室觀察" title="本週先讀這段">
-            {report.openingNotes.map((note) => (
-              <p key={note} style={{ margin: '0 0 10px', fontSize: 16, lineHeight: 1.85, color: 'var(--text-2)' }}>{note}</p>
-            ))}
-            {report.categorySignals.filter((s) => s.tone !== 'normal').length > 0 && (
+          {/* 「本週先讀這段」與導言講同一件事（2026-09-12 拿掉），只留本期涉及類別的一眼總覽 */}
+          <ArticleSection eyebrow="本期涉及類別" title="哪幾類有動靜">
+            {report.categorySignals.filter((s) => s.tone !== 'normal').length === 0 ? (
+              <EmptyText>本週各類別通路與市場皆平穩。</EmptyText>
+            ) : (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
                 {report.categorySignals
                   .filter((s) => s.tone !== 'normal')

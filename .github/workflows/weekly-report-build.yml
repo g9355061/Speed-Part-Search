@@ -1,11 +1,13 @@
 name: Weekly Report Prebuild
 
-# 每週一早上 08:10（台北時間 UTC+8，台灣無 DST）先抓最新新聞、再預先建構本週週報。
+# 每週一清晨 05:23（台北時間 UTC+8，台灣無 DST）先抓最新新聞、再預先建構本週週報，建好後主動投遞。
 # 週報建成後即固化（一週一刊），使用者整週看到同一份內容，也不會有人在頁面上等建構。
-# GitHub Actions cron 使用 UTC：台北週一 08:10 = UTC 週一 00:10。
+# GitHub Actions cron 使用 UTC：台北週一 05:23 = UTC 週日 21:23。
+# 2026-09-12 由 00:10 UTC 提早：實測 8 次排程全部延遲 1.5–5 小時（整點是 GitHub 尖峰），
+# 08:10 的設定實際 09:51–13:24 才跑，週一早上第一位訪客反而觸發現場建構。避開整點並提早 3 小時。
 on:
   schedule:
-    - cron: '10 0 * * 1'
+    - cron: '23 21 * * 0'
   workflow_dispatch: {} # 允許手動觸發測試
 
 jobs:
@@ -89,4 +91,18 @@ jobs:
           if [ "$DONE" != "1" ]; then
             echo "::error::迴圈結束仍未偵測到「快速 200」——週報可能未建構成功，請檢查 Railway logs"
             exit 1
+          fi
+
+          # 3) 主動投遞：摘要寄信／貼群組（2026-09-12）。沒人主動登入內部網站看週報，建好就要推出去。
+          #    管道由 Railway 環境變數決定（WEEKLY_REPORT_RECIPIENTS + SMTP、或 WEEKLY_REPORT_WEBHOOK_URL）；
+          #    未設定只 warning，不讓 workflow 失敗。
+          echo "--- 投遞週報摘要 ---"
+          set +e
+          DELIVER=$(curl -s --max-time 120 -X POST -H "x-cron-secret: $CRON_SECRET" "$BASE_URL/api/demand-forecast/weekly-reports/deliver")
+          set -e
+          echo "$DELIVER"
+          if echo "$DELIVER" | jq -e '.delivered == true' >/dev/null 2>&1; then
+            echo "週報摘要已投遞。"
+          else
+            echo "::warning::週報摘要未投遞：$(echo "$DELIVER" | jq -r '.reason // .error // (.failures|join("；")) // "未知"' 2>/dev/null)"
           fi

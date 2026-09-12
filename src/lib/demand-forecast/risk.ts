@@ -31,6 +31,13 @@ export interface PartBaseline {
 
 export type AlertKind = 'event' | 'structural' | null;
 
+/**
+ * 死料判定（2026-09-12）：實測高風險 25 顆裡 14 顆是「庫存 0 連續 8 週以上、價格也不動」——
+ * 那不是缺料，是 DigiKey/Mouser 根本沒備這個料號（多半已改版）。連續 ≥4 次快照為 0 就改判
+ * 「代理商未備貨」，不再貢獻假紅燈，並由 benchmark-health 列入換料候選。
+ */
+export const DEAD_ZERO_STREAK = 4;
+
 export interface RiskEvalInput {
   categoryId: string;
   hasApiMatch: boolean;
@@ -46,6 +53,8 @@ export interface RiskEvalContext {
   thresholds?: Record<string, RiskThresholds>;
   prev?: any | null;          // 上一次快照（4–10 天前），無則不做趨勢比對
   baseline?: PartBaseline | null;
+  /** 最近連續幾次快照庫存為 0（含最新一筆）。≥ DEAD_ZERO_STREAK 視為代理商未備貨，不是缺料 */
+  zeroStreak?: number;
 }
 
 export interface RiskEvalResult {
@@ -88,6 +97,18 @@ export function computeBaseline(points: SnapshotPoint[] | undefined, now = new D
   return { p20: percentile(stocks, 0.2), p40: percentile(stocks, 0.4), weeks: stocks.length };
 }
 
+/** 最近連續幾次快照庫存為 0（從最新一筆往回數，遇到非 0 即停） */
+export function computeZeroStreak(points: SnapshotPoint[] | undefined): number {
+  if (!points || points.length === 0) return 0;
+  let streak = 0;
+  for (let i = points.length - 1; i >= 0; i--) {
+    const stock = Number(points[i].totalStock);
+    if (Number.isFinite(stock) && stock <= 0) streak++;
+    else break;
+  }
+  return streak;
+}
+
 /** 挑出「上一次快照」：4–10 天前的最近一點（與舊版 getDemandForecastSnapshot7DaysAgo 同窗口） */
 export function pickPreviousSnapshot(points: SnapshotPoint[] | undefined, now = new Date()) {
   if (!points || points.length === 0) return null;
@@ -126,6 +147,19 @@ export function evaluatePartRisk(input: RiskEvalInput, ctx: RiskEvalContext = {}
   const thresholds = (customThresholds && customThresholds[input.categoryId])
     || CATEGORY_THRESHOLDS[input.categoryId]
     || { minStock: 1000, lowStock: 5000 };
+
+  // 代理商未備貨：連續多次快照都是 0，且這次也是 0 → 不算缺料，直接回「無資料」層級
+  const deadZero = hasApiMatch && totalStock <= 0 && (ctx.zeroStreak ?? 0) + 1 > DEAD_ZERO_STREAK;
+  if (deadZero) {
+    const weeks = (ctx.zeroStreak ?? 0) + 1;
+    return {
+      riskLevel: '無資料',
+      summary: '代理商未備貨',
+      riskReasons: [`ℹ️ 授權代理商連續 ${weeks} 次快照庫存為 0，視為未備貨而非缺料；此料已列入換料候選（benchmark-health）`],
+      alertKind: null,
+      eventCodes: [],
+    };
+  }
 
   const noStockAfterMatch = hasApiMatch && totalStock <= 0;
   const veryLongLead = minLeadTimeDays !== null && minLeadTimeDays >= 140; // >= 20 週

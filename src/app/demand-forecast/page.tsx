@@ -208,7 +208,7 @@ interface ForecastPart {
   productUrl?: string;
   checkedSuppliers?: string[];
   errors?: string[];
-  summary: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險';
+  summary: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '代理商未備貨' | '中風險';
   riskReasons?: string[];
   alertKind?: 'event' | 'structural' | null;
   eventCodes?: string[];
@@ -461,7 +461,7 @@ export default function DemandForecastPage() {
             setFullProgress(null);
             setLoading(false);
             setLoadingLabel('');
-            setError(`查詢進度停滯（${done}/${total}），伺服器可能已中斷。可再按一次「查詢 150 顆料件」接力完成。`);
+            setError(`查詢進度停滯（${done}/${total}），伺服器可能已中斷。可再按一次「查詢 ${BENCHMARK_PARTS.length} 顆料件」接力完成。`);
           }
         } else {
           lastDone = done;
@@ -475,7 +475,7 @@ export default function DemandForecastPage() {
 
   async function loadForecast(nextMode: 'cached' | 'summary' | 'full') {
     setLoading(nextMode !== 'cached');
-    if (nextMode !== 'cached') setLoadingLabel(nextMode === 'summary' ? '正在更新產業新聞' : '正在查詢 150 顆料件');
+    if (nextMode !== 'cached') setLoadingLabel(nextMode === 'summary' ? '正在更新產業新聞' : `正在查詢 ${BENCHMARK_PARTS.length} 顆料件`);
     setError('');
     setMode(nextMode);
     if (nextMode === 'full') startFullPolling();
@@ -699,7 +699,7 @@ export default function DemandForecastPage() {
 
   // 風險優先排序：原本按類別編號排，29 顆高風險散落在整份清單裡，
   // 使用者得自己捲 12,000px 才找得到（2026-09-05 UI 改善）。
-  const RISK_RANK: Record<string, number> = { '有缺料風險': 0, '中風險': 1, '正常': 2, '無代理商資料': 3, '尚未查詢': 4 };
+  const RISK_RANK: Record<string, number> = { '有缺料風險': 0, '中風險': 1, '正常': 2, '代理商未備貨': 3, '無代理商資料': 3, '尚未查詢': 4 };
   const sortedParts = useMemo(() => {
     return [...filteredParts].sort((a, b) => {
       const rank = (RISK_RANK[a.summary] ?? 9) - (RISK_RANK[b.summary] ?? 9);
@@ -767,7 +767,7 @@ export default function DemandForecastPage() {
               <Icon name="trend" size={14} /> 缺料預測雷達
             </div>
             <h1>供應風險，一眼掌握</h1>
-            <p>150 顆代表性料件的通路庫存、交期與價格趨勢，加上產業新聞與市場情報。</p>
+            <p>{BENCHMARK_PARTS.length} 顆代表性料件的通路庫存、交期與價格趨勢，加上產業新聞、市場情報與華強現貨熱搜。</p>
           </div>
           <div className="forecast-hero-actions">
             <button className="forecast-btn forecast-btn-secondary" disabled={loading} onClick={() => loadForecast('summary')}>
@@ -779,7 +779,7 @@ export default function DemandForecastPage() {
                 ? fullProgress
                   ? `查詢中 ${fullProgress.done}/${fullProgress.total}`
                   : '處理中，請耐心等待'
-                : '查詢 150 顆料件'}
+                : `查詢 ${BENCHMARK_PARTS.length} 顆料件`}
             </button>
           </div>
         </section>
@@ -936,10 +936,14 @@ export default function DemandForecastPage() {
                 <div className="forecast-rule-section">
                   <strong className="forecast-rule-subheading">歷史趨勢警告 <span>對比 7 天前</span></strong>
                   <ul className="forecast-rule-list">
-                    <li><span className="forecast-rule-dot high" />庫存 7 天內暴跌 &gt; 80%</li>
-                    <li><span className="forecast-rule-dot medium" />庫存下降 &gt; 50%，或授權分銷商由 2 家降為 1 家</li>
-                    <li><span className="forecast-rule-dot medium" />最低報價上漲 &gt; 30%，或最短交期增加 &gt; 8 週</li>
+                    <li><span className="forecast-rule-dot high" />庫存較上週暴跌 &gt; 80%</li>
+                    <li><span className="forecast-rule-dot medium" />庫存較上週下降 &gt; 50%、最低報價上漲 &gt; 30%，或最短交期較上週拉長 &gt; 8 週</li>
+                    <li><span className="forecast-rule-dot medium" />庫存低於自身近 16 週的 P20 低水位（大宗料專用，絕對顆數門檻對它們沒意義）</li>
                   </ul>
+                  <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-3)' }}>
+                    交期本身不是警訊：API 回的是原廠標準交期，基準料有三分之二本來就 ≥ 12 週。只有「庫存低於補貨水位」的料才看交期。
+                    連續 4 次快照庫存為 0 的料視為代理商未備貨，不列入風險，改列換料候選。
+                  </p>
                 </div>
               </div>
               <div className="forecast-rule-card">
@@ -958,7 +962,7 @@ export default function DemandForecastPage() {
                     <span className="forecast-threshold-name" title="啟動採購補貨流程的預警庫存線。當庫存低於此水位但高於安全水位時，僅在最短補貨交期拉長時才會警示。">
                       補貨水位 <small>Reorder Point</small>
                     </span>
-                    <p>啟動採購的預警庫存線。低於水位且最短交期達 12 週為<span className="forecast-text-medium">中風險</span>，達 20 週為<span className="forecast-text-high">高風險</span>。</p>
+                    <p>啟動採購的預警庫存線。<strong>庫存低於此水位、且</strong>最短交期達 12 週為<span className="forecast-text-medium">中風險</span>，達 20 週為<span className="forecast-text-high">高風險</span>；庫存充足時交期長短不算風險。</p>
                   </li>
                 </ul>
                 <button
@@ -996,13 +1000,13 @@ export default function DemandForecastPage() {
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '16%' }}>
                       <div className="forecast-matrix-head-title">現貨熱搜 <span>華強</span></div>
-                      <div className="forecast-matrix-head-note">烽火指數當日熱料歸類；需求端訊號，獨立於 150 顆</div>
+                      <div className="forecast-matrix-head-note">烽火指數當日熱料歸類；需求端訊號，獨立於基準料</div>
                     </th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, width: '20%' }}>
                       <div className="forecast-matrix-head-title">實時通路庫存 <span>API</span></div>
                       <div className="forecast-matrix-head-note forecast-matrix-head-rules">
-                        <span><i className="high" />零庫存、交期 ≥ 20 週或庫存暴跌</span>
-                        <span><i className="medium" />低水位、交期 ≥ 12 週或趨勢異常</span>
+                        <span><i className="high" />零庫存、停產、低水位且交期 ≥ 20 週、庫存暴跌</span>
+                        <span><i className="medium" />低於安全或自身低水位、低水位且交期 ≥ 12 週、趨勢異常</span>
                       </div>
                     </th>
                   </tr>
@@ -1195,7 +1199,7 @@ export default function DemandForecastPage() {
           <FenghuoPanel view={fenghuo} category={category} onClearCategory={() => setCategory('all')} />
         </section>
 
-        <Panel id="api-parts-panel" title="150 顆代表性料件監測" tone="api">
+        <Panel id="api-parts-panel" title={`${BENCHMARK_PARTS.length} 顆代表性料件監測`} tone="api">
           <div className="forecast-role-guide">
             <div className="forecast-role-guide-copy">
               <strong>三種料件分類</strong>
@@ -2028,14 +2032,16 @@ function ForecastInlineStatus({ tone, label, title, uniform = false }: { tone: F
   );
 }
 
-function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '中風險' }) {
+function RiskBadge({ value }: { value: '正常' | '有缺料風險' | '尚未查詢' | '無代理商資料' | '代理商未備貨' | '中風險' }) {
   const config = {
     '尚未查詢': { tone: 'unavailable' as const, label: '尚未查詢' },
     '無代理商資料': { tone: 'unavailable' as const, label: '無通路資料' },
+    // 連續多次快照庫存 0：代理商沒備這顆料，不是缺料（2026-09-12 死料降級）
+    '代理商未備貨': { tone: 'unavailable' as const, label: '代理商未備貨' },
     '中風險': { tone: 'medium' as const, label: '中風險' },
     '有缺料風險': { tone: 'high' as const, label: '高風險' },
     '正常': { tone: 'normal' as const, label: '正常' },
-  }[value];
+  }[value] ?? { tone: 'unavailable' as const, label: String(value) };
   return <ForecastInlineStatus tone={config.tone} label={config.label} uniform />;
 }
 
@@ -2281,7 +2287,7 @@ function FenghuoPanel({ view, category, onClearCategory }: { view: FenghuoView |
     <Panel id="fenghuo-panel" title="華強現貨熱料（烽火指數）" tone="shortage">
       <p className="forecast-matrix-intro">
         華強電子網烽火指數每日公布的現貨熱料，是買家「正在找什麼」的需求端訊號，通常比代理商庫存更早反映搶料。
-        這份清單獨立於上方 150 顆基準料，不互相比對；看的是「哪些型號、哪些類別正在被搶」，以及一顆料連續在榜幾週。
+        這份清單獨立於上方的基準料，不互相比對；看的是「哪些型號、哪些類別正在被搶」，以及一顆料連續在榜幾週。
         {updatedText && <span style={{ color: 'var(--text-3)' }}>　資料時間 {updatedText}（台北）</span>}
       </p>
       {!view ? (

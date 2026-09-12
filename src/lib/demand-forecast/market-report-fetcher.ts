@@ -298,6 +298,23 @@ function extractSensibleQuote(text: string, matchIndex: number, matchLength: num
   return quote;
 }
 
+// Gemini 免費層 RPM=5：來源並行抓取時 8 份報告在一秒內連打，後面全部 429，摘要退回罐頭句
+// （2026-09-12 正式站實測）。改為序列化，每次呼叫至少間隔 13 秒。
+const GEMINI_MIN_GAP_MS = 13000;
+let geminiQueue: Promise<unknown> = Promise.resolve();
+let geminiLastCallAt = 0;
+
+function runGeminiSerialized<T>(task: () => Promise<T>): Promise<T> {
+  const run = geminiQueue.then(async () => {
+    const wait = geminiLastCallAt + GEMINI_MIN_GAP_MS - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    geminiLastCallAt = Date.now();
+    return task();
+  });
+  geminiQueue = run.catch(() => undefined);
+  return run;
+}
+
 async function summarizeWithGemini(
   evidenceText: string,
   categoryId: string,
@@ -307,6 +324,15 @@ async function summarizeWithGemini(
   if (!apiKey) {
     return null; // Fallback silently if API key is not configured
   }
+  return runGeminiSerialized(() => summarizeWithGeminiNow(apiKey, evidenceText, categoryId, categoryName));
+}
+
+async function summarizeWithGeminiNow(
+  apiKey: string,
+  evidenceText: string,
+  categoryId: string,
+  categoryName: string
+): Promise<string | null> {
 
   try {
     // 1. Check monthly API budget limit ($5 USD cap)
@@ -404,12 +430,17 @@ Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Tra
           return cleanSummary;
         }
 
+        const errorBody = await res.text().catch(() => '');
         console.warn(`[Gemini] API error (Attempt ${attempts}): ${res.status} ${res.statusText}`);
         if (res.status === 429 || res.status >= 500) {
           if (attempts < maxAttempts) {
-            console.log(`[Gemini] Retrying in ${delayMs}ms...`);
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            // 429 時 Google 會在 retryDelay 說要等多久，照它的秒數等（上限 60 秒），固定退避對 RPM 限制無效
+            const retryHint = Number(errorBody.match(/"retryDelay"\s*:\s*"(\d+)s"/)?.[1] ?? 0) * 1000;
+            const sleepMs = Math.min(Math.max(retryHint + 1000, delayMs), 60000);
+            console.log(`[Gemini] Retrying in ${sleepMs}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, sleepMs));
             delayMs *= 2;
+            geminiLastCallAt = Date.now();
             continue;
           }
         }

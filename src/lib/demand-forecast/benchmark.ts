@@ -30,16 +30,19 @@ export interface BenchmarkPart {
   role: PartRole;
 }
 
-// 類別配額（合計 150）：C01 MLCC 13、C02 PMIC 12、C03 MOSFET 12、C04 記憶體 14、C05 MCU 12、
+// 類別配額（原合計 150）：C01 MLCC 13、C02 PMIC 12、C03 MOSFET 12、C04 記憶體 14、C05 MCU 12、
 // C06 連接器 8、C07 石英 9、C08 防護 6、C09 類比/感測 10、C10 介面 10、C11 電感 10、
 // C12 鋁電/聚合物 9、C13 光耦/隔離 9、C14 乙太網 10、C15 散熱/電源模組 6
+//
+// 2026-09-12 名單瘦身：依 benchmark-health 移除 17 顆（4 顆 EOL/NRND、6 顆連續無代理商資料、7 顆死訊號——
+// 連續 8 次快照庫存與價格完全不動），暫不補料：這些料每週只貢獻假紅燈或零訊號。現為 133 顆。
+// 同時 risk.ts 加入「連續 ≥4 次快照庫存為 0 → 代理商未備貨」自動降級，之後的死料不會再變成高風險。
+// 補料規則不變：先經 /api/search 驗證「查得到 + Active + 有庫存」。
 export const BENCHMARK_PARTS: BenchmarkPart[] = [
   // ── C01 MLCC（13）──────────────────────────────────────
   { categoryId: 'C01', category: 'MLCC', subCategory: 'High-capacitance 0402/0603/0805 X5R/X7R', mpn: 'GRM188R60J106ME47D', manufacturer: 'Murata', family: '0603 10uF 6.3V X5R', role: 'thermometer' },
-  { categoryId: 'C01', category: 'MLCC', subCategory: 'High-capacitance 0402/0603/0805 X5R/X7R', mpn: 'GRM188R61A106KE69D', manufacturer: 'Murata', family: '0603 10uF 10V X5R', role: 'thermometer' },
   { categoryId: 'C01', category: 'MLCC', subCategory: 'High-capacitance 0402/0603/0805 X5R/X7R', mpn: 'CL21A106KPFNNNE', manufacturer: 'Samsung Electro-Mechanics', family: '0805 10uF 10V X5R', role: 'thermometer' },
   { categoryId: 'C01', category: 'MLCC', subCategory: 'High-capacitance 0402/0603/0805 X5R/X7R', mpn: 'GRM21BR61C106KE15L', manufacturer: 'Murata', family: '0805 10uF 16V X5R', role: 'thermometer' },
-  { categoryId: 'C01', category: 'MLCC', subCategory: 'High-capacitance 0402/0603/0805 X5R/X7R', mpn: 'GRM155R60J475ME87D', manufacturer: 'Murata', family: '0402 4.7uF 6.3V X5R', role: 'thermometer' },
   { categoryId: 'C01', category: 'MLCC', subCategory: 'High-capacitance 0402/0603/0805 X5R/X7R', mpn: 'CL10A106MQ8NNNC', manufacturer: 'Samsung Electro-Mechanics', family: '0603 10uF 6.3V X5R', role: 'thermometer' },
   { categoryId: 'C01', category: 'MLCC', subCategory: 'High-capacitance 0402/0603/0805 X5R/X7R', mpn: 'C1608X5R1A106M080AC', manufacturer: 'TDK', family: '0603 10uF 10V X5R', role: 'thermometer' },
   { categoryId: 'C01', category: 'MLCC', subCategory: 'General decoupling 0.1uF', mpn: 'CC0603KRX7R9BB104', manufacturer: 'Yageo', family: '0603 0.1uF 50V X7R', role: 'thermometer' },
@@ -54,7 +57,6 @@ export const BENCHMARK_PARTS: BenchmarkPart[] = [
   { categoryId: 'C02', category: 'PMIC / Regulator', subCategory: 'Buck, boost, LDO, power-management support', mpn: 'TPS54560DDAR', manufacturer: 'Texas Instruments', family: '60V 5A buck regulator', role: 'thermometer' },
   { categoryId: 'C02', category: 'PMIC / Regulator', subCategory: 'Buck, boost, LDO, power-management support', mpn: 'LM2596S-5.0/NOPB', manufacturer: 'Texas Instruments', family: '5V buck regulator', role: 'thermometer' },
   { categoryId: 'C02', category: 'PMIC / Regulator', subCategory: 'Buck, boost, LDO, power-management support', mpn: 'MIC5219-3.3YM5-TR', manufacturer: 'Microchip', family: '3.3V LDO', role: 'thermometer' },
-  { categoryId: 'C02', category: 'PMIC / Regulator', subCategory: 'Buck, boost, LDO, power-management support', mpn: 'MP1584EN-LF-Z', manufacturer: 'Monolithic Power Systems', family: '3A buck regulator', role: 'thermometer' },
   { categoryId: 'C02', category: 'PMIC / Regulator', subCategory: 'Buck, boost, LDO, power-management support', mpn: 'AP7333-33SAG-7', manufacturer: 'Diodes Inc.', family: '3.3V LDO', role: 'thermometer' },
   { categoryId: 'C02', category: 'PMIC / Regulator', subCategory: '無直接替代的特殊電源 IC', mpn: 'TPS7A4700RGWR', manufacturer: 'Texas Instruments', family: 'Low-noise LDO', role: 'chokepoint' },
   { categoryId: 'C02', category: 'PMIC / Regulator', subCategory: '無直接替代的特殊電源 IC', mpn: 'TPS61088RHLR', manufacturer: 'Texas Instruments', family: 'High-power boost converter', role: 'chokepoint' },
@@ -85,19 +87,13 @@ export const BENCHMARK_PARTS: BenchmarkPart[] = [
   { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: 'NOR flash, DDR4, DDR5, LPDDR proxy parts', mpn: 'W25Q256JVEIQ', manufacturer: 'Winbond', family: '256Mb SPI NOR flash', role: 'thermometer' },
   { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: 'NOR flash, DDR4, DDR5, LPDDR proxy parts', mpn: 'MX25L25645GM2I-08G', manufacturer: 'Macronix', family: '256Mb SPI NOR flash', role: 'thermometer' },
   { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: '稀有製程/單源記憶體', mpn: 'S29GL01GS11TFI010', manufacturer: 'Infineon', family: '1Gb parallel NOR flash', role: 'chokepoint' },
-  { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: '稀有製程/單源記憶體', mpn: 'MT40A512M16GE-075E:B', manufacturer: 'Micron', family: 'DDR4 SDRAM', role: 'chokepoint' },
-  { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: '稀有製程/單源記憶體', mpn: 'IS43LQ32128A-062BBLI', manufacturer: 'ISSI', family: 'LPDDR4 memory', role: 'chokepoint' },
   { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: '稀有製程/單源記憶體', mpn: 'FM25V10-G', manufacturer: 'Infineon', family: '1Mb SPI FRAM（單源）', role: 'chokepoint' },
-  { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: '稀有製程/單源記憶體', mpn: 'AS4C128M16D3B-12BIN', manufacturer: 'Alliance Memory', family: 'DDR3 SDRAM', role: 'chokepoint' },
   { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: 'NOR flash, DDR4, DDR5, LPDDR proxy parts', mpn: 'MT41K256M16TW-107:P', manufacturer: 'Micron', family: 'DDR3L SDRAM', role: 'field' },
   { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: 'NOR flash, DDR4, DDR5, LPDDR proxy parts', mpn: 'IS43QR16256B-083RBLI', manufacturer: 'ISSI', family: 'DDR4 SDRAM', role: 'field' },
-  { categoryId: 'C04', category: 'Memory / Flash / DDR Proxy', subCategory: 'NOR flash, DDR4, DDR5, LPDDR proxy parts', mpn: 'W9825G6KH-6', manufacturer: 'Winbond', family: 'SDRAM 256Mb', role: 'field' },
 
   // ── C05 MCU / Processor（12）───────────────────────────
   { categoryId: 'C05', category: 'MCU / Processor', subCategory: 'Industrial, consumer, automotive MCU families', mpn: 'STM32F103C8T6', manufacturer: 'STMicroelectronics', family: 'Arm Cortex-M3 MCU', role: 'thermometer' },
   { categoryId: 'C05', category: 'MCU / Processor', subCategory: 'Industrial, consumer, automotive MCU families', mpn: 'STM32F407VGT6', manufacturer: 'STMicroelectronics', family: 'Arm Cortex-M4 MCU', role: 'thermometer' },
-  { categoryId: 'C05', category: 'MCU / Processor', subCategory: 'Industrial, consumer, automotive MCU families', mpn: 'ATMEGA328P-AU', manufacturer: 'Microchip', family: '8-bit AVR MCU', role: 'thermometer' },
-  { categoryId: 'C05', category: 'MCU / Processor', subCategory: '車規/單源/高階 MCU（斷供高後果）', mpn: 'S32K144HFT0VLLT', manufacturer: 'NXP', family: 'Automotive MCU', role: 'chokepoint' },
   { categoryId: 'C05', category: 'MCU / Processor', subCategory: '車規/單源/高階 MCU（斷供高後果）', mpn: 'TC277TP64F200NDC', manufacturer: 'Infineon', family: 'AURIX automotive MCU', role: 'chokepoint' },
   { categoryId: 'C05', category: 'MCU / Processor', subCategory: '車規/單源/高階 MCU（斷供高後果）', mpn: 'STM32H743VIT6', manufacturer: 'STMicroelectronics', family: 'High-performance MCU', role: 'chokepoint' },
   { categoryId: 'C05', category: 'MCU / Processor', subCategory: '車規/單源/高階 MCU（斷供高後果）', mpn: 'MK64FN1M0VLL12', manufacturer: 'NXP', family: 'Kinetis MCU', role: 'chokepoint' },
@@ -123,7 +119,6 @@ export const BENCHMARK_PARTS: BenchmarkPart[] = [
   { categoryId: 'C07', category: 'Crystal / Oscillator', subCategory: '32.768 kHz plus 8/24/25 MHz timing parts', mpn: 'ABM3B-8.000MHZ-B2-T', manufacturer: 'Abracon', family: '8 MHz crystal', role: 'thermometer' },
   { categoryId: 'C07', category: 'Crystal / Oscillator', subCategory: '32.768 kHz plus 8/24/25 MHz timing parts', mpn: 'AB38T-32.768KHZ', manufacturer: 'Abracon', family: '32.768 kHz crystal', role: 'thermometer' },
   { categoryId: 'C07', category: 'Crystal / Oscillator', subCategory: '特定原廠時脈（NDK/SiTime/Microchip）', mpn: 'NX3225SA-25.000M-STD-CRS-2', manufacturer: 'NDK', family: '25 MHz crystal', role: 'chokepoint' },
-  { categoryId: 'C07', category: 'Crystal / Oscillator', subCategory: '特定原廠時脈（NDK/SiTime/Microchip）', mpn: 'SIT8008BI-73-33E-25.000000E', manufacturer: 'SiTime', family: '25 MHz MEMS oscillator', role: 'chokepoint' },
   { categoryId: 'C07', category: 'Crystal / Oscillator', subCategory: '特定原廠時脈（NDK/SiTime/Microchip）', mpn: 'DSC1001CI2-025.0000', manufacturer: 'Microchip', family: '25 MHz oscillator', role: 'chokepoint' },
   { categoryId: 'C07', category: 'Crystal / Oscillator', subCategory: '32.768 kHz plus 8/24/25 MHz timing parts', mpn: 'ABM10W-24.0000MHZ-8-D1X-T3', manufacturer: 'Abracon', family: '24 MHz crystal', role: 'field' },
   { categoryId: 'C07', category: 'Crystal / Oscillator', subCategory: '32.768 kHz plus 8/24/25 MHz timing parts', mpn: 'ECS-2520MV-250-CN-TR', manufacturer: 'ECS', family: '25 MHz oscillator', role: 'field' },
@@ -152,11 +147,9 @@ export const BENCHMARK_PARTS: BenchmarkPart[] = [
   { categoryId: 'C10', category: 'Interface IC', subCategory: 'CAN, RS-485, USB-UART, Ethernet PHY/controller', mpn: 'MCP2562-E/SN', manufacturer: 'Microchip', family: 'CAN transceiver', role: 'thermometer' },
   { categoryId: 'C10', category: 'Interface IC', subCategory: 'CAN, RS-485, USB-UART, Ethernet PHY/controller', mpn: 'MAX485ESA+', manufacturer: 'Analog Devices', family: 'RS-485 transceiver', role: 'thermometer' },
   { categoryId: 'C10', category: 'Interface IC', subCategory: 'CAN, RS-485, USB-UART, Ethernet PHY/controller', mpn: 'ADM485ARZ', manufacturer: 'Analog Devices', family: 'RS-485 transceiver', role: 'thermometer' },
-  { categoryId: 'C10', category: 'Interface IC', subCategory: '單一原廠介面 IC（FTDI/SiLabs/WIZnet）', mpn: 'FT232RNL-REEL', manufacturer: 'FTDI', family: 'USB-UART bridge（單源）', role: 'chokepoint' },
   { categoryId: 'C10', category: 'Interface IC', subCategory: '單一原廠介面 IC（FTDI/SiLabs/WIZnet）', mpn: 'CP2102N-A02-GQFN28R', manufacturer: 'Silicon Labs', family: 'USB-UART bridge（單源）', role: 'chokepoint' },
   { categoryId: 'C10', category: 'Interface IC', subCategory: '單一原廠介面 IC（FTDI/SiLabs/WIZnet）', mpn: 'W5500', manufacturer: 'WIZnet', family: 'Ethernet controller（單源）', role: 'chokepoint' },
   { categoryId: 'C10', category: 'Interface IC', subCategory: 'CAN, RS-485, USB-UART, Ethernet PHY/controller', mpn: 'SN65HVD230DR', manufacturer: 'Texas Instruments', family: 'CAN transceiver', role: 'field' },
-  { categoryId: 'C10', category: 'Interface IC', subCategory: 'CAN, RS-485, USB-UART, Ethernet PHY/controller', mpn: 'LAN8720A-CP-TR', manufacturer: 'Microchip', family: 'Ethernet PHY', role: 'field' },
   { categoryId: 'C10', category: 'Interface IC', subCategory: 'CAN, RS-485, USB-UART, Ethernet PHY/controller', mpn: 'KSZ8081RNBCA-TR', manufacturer: 'Microchip', family: 'Ethernet PHY', role: 'field' },
   { categoryId: 'C10', category: 'Interface IC', subCategory: 'CAN, RS-485, USB-UART, Ethernet PHY/controller', mpn: 'MCP2515-I/SO', manufacturer: 'Microchip', family: 'CAN controller', role: 'field' },
 
@@ -166,7 +159,6 @@ export const BENCHMARK_PARTS: BenchmarkPart[] = [
   { categoryId: 'C11', category: 'Inductor / Choke', subCategory: 'Power inductors and EMI chokes for DC/DC and VRM', mpn: 'SRP4020TA-2R2M', manufacturer: 'Bourns', family: '2.2uH shielded inductor', role: 'thermometer' },
   { categoryId: 'C11', category: 'Inductor / Choke', subCategory: 'Power inductors and EMI chokes for DC/DC and VRM', mpn: 'SRP5030T-4R7M', manufacturer: 'Bourns', family: '4.7uH shielded inductor', role: 'thermometer' },
   { categoryId: 'C11', category: 'Inductor / Choke', subCategory: 'Power inductors and EMI chokes for DC/DC and VRM', mpn: 'SRP4020TA-1R0M', manufacturer: 'Bourns', family: '1uH power inductor', role: 'thermometer' },
-  { categoryId: 'C11', category: 'Inductor / Choke', subCategory: 'Power inductors and EMI chokes for DC/DC and VRM', mpn: 'LQH43PN4R7M02L', manufacturer: 'Murata', family: '4.7uH inductor', role: 'thermometer' },
   { categoryId: 'C11', category: 'Inductor / Choke', subCategory: 'Power inductors and EMI chokes for DC/DC and VRM', mpn: 'NRS4018T100MDGJ', manufacturer: 'Taiyo Yuden', family: '10uH power inductor', role: 'thermometer' },
   { categoryId: 'C11', category: 'Inductor / Choke', subCategory: '大型功率電感/共模扼流圈', mpn: '7443551470', manufacturer: 'Wurth Elektronik', family: '47uH power inductor', role: 'chokepoint' },
   { categoryId: 'C11', category: 'Inductor / Choke', subCategory: '大型功率電感/共模扼流圈', mpn: '744231091', manufacturer: 'Wurth Elektronik', family: 'Common mode choke', role: 'chokepoint' },
@@ -180,8 +172,6 @@ export const BENCHMARK_PARTS: BenchmarkPart[] = [
   { categoryId: 'C12', category: 'Aluminum / Polymer Capacitor', subCategory: '聚合物電容（AI 伺服器 VRM 需求急升）', mpn: '6SVPC220M', manufacturer: 'Panasonic', family: '220uF polymer capacitor', role: 'chokepoint' },
   { categoryId: 'C12', category: 'Aluminum / Polymer Capacitor', subCategory: '聚合物電容（AI 伺服器 VRM 需求急升）', mpn: '10SVPC270M', manufacturer: 'Panasonic', family: '270uF polymer capacitor', role: 'chokepoint' },
   { categoryId: 'C12', category: 'Aluminum / Polymer Capacitor', subCategory: '聚合物電容（AI 伺服器 VRM 需求急升）', mpn: '25SVPF180M', manufacturer: 'Panasonic', family: '180uF polymer capacitor', role: 'chokepoint' },
-  { categoryId: 'C12', category: 'Aluminum / Polymer Capacitor', subCategory: 'Bulk capacitance for PSU, server, adapter boards', mpn: '875115352002', manufacturer: 'Wurth Elektronik', family: '220uF polymer capacitor', role: 'field' },
-  { categoryId: 'C12', category: 'Aluminum / Polymer Capacitor', subCategory: 'Bulk capacitance for PSU, server, adapter boards', mpn: 'PLF1C101MDO1TD', manufacturer: 'Nichicon', family: '100uF polymer capacitor', role: 'field' },
 
   // ── C13 Optocoupler / Digital Isolator（9）─────────────
   { categoryId: 'C13', category: 'Optocoupler / Digital Isolator', subCategory: 'Isolation for PSU, industrial, EV and controls', mpn: 'PC817X2NSZ9F', manufacturer: 'Sharp', family: 'Photocoupler', role: 'thermometer' },
@@ -200,7 +190,6 @@ export const BENCHMARK_PARTS: BenchmarkPart[] = [
   { categoryId: 'C14', category: 'Ethernet / Networking IC', subCategory: 'PHY, switch, retimer and networking support IC', mpn: 'KSZ8081MNXIA-TR', manufacturer: 'Microchip', family: '10/100 Ethernet PHY', role: 'thermometer' },
   { categoryId: 'C14', category: 'Ethernet / Networking IC', subCategory: '交換器/retimer（單源、AI 伺服器高速訊號）', mpn: 'KSZ8895MQXIA', manufacturer: 'Microchip', family: '5-port Ethernet switch', role: 'chokepoint' },
   { categoryId: 'C14', category: 'Ethernet / Networking IC', subCategory: '交換器/retimer（單源、AI 伺服器高速訊號）', mpn: '88E1512-A0-NNP2I000', manufacturer: 'Marvell', family: 'Gigabit Ethernet PHY', role: 'chokepoint' },
-  { categoryId: 'C14', category: 'Ethernet / Networking IC', subCategory: '交換器/retimer（單源、AI 伺服器高速訊號）', mpn: 'PI3EQX1004ZHEX', manufacturer: 'Diodes Inc.', family: 'Signal retimer/equalizer', role: 'chokepoint' },
   { categoryId: 'C14', category: 'Ethernet / Networking IC', subCategory: '交換器/retimer（單源、AI 伺服器高速訊號）', mpn: 'DS125BR820NJYT', manufacturer: 'Texas Instruments', family: 'High-speed retimer', role: 'chokepoint' },
   { categoryId: 'C14', category: 'Ethernet / Networking IC', subCategory: '交換器/retimer（單源、AI 伺服器高速訊號）', mpn: 'AR8035-AL1B', manufacturer: 'Qualcomm Atheros', family: 'Gigabit Ethernet PHY', role: 'chokepoint' },
   { categoryId: 'C14', category: 'Ethernet / Networking IC', subCategory: 'PHY, switch, retimer and networking support IC', mpn: 'KSZ9031RNXIC', manufacturer: 'Microchip', family: 'Gigabit Ethernet PHY', role: 'field' },
@@ -211,7 +200,6 @@ export const BENCHMARK_PARTS: BenchmarkPart[] = [
   { categoryId: 'C15', category: 'Thermal / Fan / Power Module', subCategory: 'Fans, thermal interface, DC modules, power modules', mpn: 'R-78E5.0-0.5', manufacturer: 'RECOM Power', family: 'DC/DC converter module', role: 'thermometer' },
   { categoryId: 'C15', category: 'Thermal / Fan / Power Module', subCategory: 'Fans, thermal interface, DC modules, power modules', mpn: 'OKI-78SR-5/1.5-W36-C', manufacturer: 'Murata Power', family: 'DC/DC converter module', role: 'thermometer' },
   { categoryId: 'C15', category: 'Thermal / Fan / Power Module', subCategory: '風扇/AC-DC 模組（單源）', mpn: 'IRM-20-5', manufacturer: 'Mean Well', family: 'AC/DC power module', role: 'chokepoint' },
-  { categoryId: 'C15', category: 'Thermal / Fan / Power Module', subCategory: '風扇/AC-DC 模組（單源）', mpn: 'OD4010-12HHSS', manufacturer: 'Orion Fans', family: '40mm 12V fan', role: 'chokepoint' },
   { categoryId: 'C15', category: 'Thermal / Fan / Power Module', subCategory: 'Fans, thermal interface, DC modules, power modules', mpn: 'MF60151V1-1000U-A99', manufacturer: 'Sunon', family: '60mm 12V fan', role: 'field' },
 ];
 

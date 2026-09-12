@@ -1,4 +1,4 @@
-import { getMarketReportsCache, getGenericCache, listGenericCacheByPrefix, setGenericCache, getDemandForecastSnapshotHistory, type SnapshotPoint } from '@/lib/db';
+import { getMarketReportsCache, getGenericCache, listGenericCacheByPrefix, setGenericCache } from '@/lib/db';
 import { DEMAND_CATEGORIES, BENCHMARK_PARTS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
 import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
 import { translateToZhTW } from '@/lib/demand-forecast/translate';
@@ -28,76 +28,53 @@ const BROWSER_HEADERS = {
 
 type WeeklyRiskLevel = 'high' | 'medium' | 'normal';
 
-// 類別層級的「自家快照」週環比訊號（不點名個別料號，只彙總到類別）
+// 類別層級的「自家通路」訊號——由 risk.ts 對每顆基準料的判定結果彙總而來（2026-09-12 起）。
+// 以前週報自己算一套週環比（週減 30/50%、漲 10/20%），與看板的 risk.ts（50/80%、30%、交期 +8 週）
+// 漂移，而且完全沒看交期——回測命中率最高（95%）的訊號。現在直接讀 parts cache 裡的
+// eventCodes / alertKind，看板亮什麼，週報就說什麼。不點名個別料號，只彙總到類別。
 export interface CategoryDataSignal {
-  partsWithSnapshot: number;   // 該類別中有足夠快照可比的料件數
-  stockDrop50: number;         // 庫存週減 ≥50% 的料件數
-  stockDrop30: number;         // 庫存週減 ≥30% 的料件數
-  priceRise20: number;         // 最低價週漲 ≥20% 的料件數
-  priceRise10: number;         // 最低價週漲 ≥10% 的料件數
-  supplierDrop: number;        // 供應商家數較上週減少的料件數
-  worstStockPct: number | null;// 最深庫存跌幅（負數）
-  worstPricePct: number | null;// 最大漲價幅（正數）
+  partsWithSnapshot: number;   // 該類別有代理商資料的料件數
+  eventParts: number;          // 本週有趨勢事件或等級升高的料件數（alertKind === 'event'）
+  structuralParts: number;     // 長期結構性異常（EOL／長期低庫存），不算本週變化
+  stockDrop50: number;         // 庫存較上週減 ≥50%（含 ≥80%）
+  stockDrop80: number;         // 庫存較上週減 ≥80%
+  priceRise30: number;         // 最低價較上週漲 ≥30%
+  leadTimeUp: number;          // 最短交期較上週拉長 ≥8 週——主訊號
+  supplierDrop: number;        // 授權分銷商 2 家降 1 家
+  relLow: number;              // 庫存低於自身歷史 P20 低水位
   tone: WeeklyRiskLevel;       // 純數據嚴重度
-  text: string;                // 類別層級的數據敘述（資料驅動，每週不同）
+  text: string;                // 類別層級的質性敘述（不輸出顆數／百分比）
 }
 
 const EMPTY_DATA_SIGNAL: CategoryDataSignal = {
-  partsWithSnapshot: 0, stockDrop50: 0, stockDrop30: 0, priceRise20: 0,
-  priceRise10: 0, supplierDrop: 0, worstStockPct: null, worstPricePct: null,
-  tone: 'normal', text: '',
+  partsWithSnapshot: 0, eventParts: 0, structuralParts: 0, stockDrop50: 0, stockDrop80: 0,
+  priceRise30: 0, leadTimeUp: 0, supplierDrop: 0, relLow: 0, tone: 'normal', text: '',
 };
 
-// 找出「上週」對照點：最新點之前、距今 ≥5 天的最近一點；找不到就退而求其次取倒數第二點
-function previousWeekPoint(points: SnapshotPoint[]): SnapshotPoint | null {
-  if (points.length < 2) return null;
-  const latest = points[points.length - 1];
-  const latestTime = new Date(latest.date).getTime();
-  for (let i = points.length - 2; i >= 0; i--) {
-    const gapDays = (latestTime - new Date(points[i].date).getTime()) / 86400000;
-    if (gapDays >= 5) return points[i];
-  }
-  return points[points.length - 2];
-}
-
-// 計算單一類別的快照週環比彙總
-function computeCategoryDataSignal(
-  categoryId: string,
-  history: Record<string, SnapshotPoint[]>
-): CategoryDataSignal {
-  const mpns = BENCHMARK_PARTS.filter((p) => p.categoryId === categoryId).map((p) => p.mpn);
+// 由 parts cache（mode=full 週六寫入、mode=cached 讀取時以 risk.ts 重算）彙總單一類別
+function computeCategoryDataSignal(categoryId: string, parts: any[]): CategoryDataSignal {
   const signal: CategoryDataSignal = { ...EMPTY_DATA_SIGNAL };
-
-  for (const mpn of mpns) {
-    const points = history[mpn];
-    if (!points || points.length < 2) continue;
-    const latest = points[points.length - 1];
-    const prev = previousWeekPoint(points);
-    if (!prev) continue;
+  for (const part of parts) {
+    if (part.categoryId !== categoryId) continue;
+    if (!(part.supplierCount > 0)) continue;                 // 尚未查詢／無代理商資料
+    if (part.riskLevel === '無資料') continue;               // 代理商未備貨（死料降級）
     signal.partsWithSnapshot += 1;
-
-    // 庫存週環比
-    if (prev.totalStock > 0) {
-      const stockPct = ((latest.totalStock - prev.totalStock) / prev.totalStock) * 100;
-      if (stockPct <= -50) signal.stockDrop50 += 1;
-      if (stockPct <= -30) signal.stockDrop30 += 1;
-      if (signal.worstStockPct === null || stockPct < signal.worstStockPct) signal.worstStockPct = stockPct;
-    }
-    // 價格週環比
-    if (prev.price != null && latest.price != null && prev.price > 0) {
-      const pricePct = ((latest.price - prev.price) / prev.price) * 100;
-      if (pricePct >= 20) signal.priceRise20 += 1;
-      if (pricePct >= 10) signal.priceRise10 += 1;
-      if (signal.worstPricePct === null || pricePct > signal.worstPricePct) signal.worstPricePct = pricePct;
-    }
-    // 供應商家數減少
-    if (prev.supplierCount > latest.supplierCount) signal.supplierDrop += 1;
+    const codes: string[] = Array.isArray(part.eventCodes) ? part.eventCodes : [];
+    if (part.alertKind === 'event') signal.eventParts += 1;
+    if (part.alertKind === 'structural') signal.structuralParts += 1;
+    if (codes.includes('stockDrop80')) { signal.stockDrop80 += 1; signal.stockDrop50 += 1; }
+    else if (codes.includes('stockDrop50')) signal.stockDrop50 += 1;
+    if (codes.includes('priceRise30')) signal.priceRise30 += 1;
+    if (codes.includes('leadTimeIncrease56')) signal.leadTimeUp += 1;
+    if (codes.includes('supplierDrop')) signal.supplierDrop += 1;
+    if ((part.riskReasons ?? []).some((r: string) => r.includes('低於自身歷史低水位'))) signal.relLow += 1;
   }
 
+  // 交期拉長升為主訊號（回測 95% 命中）；庫存暴跌同級；其餘事件為中
   signal.tone =
-    signal.stockDrop50 > 0 || signal.priceRise20 > 0 || signal.supplierDrop > 0
+    signal.leadTimeUp > 0 || signal.stockDrop80 > 0 || signal.eventParts >= 2
       ? 'high'
-      : signal.stockDrop30 > 0 || signal.priceRise10 > 0
+      : signal.eventParts > 0 || signal.relLow > 0
         ? 'medium'
         : 'normal';
 
@@ -110,13 +87,14 @@ function buildDataSignalText(categoryId: string, s: CategoryDataSignal): string 
   if (s.partsWithSnapshot === 0) return '';
   const label = categoryLabel(categoryId);
   const trends: string[] = [];
-  if (s.stockDrop50 > 0) trends.push('通路庫存水位明顯下滑');
-  else if (s.stockDrop30 > 0) trends.push('通路庫存出現去化跡象');
-  if (s.priceRise20 > 0) trends.push('價格走勢轉強');
-  else if (s.priceRise10 > 0) trends.push('價格略有上行');
-  if (s.supplierDrop > 0) trends.push('供應來源有收斂現象');
+  if (s.leadTimeUp > 0) trends.push('補貨交期明顯拉長');
+  if (s.stockDrop80 > 0) trends.push('通路庫存急遽去化');
+  else if (s.stockDrop50 > 0) trends.push('通路庫存明顯下滑');
+  if (s.priceRise30 > 0) trends.push('報價明顯走高');
+  if (s.supplierDrop > 0) trends.push('供應來源收斂');
+  if (s.relLow > 0) trends.push('部分料件庫存落到自身歷史低檔');
   if (trends.length === 0) {
-    return `${label}本週通路供應平穩，庫存與價格未見明顯波動。`;
+    return `${label}本週通路供應平穩，庫存、交期與價格未見明顯波動。`;
   }
   return `本站每週通路監測顯示，${label}本週${trends.join('、')}。`;
 }
@@ -477,7 +455,7 @@ export interface WeeklyIssueSection {
 interface WeeklyIssueDraft {
   leadHeadline: string;
   lede: string;
-  items: Array<{ categoryId: string; headline: string; story: string[]; watchpoint: string }>;
+  items: Array<{ categoryId: string; headline: string; story: string[]; watchpoint: string; action: string }>;
 }
 
 /**
@@ -551,12 +529,13 @@ ${materialText}
 4. headline 要像報紙標題：主體＋動作＋（有的話）數字，例如「三星減產 DDR4，記憶體現貨價一週漲 12%」。必須取材自該篇素材的具體事實，20 字以內。禁止出現「訊號升溫」「值得留意」「壓力浮現」「水溫上升」「納入觀察」這類空詞，禁止只寫類別名加形容詞。
 5. story 兩到三段、每篇合計 280–420 個中文字，筆調像報紙產業版：自然、好讀、有主詞、有動作動詞。禁止空泛詞堆疊，禁止 meta 說明（不要說「本段整理」「根據素材」）。自然帶出消息來源名稱。
 6. watchpoint：一句 25–45 字的「後續觀察」，說明接下來一兩週該盯哪個指標、價格或事件。是觀察點，不是待辦清單，不要寫「請採購確認…」這種指令句。
+6b. action：一句 30–70 字的「行動建議」，寫給採購／PM／工程，必須對應這篇報導的具體事實（例如針對哪種規格、哪家原廠、鎖價還是備替代料、建議提前幾週下單）。每篇不同，不要套同一句話。
 7. leadHeadline：整期頭條，取本期最重要的一條事實寫成 25 字以內的標題，規則同第 4 點。
 8. lede：整期導言一段 80–120 字，說明本期最值得看的是什麼、為什麼。
 9. 全部繁體中文純文字。禁止任何 Markdown 符號（**、#、- 條列）與獨立標題行。
 
 只輸出 JSON，不要任何其他文字：
-{"leadHeadline":"","lede":"","items":[{"categoryId":"${usable[0].categoryId}","headline":"","story":["",""],"watchpoint":""}]}
+{"leadHeadline":"","lede":"","items":[{"categoryId":"${usable[0].categoryId}","headline":"","story":["",""],"watchpoint":"","action":""}]}
 items 必須依序涵蓋上面每一個 categoryId，一個都不能少、不能多。`;
 
   const runWithModel = async (model: string): Promise<WeeklyIssueDraft | null> => {
@@ -619,6 +598,7 @@ items 必須依序涵蓋上面每一個 categoryId，一個都不能少、不能
             headline: stripMarkdownDecoration(item?.headline),
             story: toParagraphs(item?.story),
             watchpoint: stripMarkdownDecoration(item?.watchpoint),
+            action: stripMarkdownDecoration(item?.action),
           }))
           .filter((item: WeeklyIssueDraft['items'][number]) => item.categoryId && item.story.length > 0);
 
@@ -701,22 +681,24 @@ items 必須依序涵蓋上面每一個 categoryId，一個都不能少、不能
 // 報紙式標題：數據只決定「講哪件事」，標題本身不出現顆數/百分比
 function dataDrivenHeadline(category: string, d: CategoryDataSignal, lifecycleCount: number, crossHit: boolean): string {
   const short = shortCategoryName(category);
+  if (crossHit && d.leadTimeUp > 0) return `${short}補貨交期拉長，市場消息同步轉緊`;
   if (crossHit && d.stockDrop50 > 0) return `${short}通路庫存快速去化，市場消息同步轉緊`;
-  if (crossHit && d.priceRise20 > 0) return `${short}價格蠢蠢欲動，供應端傳出漲價聲音`;
+  if (crossHit && d.priceRise30 > 0) return `${short}報價走高，供應端傳出漲價聲音`;
   if (crossHit) return `${short}供應訊號升溫，通路與市場消息同步示警`;
+  if (d.leadTimeUp > 0) return `${short}補貨交期較上週明顯拉長，建議提早下單`;
   if (d.stockDrop50 > 0) return `${short}通路庫存水位明顯下滑，補貨交期值得留意`;
-  if (d.priceRise20 > 0) return `${short}價格走勢轉強，採購成本壓力浮現`;
+  if (d.priceRise30 > 0) return `${short}價格走勢轉強，採購成本壓力浮現`;
   if (d.supplierDrop > 0) return `${short}供應來源收斂，替代方案宜先預備`;
-  if (d.stockDrop30 > 0) return `${short}通路庫存悄悄去化，建議納入觀察`;
-  if (d.priceRise10 > 0) return `${short}報價略有上行，後續走勢待觀察`;
+  if (d.relLow > 0) return `${short}部分料件庫存落到自身低檔，建議納入觀察`;
   if (lifecycleCount > 0) return `${short}原廠發布生命週期公告，替代方案需提早評估`;
   return `${short}出現外部供應警示，列入觀察名單`;
 }
 
 function dataDrivenSuggestedMove(d: CategoryDataSignal, newsCount: number, lifecycleCount: number, crossHit: boolean): string {
   const moves: string[] = [];
-  if (d.stockDrop50 > 0 || d.stockDrop30 > 0) moves.push('請採購對照本類別 BOM 料號，向授權代理商確認未來 4-8 週在途量與可供量');
-  if (d.priceRise20 > 0 || d.priceRise10 > 0) moves.push('PM 重新檢視 Forecast 採購預算，並與原廠洽談鎖價或配額');
+  if (d.leadTimeUp > 0) moves.push('補貨交期較上週拉長，請採購把本類別的安全庫存週數往上調並提早下單');
+  if (d.stockDrop50 > 0 || d.relLow > 0) moves.push('請採購對照本類別 BOM 料號，向授權代理商確認未來 4-8 週在途量與可供量');
+  if (d.priceRise30 > 0) moves.push('PM 重新檢視 Forecast 採購預算，並與原廠洽談鎖價或配額');
   if (d.supplierDrop > 0) moves.push('供應商收斂，建議工程端先備妥替代料（Second Source）清單');
   if (lifecycleCount > 0) moves.push('比對 BOM 是否含 PCN/EOL 公告料號，確認最後下單日（LTB）並啟動替代認證');
   if (moves.length === 0) {
@@ -731,12 +713,14 @@ function dataDrivenSuggestedMove(d: CategoryDataSignal, newsCount: number, lifec
 function buildExecutiveItem(
   signal: WeeklyReportDetail['categorySignals'][number],
   evidence: string[],
-  aiItem?: { headline: string; story: string[]; watchpoint: string }
+  aiItem?: { headline: string; story: string[]; watchpoint: string; action?: string }
 ) {
   const category = signal.category;
   const d = signal.data;
   const localHeadline = dataDrivenHeadline(category, d, signal.lifecycleCount, signal.crossHit);
-  const suggestedMove = dataDrivenSuggestedMove(d, signal.newsCount, signal.lifecycleCount, signal.crossHit);
+  // 行動建議：AI 依報導事實寫（每篇不同）；沒有 AI 稿或太短才退回 if/else 罐頭句
+  const localMove = dataDrivenSuggestedMove(d, signal.newsCount, signal.lifecycleCount, signal.crossHit);
+  const suggestedMove = aiItem?.action && aiItem.action.length >= 15 ? aiItem.action : localMove;
 
   const headline = aiItem && !isHollowHeadline(aiItem.headline) ? aiItem.headline : localHeadline;
   const story = aiItem && aiItem.story.length > 0 ? aiItem.story : dataGroundedFallbackStory(signal, evidence);
@@ -801,9 +785,12 @@ function describeCategorySignal(
 
 // 報告摘要一律取自報告本身的實際內容，不加任何寫死的敘述——
 // 寫死文案會在來源報告換題目後繼續照唸，內容與事實脫鉤（2026-07 review 修正）。
+// Gemini 一句摘要撞免費層限流時，fetcher 會退回「來源頁面在相近段落中提及『x』與供應鏈相關風險…」
+// 這種罐頭句——那不是內容，直接改用報告原文片段（2026-09-12）。
 function reportSummary(report: any) {
-  const summary = report.summaryZh || report.evidenceTextZh || report.evidenceText || report.titleZh || report.title || '';
-  return String(summary).replace(/\s+/g, ' ').trim();
+  const ai = report.isAiSummary && report.summaryZh && !/^來源頁面在相近段落中提及/.test(report.summaryZh) ? report.summaryZh : '';
+  const summary = ai || report.evidenceTextZh || report.evidenceText || report.titleZh || report.title || '';
+  return String(summary).replace(/\s+/g, ' ').replace(/^\.{3}/, '').trim();
 }
 
 async function reportEvidence(report: any) {
@@ -891,10 +878,13 @@ function buildWeeklyTitle(
   }
   // 純通路觀測異動（市場消息尚未發酵）
   if (primary.data.tone !== 'normal') {
-    if (primary.data.priceRise10 > 0 && primary.data.stockDrop30 === 0) {
+    if (primary.data.leadTimeUp > 0) {
+      return `物料預測週報｜${dateText}｜${catText} 補貨交期拉長，建議提早下單`;
+    }
+    if (primary.data.priceRise30 > 0 && primary.data.stockDrop50 === 0) {
       return `物料預測週報｜${dateText}｜${catText} 價格走勢轉強，留意採購成本`;
     }
-    if (primary.data.supplierDrop > 0 && primary.data.stockDrop30 === 0 && primary.data.priceRise10 === 0) {
+    if (primary.data.supplierDrop > 0 && primary.data.stockDrop50 === 0 && primary.data.priceRise30 === 0) {
       return `物料預測週報｜${dateText}｜${catText} 供應來源收斂，建議預備替代方案`;
     }
     return `物料預測週報｜${dateText}｜${catText} 通路庫存走弱，值得提早留意`;
@@ -913,7 +903,9 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // v5＝2026-09-12 素材正確性：新聞分類改字邊界比對＋股票站黑名單、市場報告抽正文並以 contentHash 去重、
 //     生命週期只算本期首次出現（舊 NRND 歸長期觀察）。
 // v6＝2026-09-12 接入華強烽火指數：大盤三指數進導言脈絡、當日熱料當各類別的現貨熱搜訊號（獨立於 150 顆）。
-const REPORT_BUILD_REV = 6;
+// v7＝2026-09-12 類別訊號改讀 risk.ts 結果（交期升主訊號）、行動建議改由 Gemini 依報導事實生成、
+//     市場報告罐頭摘要退回原文片段、名單瘦身至 133 顆。
+const REPORT_BUILD_REV = 7;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
@@ -1091,8 +1083,12 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   // 舊的 newsCache.lifecycleNews 永遠是空的）。資料來源＝150 顆基準料的最近一次查詢快取。
   // 只有「本期首次出現／狀態改變」的料才算本週事件；前幾期報過的歸長期觀察，不再重複當新聞寫。
   const partsCache = await readPartsCache();
+  // 自家通路訊號直接用看板的判定結果（parts cache 內的 eventCodes / alertKind，由 risk.ts 產生），
+  // 週報與看板不再各算一套。只算現行名單（快取在下一次 mode=full 前仍含已汰換的料）。
+  const benchmarkMpns = new Set(BENCHMARK_PARTS.map((p) => p.mpn.toUpperCase()));
+  const benchmarkParts: any[] = ((partsCache?.parts ?? []) as any[]).filter((p) => benchmarkMpns.has(String(p.mpn).toUpperCase()));
   const lifecycleRegistry = await loadLifecycleRegistry(previousIssues);
-  const flaggedParts = ((partsCache?.parts ?? []) as any[])
+  const flaggedParts = benchmarkParts
     .map((part) => ({ part, severity: lifecycleFlag(part.lifecycleStatus) }))
     .filter((item): item is { part: any; severity: 'high' | 'medium' } => item.severity !== null)
     .sort((a, b) => (a.severity === 'high' ? 0 : 1) - (b.severity === 'high' ? 0 : 1));
@@ -1125,10 +1121,6 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     console.warn('[WeeklyReport] lifecycle registry write failed:', err);
   }
 
-  // 自家快照（150 顆基準料的週環比）——這是別人沒有的內部測量，當主訊號
-  const allMpns = BENCHMARK_PARTS.map((p) => p.mpn);
-  const snapshotHistory = await getDemandForecastSnapshotHistory(allMpns);
-
   // 華強烽火指數：現貨市場需求端。熱料清單獨立於 150 顆，不互相比對。
   // 「外部訊號」只算本週新上榜的料——STM32F103 這種常年在榜的不算事件。
   let fenghuo: FenghuoView | null = null;
@@ -1145,7 +1137,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     const lifecycleCount = lifecycleParts.filter((item) => item.part.categoryId === cat.categoryId).length;
     const reportNotes = categoryReportNotes(cat.categoryId, marketReports);
     const marketReportCount = reportNotes.length;
-    const data = computeCategoryDataSignal(cat.categoryId, snapshotHistory);
+    const data = computeCategoryDataSignal(cat.categoryId, benchmarkParts);
     const hotInCat = hotPartsInCategory(cat.categoryId);
     const hotSearchCount = hotInCat.length;
     const hotSearchNew = hotInCat.filter((p) => p.isNew).length;
@@ -1182,7 +1174,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       const score = (x: typeof a) =>
         (x.crossHit ? 100 : 0) +
         (x.data.tone === 'high' ? 40 : x.data.tone === 'medium' ? 20 : 0) +
-        x.data.stockDrop30 * 3 + x.data.priceRise10 * 3 + x.data.supplierDrop * 3 +
+        x.data.leadTimeUp * 5 + x.data.stockDrop50 * 3 + x.data.priceRise30 * 3 + x.data.supplierDrop * 3 +
         x.newsCount + x.lifecycleCount + x.marketReportCount + x.hotSearchNew * 2;
       return score(b) - score(a);
     })

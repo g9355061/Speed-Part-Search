@@ -14,6 +14,15 @@ const transporter = configured
 const FROM = process.env.SMTP_FROM || 'Speed Part Search <noreply@speedpartsearch.com>';
 const SITE_URL = process.env.NEXTAUTH_URL || 'http://localhost:5280';
 
+export const isEmailConfigured = configured;
+
+/** 週報摘要（2026-09-12 主動投遞）：一封信寄給全部收件人，回傳 nodemailer 的 messageId */
+export async function sendWeeklyDigestEmail(recipients: string[], subject: string, text: string, html: string) {
+  if (!transporter) throw new Error('SMTP 未設定（需要 SMTP_HOST / SMTP_USER / SMTP_PASS）');
+  const info = await transporter.sendMail({ from: FROM, to: recipients.join(', '), subject, text, html });
+  return info.messageId as string;
+}
+
 export async function sendPasswordResetEmail(email: string, token: string) {
   const url = `${SITE_URL}/reset-password?token=${token}`;
   if (!transporter) {
