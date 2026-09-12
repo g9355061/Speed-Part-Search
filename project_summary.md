@@ -1,6 +1,24 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-12（接入華強烽火指數：現貨市場需求端指標，獨立於 150 顆基準料）
+> 最後更新：2026-09-12（第三輪 review 全部落實：週報主動投遞、死料降級、名單瘦身 133 顆、週報訊號接 risk.ts、AI 行動建議）
+
+---
+
+### 2026-09-12 — 第三輪 review 全部落實（投遞、死料、名單、訊號、行動建議、流程）
+
+**背景**：第三輪 review 從使用量切入——正式站 5 個帳號、7 月底後每週登入 0–2 次、30 天內料件搜尋 1 筆、三張月度體檢 issue 全 open。結論是「系統每週忠實跑，但沒人看」，最大問題是投遞方式不是演算法。Danny 指示全部照建議改；撰稿模型維持 Gemini 3.8 Flash（Claude／OpenAI API 皆需另外儲值，每月幾毛美金，Danny 選擇不換）。
+
+- [x] **週報主動投遞**：`weekly-digest.ts` 產生純文字（群組）＋HTML（信件）摘要——大標、導言、封面故事各一段＋行動、現貨市場一句、長期觀察、完整連結。`POST /api/demand-forecast/weekly-reports/deliver`（x-cron-secret）依 `WEEKLY_REPORT_RECIPIENTS`（需 SMTP_HOST/USER/PASS）與 `WEEKLY_REPORT_WEBHOOK_URL`（Teams/Slack incoming webhook，POST `{text}`）投遞；同期只投一次（`?force=1` 重寄、`?preview=1` 預覽）。workflow 週報固化後呼叫，未設定管道只 warning。**目前正式站兩個管道都還沒設**（SMTP_PASS 缺、無 webhook），端點實測正確回「未設定任何投遞管道」；設好變數下週一即自動寄。
+- [x] **cron 提早**：weekly-report-build 由 UTC 週一 00:10 改為週日 21:23（台北週一 05:23）。實測 8 次整點排程全部延遲 1.5–5 小時，08:10 的設定 09:51–13:24 才跑。
+- [x] **死料自動降級**（`risk.ts` `DEAD_ZERO_STREAK=4`）：連續 ≥4 次快照庫存 0 改判「無資料／代理商未備貨」，不再是假高風險；`zeroStreak` 由 `buildRiskContexts` 一次算好（mode=full 與 cached 同路徑）；頁面 `RiskBadge` 加對應狀態並對未知字串容錯。正式站實測：高風險 25→15 顆，7 顆改判未備貨（GRM21BR61C106KE15L、TPS7A4700RGWR、TPS62130RGTR、MX25L25645GM2I-08G、STM32H743VIT6、88E1512、AR8035）。
+- [x] **名單瘦身 150→133**：依 benchmark-health 移除 17 顆（4 EOL/NRND、6 連續無資料、7 死訊號），暫不補料。頁面與 workflow 的「150」改動態（`BENCHMARK_PARTS.length`／伺服器回傳 parts 長度），新鮮度門檻改「總數−10」。三張體檢 issue（#1–#3）已附說明關閉。
+- [x] **週報訊號單一來源**：`CategoryDataSignal` 改由 parts cache 的 `eventCodes`／`alertKind`／`riskReasons` 彙總（與看板同一份 risk.ts 判定），不再自算週減 30/50%；**交期拉長升為主訊號**（tone high；回測 95% 命中）；標題／敘述／排序同步改；只算現行名單。
+- [x] **行動建議改 AI 生成**：Gemini 整期 JSON 加 `action` 欄（30–70 字、對應該篇事實、每篇不同），無 AI 稿才退回 if/else 罐頭句。實測 9/7 期兩篇分別為「針對標準型 DRAM 與 Flash 盤點至 Q4 需求並洽談鎖定一季合約價」「0603 以上高容值 MLCC 啟動第二供應商認證、前置期延長 4–6 週」。詳情頁移除與導言重複的「本週先讀這段」，只留「本期涉及類別」chips。
+- [x] **市場報告 Gemini 摘要**：來源並行抓取時 8 次呼叫一秒內連打撞免費層 RPM=5。改序列化（間隔 13 秒）並照 429 的 retryDelay 等待；週報遇「來源頁面在相近段落中提及…」罐頭句一律改用原文片段。
+- [x] **頁面規則說明改寫**：明示「交期本身不是警訊，只有低於補貨水位才看交期」（基準料三分之二本來就 ≥12 週）、加死料降級說明；矩陣表頭與規則卡同步；移除「分銷商 2 家降 1 家」的規則描述（規則仍在，一年觸發 3 次不值得佔版面）。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅（新增 `tests/risk-digest.test.ts`：zeroStreak、死料邊界、有庫存不適用、摘要格式與跳脫）、`npm run build` ✅。部署後 mode=cached 實測 133 顆分佈：高 15（event 8／structural 7）、中 31、未備貨 7、正常 80；週報以 rev 7 重建（大標「HBM短缺推升AI晶片報價最高五成」）；deliver `?preview=1` 摘要格式正確。
+- **待 Danny 做**：Railway 設 `WEEKLY_REPORT_WEBHOOK_URL`（Teams／Slack 建 incoming webhook 貼網址）或 `WEEKLY_REPORT_RECIPIENTS`＋`SMTP_PASS`，投遞才會真的發生。
+- **修改檔案**：`src/lib/demand-forecast/weekly-digest.ts`（新）、`src/app/api/demand-forecast/weekly-reports/deliver/route.ts`（新）、`tests/risk-digest.test.ts`（新）、`src/lib/demand-forecast/risk.ts`、`src/lib/demand-forecast/cache-util.ts`、`src/lib/demand-forecast/benchmark.ts`、`src/lib/demand-forecast/weekly-report.ts`、`src/lib/demand-forecast/market-report-fetcher.ts`、`src/lib/email.ts`、`src/app/api/demand-forecast/route.ts`、`src/app/demand-forecast/page.tsx`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`、`.github/workflows/weekly-report-build.yml`、`.github/workflows/weekly-forecast.yml`、`package.json`、`project_summary.md`
 
 ---
 
