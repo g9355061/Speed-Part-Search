@@ -37,6 +37,14 @@ jobs:
           curl -s -o /dev/null -w "news http=%{http_code} time=%{time_total}s\n" --max-time 180 \
             -H "x-cron-secret: $CRON_SECRET" "$BASE_URL/api/demand-forecast?mode=summary"
           set -e
+
+          # 1b) 市場報告快取 7 天 TTL，過期後只有「有人開頁面」才會背景更新——排程沒人開就整週吃舊報告。
+          #     這裡先打一次 market-reports 端點（過期會觸發背景刷新），等 30 秒讓它寫回 DB。
+          echo "--- 更新市場報告快取（market-reports） ---"
+          set +e
+          curl -s -o /dev/null -w "market http=%{http_code} time=%{time_total}s\n" --max-time 120 \
+            -H "x-cron-secret: $CRON_SECRET" "$BASE_URL/api/demand-forecast/market-reports"
+          set -e
           sleep 30
 
           # 2) 觸發本週週報建構（weekly-reports 端點會建構並固化本週報告）。

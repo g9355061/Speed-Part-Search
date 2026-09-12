@@ -63,6 +63,8 @@ export interface MarketReport {
   extractionMethod: ExtractionMethod;
   sourceStatus: SourceStatus;
   isAiSummary?: boolean;
+  /** 正文內容雜湊（2026-09-12 起）；週報用來判斷「內容與前期相同」的固定網址報告 */
+  contentHash?: string;
 }
 
 /** 單一來源的抓取結果 */
@@ -85,4 +87,4 @@ export interface MarketReportsFetchResult {
   schemaVersion: number;
 }
 
-export const MARKET_REPORTS_SCHEMA_VERSION = 9;
+export const MARKET_REPORTS_SCHEMA_VERSION = 10; // v10：正文抽取＋標題／日期／contentHash

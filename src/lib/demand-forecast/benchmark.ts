@@ -226,22 +226,25 @@ export const DEMAND_CATEGORIES = Array.from(
 // 類別新聞關鍵字（單一事實來源）：demand-forecast 的新聞歸類與週報的素材比對共用這一份。
 // 2026-07-19 由 route.ts 的 CATEGORY_KEYWORDS 與 weekly-report.ts 的 WEEKLY_CATEGORY_KEYWORDS
 // 聯集合併而來——先前兩份各自維護已出現漂移，同一則新聞在預測頁與週報的歸類會不一致。
+// 比對規則見 news-match.ts：ASCII 關鍵字字邊界比對、4 字內縮寫要求大寫、中文子字串。
+// 2026-09-12 拿掉會誤中的泛詞：C04 'samsung'（MLCC 新聞也被貼記憶體）、C07 'clock'（Overclocking.com）、
+// C10 'interface'（user interface）、C15 'fan'/'thermal'/'cooling'（救援設備、冰箱、電力設備新聞）。
 export const CATEGORY_NEWS_KEYWORDS: Record<string, string[]> = {
   C01: ['mlcc', 'ceramic capacitor', 'capacitor', 'murata', 'tdk', 'samsung electro-mechanics', '積層陶瓷電容', '電容', '高容'],
   C02: ['pmic', 'power management', 'regulator', 'buck converter', 'ldo', 'texas instruments', '電源管理', '穩壓'],
   C03: ['mosfet', 'power discrete', 'discrete', 'nexperia', 'infineon', 'onsemi', 'vishay', '功率', '分離式'],
-  C04: ['ddr', 'dram', 'memory', 'flash', 'nand', 'nor', 'hbm', 'micron', 'sk hynix', 'samsung', '記憶體', '內存'],
+  C04: ['ddr', 'dram', 'ram', 'memory', 'flash', 'nand', 'nor', 'hbm', 'micron', 'sk hynix', '記憶體', '內存'],
   C05: ['mcu', 'microcontroller', 'processor', 'automotive mcu', 'stm32', 'nxp', 'renesas', 'infineon aurix', '處理器', '微控制器'],
   C06: ['connector', 'fpc', 'ffc', 'board-to-board', 'wire-to-board', 'te connectivity', 'molex', 'hirose', '連接器'],
-  C07: ['crystal', 'oscillator', 'clock', 'timing component', '晶體', '振盪器'],
+  C07: ['crystal', 'oscillator', 'clock generator', 'clock ic', 'timing component', 'quartz', '晶體', '振盪器'],
   C08: ['tvs', 'esd', 'esd protection', 'surge protection', 'protection diode', '保護元件'],
   C09: ['analog ic', 'analog', 'sensor', 'op amp', 'current sensor', 'temperature sensor', '感測器', '類比'],
-  C10: ['interface ic', 'interface', 'can transceiver', 'rs-485', 'usb bridge', 'ethernet phy', '介面'],
+  C10: ['interface ic', 'can transceiver', 'rs-485', 'usb bridge', 'ethernet phy', '介面 IC', '收發器'],
   C11: ['inductor', 'choke', 'power inductor', 'common mode choke', '電感', '扼流圈'],
   C12: ['aluminum capacitor', 'polymer capacitor', 'electrolytic capacitor', 'electrolytic', '鋁質', '固態電容'],
   C13: ['optocoupler', 'digital isolator', 'isolator', 'isolation ic', '光耦', '隔離器'],
   C14: ['ethernet', 'networking ic', 'networking', 'phy', 'switch ic', 'retimer', '網通', '乙太網路'],
-  C15: ['fan', 'thermal', 'cooling', 'power module', 'dc dc module', 'ac dc module', '散熱', '風扇', '電源模組'],
+  C15: ['cooling fan', 'server fan', 'liquid cooling', 'data center cooling', 'heat sink', 'thermal module', 'thermal solution', 'thermal management', 'power module', 'dc dc module', 'ac dc module', 'power supply unit', 'psu', '散熱', '風扇', '電源模組'],
 };
 
 export const CATEGORY_THRESHOLDS: Record<string, { minStock: number; lowStock: number }> = {

@@ -2,6 +2,7 @@ import { getMarketReportsCache, getGenericCache, listGenericCacheByPrefix, setGe
 import { DEMAND_CATEGORIES, BENCHMARK_PARTS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
 import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
 import { translateToZhTW } from '@/lib/demand-forecast/translate';
+import { keywordMatches } from '@/lib/demand-forecast/news-match';
 import crypto from 'crypto';
 
 // 一週一刊：本期只收「這一週」的新聞。原本 45 天窗會讓相鄰兩期素材幾乎全同，
@@ -207,6 +208,10 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     kind: '新聞' | 'PCN/EOL' | '公開報告';
   }>;
   recommendedActions: string[];
+  /** 本期當素材用掉的市場報告 contentHash——後續期數據此判斷「內容沒變」的固定網址報告（2026-09-12 起） */
+  materialHashes?: string[];
+  /** 前幾期已報過、本週仍在異常狀態的生命週期料（不再重複當新聞寫，只列一行長期觀察） */
+  lifecycleOngoing?: Array<{ mpn: string; manufacturer: string; category: string; status: string; sinceDate: string }>;
 }
 
 // 週界線與日期顯示一律以台北時間為準（台灣無夏令時間，固定 UTC+8）。
@@ -317,7 +322,6 @@ function splitSentences(text: string) {
 }
 
 function sentenceScore(sentence: string, categoryId: string) {
-  const lower = sentence.toLowerCase();
   const categoryKeywords = CATEGORY_NEWS_KEYWORDS[categoryId] ?? [];
   const riskKeywords = [
     'shortage', 'shortages', 'tight', 'constraint', 'constrained', 'allocation',
@@ -326,10 +330,10 @@ function sentenceScore(sentence: string, categoryId: string) {
   ];
   let score = 0;
   for (const keyword of categoryKeywords) {
-    if (lower.includes(keyword.toLowerCase())) score += 3;
+    if (keywordMatches(sentence, keyword)) score += 3;
   }
   for (const keyword of riskKeywords) {
-    if (lower.includes(keyword.toLowerCase())) score += 2;
+    if (keywordMatches(sentence, keyword)) score += 2;
   }
   // 事實密度加權：報導的原料要有數字與時間，否則模型只寫得出形容詞（2026-09 報紙化修正）
   if (/\d+(\.\d+)?\s*%|百分之/.test(sentence)) score += 4;                    // 漲跌幅
@@ -392,8 +396,8 @@ async function categoryEvidence(categoryId: string, items: any[], limit = 3) {
   const keywords = CATEGORY_NEWS_KEYWORDS[categoryId] ?? [];
   const keywordHit = (item: any) => {
     if (keywords.length === 0) return true;
-    const text = `${pickTitle(item)} ${pickSummary(item)}`.toLowerCase();
-    return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+    const text = `${item.title || ''} ${item.snippet || ''} ${pickTitle(item)} ${pickSummary(item)}`;
+    return keywords.some((keyword) => keywordMatches(text, keyword));
   };
   // 只要新聞已被標記為此類別就納入（上游 fetcher 已分類）；關鍵字命中者優先排序，
   // 不再硬篩掉「標題沒關鍵字、但內文相關」的新聞——這是先前報導內容過少的主因。
@@ -889,14 +893,12 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // v3＝2026-07-20 剝除 Gemini 報導中的 Markdown 符號（頁面純文字渲染會原樣顯示）。
 // v4＝2026-09-04 報紙化：整期一次生成（頭條/導言/各篇標題與後續觀察皆取自素材事實），
 //     素材抽句加權含數字與具名主體的句子，報導保留素材裡的價格、漲跌幅與交期數字。
-const REPORT_BUILD_REV = 4;
+// v5＝2026-09-12 素材正確性：新聞分類改字邊界比對＋股票站黑名單、市場報告抽正文並以 contentHash 去重、
+//     生命週期只算本期首次出現（舊 NRND 歸長期觀察）。
+const REPORT_BUILD_REV = 5;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
-}
-
-function previousWeeklyReportId(now = new Date()) {
-  return `weekly-${formatDateId(new Date(weekStart(now).getTime() - 7 * 86400000))}`;
 }
 
 // 來源連結存的是 Google 翻譯包裝網址，去重前還原成原始 URL
@@ -911,29 +913,90 @@ function unwrapTranslatedUrl(url: string) {
   }
 }
 
-// 上一期已報過的新聞/報告 URL 集合——本期素材去重用（一週一刊：舊聞不重印）
-async function getPreviousIssueUrls(now: Date): Promise<Set<string>> {
-  const urls = new Set<string>();
+// 歷史期數（由新到舊）——素材去重與生命週期「首次出現」判定共用
+async function loadPreviousIssues(currentId: string): Promise<WeeklyReportDetail[]> {
   try {
-    const cached: any = await getGenericCache(`weekly-report-built-${previousWeeklyReportId(now)}`);
-    const report = cached?.report as WeeklyReportDetail | undefined;
-    if (!report) return urls;
-    const items = [
-      ...(report.newsHighlights ?? []),
-      ...(report.marketHighlights ?? []),
-      ...(report.sourceLinks ?? []),
-    ];
+    const cached = await listGenericCacheByPrefix<{ report?: WeeklyReportDetail }>('weekly-report-built-weekly-', 104);
+    return cached
+      .map((entry) => entry.data?.report)
+      .filter((report): report is WeeklyReportDetail => !!report?.id && report.id !== currentId)
+      .sort((a, b) => b.id.localeCompare(a.id));
+  } catch (err) {
+    console.warn('[WeeklyReport] failed to load previous issues:', err);
+    return [];
+  }
+}
+
+// 上一期已報過的新聞 URL——本期不重印（一週一刊：舊聞不重印）
+// 市場報告改看 contentHash（跨全部歷史期數）：固定網址的報告以前只比上一期 URL，
+// 會「這期擋掉、下期又出現」隔週重出（2026-09-12 修正）。
+function previousIssueMaterial(previous: WeeklyReportDetail[]) {
+  const urls = new Set<string>();
+  const hashes = new Set<string>();
+  const last = previous[0];
+  if (last) {
+    const items = [...(last.newsHighlights ?? []), ...(last.marketHighlights ?? []), ...(last.sourceLinks ?? [])];
     for (const item of items) {
       if (item.url && item.url !== '#') urls.add(unwrapTranslatedUrl(item.url));
     }
-  } catch (err) {
-    console.warn('[WeeklyReport] failed to load previous issue urls:', err);
   }
-  return urls;
+  for (const report of previous) {
+    for (const hash of report.materialHashes ?? []) hashes.add(hash);
+  }
+  return { urls, hashes };
 }
 
+// ---- 生命週期「首次出現」登錄簿 ----
+// 同一顆 NRND 料（ATMEGA328P、MP1584EN、LAN8720A）從 7 月起每週都被當外部訊號、每週交叉命中、
+// 每週寫成封面故事。改為只有「本期首次出現／狀態改變」才算本週事件，其餘列為長期觀察。
+const LIFECYCLE_SEEN_KEY = 'lifecycle-seen-v1';
+
+interface LifecycleSeenEntry { status: string; firstSeenIssueId: string; firstSeenDate: string }
+type LifecycleSeenRegistry = Record<string, LifecycleSeenEntry>;
+
+function issueDateText(issueId: string) {
+  const m = issueId.match(/^weekly-(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[1]}/${m[2]}/${m[3]}` : issueId;
+}
+
+// 登錄簿不存在（首次部署）時，從歷史期數的生命週期短訊回填，避免舊料在改版後全部變成「本週新增」
+function bootstrapLifecycleRegistry(previous: WeeklyReportDetail[]): LifecycleSeenRegistry {
+  const registry: LifecycleSeenRegistry = {};
+  for (const report of [...previous].sort((a, b) => a.id.localeCompare(b.id))) {
+    const seen: Array<{ mpn: string; status: string }> = [];
+    for (const item of report.lifecycleHighlights ?? []) {
+      const m = item.title.match(/^(\S+) 原廠標示 (.+)$/);
+      if (m) seen.push({ mpn: m[1], status: m[2] });
+    }
+    for (const item of report.sourceLinks ?? []) {
+      const m = item.kind === 'PCN/EOL' ? item.title.match(/^(\S+?)（.*?）：(.+)$/) : null;
+      if (m) seen.push({ mpn: m[1], status: m[2] });
+    }
+    for (const { mpn, status } of seen) {
+      if (!registry[mpn] || registry[mpn].status !== status) {
+        registry[mpn] = { status, firstSeenIssueId: report.id, firstSeenDate: report.date || issueDateText(report.id) };
+      }
+    }
+  }
+  return registry;
+}
+
+async function loadLifecycleRegistry(previous: WeeklyReportDetail[]): Promise<LifecycleSeenRegistry> {
+  try {
+    const cached = await getGenericCache(LIFECYCLE_SEEN_KEY);
+    if (cached && typeof cached === 'object' && !Array.isArray(cached)) return cached as LifecycleSeenRegistry;
+  } catch (err) {
+    console.warn('[WeeklyReport] lifecycle registry read failed:', err);
+  }
+  return bootstrapLifecycleRegistry(previous);
+}
+
+// 「有素材」＝快取都讀得到（新聞／生命週期／報告任一 >0，或快照已載入）。
+// 生命週期改成只算本週新增、報告改成內容去重後，安靜的一週三者可能都是 0，
+// 不能再因此整週每 6 小時重建（那會讓同一期讀者看到不同內容）。
 function reportHasContent(report: WeeklyReportDetail) {
-  return report.metrics.shortageNews + report.metrics.lifecycleNews + report.metrics.marketReports > 0;
+  return report.metrics.shortageNews + report.metrics.lifecycleNews + report.metrics.marketReports > 0
+    || report.metrics.partsWithSnapshot > 0;
 }
 
 /**
@@ -989,23 +1052,60 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const marketCache = await getMarketReportsCache();
   const newsCache = await readNewsCacheShared();
 
-  // 一週一刊去重：上一期報過的新聞與市場報告，本期不再進素材（否則相鄰兩期會近乎相同）
-  const prevIssueUrls = await getPreviousIssueUrls(now);
+  // 一週一刊去重：上一期報過的新聞本期不再進素材；市場報告看 contentHash（跨全部歷史期數），
+  // 內容沒變的固定網址報告只列參考來源、不算本週素材。
+  const previousIssues = await loadPreviousIssues(id);
+  const prevMaterial = previousIssueMaterial(previousIssues);
 
   const shortageNews = Array.isArray(newsCache?.news)
     ? newsCache.news.filter((item: any) =>
-        item.riskHit && isRecentSignal(item, now) && !(item.link && prevIssueUrls.has(item.link)))
+        item.riskHit && isRecentSignal(item, now) && !(item.link && prevMaterial.urls.has(item.link)))
     : [];
-  const marketReports = (Array.isArray(marketCache?.reports) ? marketCache.reports : [])
-    .filter((report: any) => !(report.url && prevIssueUrls.has(report.url)));
+  const allMarketReports: any[] = Array.isArray(marketCache?.reports) ? marketCache.reports : [];
+  const isStaleReport = (report: any) =>
+    report.contentHash
+      ? prevMaterial.hashes.has(report.contentHash)
+      : !!(report.url && prevMaterial.urls.has(report.url)); // 舊快取沒有 hash → 退回 URL 比對
+  const marketReports = allMarketReports.filter((report) => !isStaleReport(report));
+  const staleMarketReports = allMarketReports.filter((report) => isStaleReport(report));
 
   // 生命週期訊號：由料件 API 的 lifecycleStatus 判定（demand-forecast 已停抓 RSS PCN/EOL 新聞，
   // 舊的 newsCache.lifecycleNews 永遠是空的）。資料來源＝150 顆基準料的最近一次查詢快取。
+  // 只有「本期首次出現／狀態改變」的料才算本週事件；前幾期報過的歸長期觀察，不再重複當新聞寫。
   const partsCache = await readPartsCache();
-  const lifecycleParts = ((partsCache?.parts ?? []) as any[])
+  const lifecycleRegistry = await loadLifecycleRegistry(previousIssues);
+  const flaggedParts = ((partsCache?.parts ?? []) as any[])
     .map((part) => ({ part, severity: lifecycleFlag(part.lifecycleStatus) }))
     .filter((item): item is { part: any; severity: 'high' | 'medium' } => item.severity !== null)
     .sort((a, b) => (a.severity === 'high' ? 0 : 1) - (b.severity === 'high' ? 0 : 1));
+  const isNewLifecycle = ({ part }: { part: any }) => {
+    const entry = lifecycleRegistry[part.mpn];
+    return !entry || entry.status !== String(part.lifecycleStatus) || entry.firstSeenIssueId === id;
+  };
+  const lifecycleParts = flaggedParts.filter(isNewLifecycle);
+  const lifecycleOngoing = flaggedParts
+    .filter((item) => !isNewLifecycle(item))
+    .map(({ part }) => ({
+      mpn: String(part.mpn),
+      manufacturer: String(part.manufacturer || part.apiManufacturer || ''),
+      category: categoryLabel(part.categoryId),
+      status: String(part.lifecycleStatus),
+      sinceDate: lifecycleRegistry[part.mpn].firstSeenDate,
+    }));
+
+  // 更新登錄簿：新料記下首次出現的期別；已恢復正常的料移除（之後再異常會重新算新事件）
+  const nextRegistry: LifecycleSeenRegistry = {};
+  for (const { part } of flaggedParts) {
+    const entry = lifecycleRegistry[part.mpn];
+    nextRegistry[part.mpn] = entry && entry.status === String(part.lifecycleStatus)
+      ? entry
+      : { status: String(part.lifecycleStatus), firstSeenIssueId: id, firstSeenDate: formatDate(start) };
+  }
+  try {
+    await setGenericCache(LIFECYCLE_SEEN_KEY, nextRegistry);
+  } catch (err) {
+    console.warn('[WeeklyReport] lifecycle registry write failed:', err);
+  }
 
   // 自家快照（150 顆基準料的週環比）——這是別人沒有的內部測量，當主訊號
   const allMpns = BENCHMARK_PARTS.map((p) => p.mpn);
@@ -1202,7 +1302,23 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
         dateLabel: reportSourceDateLabel(report),
         kind: '公開報告' as const,
       })),
+    // 內容與前期相同的報告：不當本週素材，但仍可從這裡翻原文
+    ...staleMarketReports
+      .filter((report: any) => report.categoryIds?.some((categoryId: string) => focusCategories.includes(categoryId)))
+      .slice(0, 4)
+      .map((report: any) => ({
+        title: reportHeadline(report),
+        source: report.source || '公開報告',
+        url: report.url || '#',
+        publishedAt: report.publishedAt || report.fetchedAt || null,
+        dateLabel: '內容與前期相同',
+        kind: '公開報告' as const,
+      })),
   ]).slice(0, 12);
+
+  const materialHashes = Array.from(new Set(
+    marketReports.map((report: any) => report.contentHash).filter((hash: unknown): hash is string => typeof hash === 'string' && hash.length > 0)
+  ));
 
   const recommendedActions = executiveItems.length > 0
     ? []
@@ -1232,6 +1348,8 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     marketHighlights,
     sourceLinks,
     recommendedActions,
+    materialHashes,
+    lifecycleOngoing,
   };
 }
 

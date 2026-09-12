@@ -192,6 +192,22 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
             </ArticleSection>
           )}
 
+          {(report.lifecycleOngoing?.length ?? 0) > 0 && (
+            <ArticleSection eyebrow="長期觀察" title="前幾期已報過、仍在異常狀態的料號">
+              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.8, color: 'var(--text-2)' }}>
+                {report.lifecycleOngoing!.map((item, index) => (
+                  <span key={item.mpn}>
+                    {index > 0 && '；'}
+                    <strong style={{ color: 'var(--text)' }}>{item.mpn}</strong>
+                    {item.manufacturer ? `（${item.manufacturer}）` : ''}
+                    {` ${item.status}，自 ${item.sinceDate} 起`}
+                  </span>
+                ))}
+                。這些料不再逐期重寫，請對照 BOM 確認替代方案進度。
+              </p>
+            </ArticleSection>
+          )}
+
           {report.sourceLinks.length > 0 && (
             <ArticleSection eyebrow="本文參考來源" title="想看原文可以從這裡">
               <div style={{ display: 'grid', gap: 8 }}>

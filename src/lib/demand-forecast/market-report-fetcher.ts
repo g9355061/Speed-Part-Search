@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { DEMAND_CATEGORIES } from './benchmark';
 import { getGenericCache, setGenericCache } from '@/lib/db';
 import { MARKET_REPORT_SOURCES, type MarketReportSourceConfig } from './market-report-sources';
@@ -67,9 +68,112 @@ function isGatedOrFormPage(text: string): boolean {
   return indicators.filter(i => lower.includes(i)).length >= 2;
 }
 
+// ==================== Article Extraction ====================
+// 2026-09-12：以前把整頁 HTML 剝標籤後直接分析，導覽列／頁尾選單文字（「Windows 10 日落…NVIDIA 獨家優惠」）
+// 會被當成證據送進週報。現在先抽正文段落，並順手抓標題與發布日期，供週報做內容去重與日期標示。
+
+export interface ExtractedArticle {
+  text: string;               // 正文（段落合併）
+  title: string | null;       // og:title / <title>
+  publishedAt: string | null; // ISO；抓不到為 null
+  contentHash: string;        // 正文 md5，內容沒變 → hash 不變
+}
+
+function decodeEntities(value: string) {
+  return value
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'").replace(/&#x27;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
+
+function stripTags(html: string) {
+  return decodeEntities(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+const PARAGRAPH_BOILERPLATE = /cookie|privacy policy|terms of service|subscribe|sign in|sign up|newsletter|all rights reserved|©/i;
+
+export function extractPageTitle(html: string): string | null {
+  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)
+    ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+  const raw = og?.[1] ?? html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '';
+  const title = stripTags(raw).replace(/\s*[|\-–—]\s*[^|\-–—]{0,40}$/, '').trim();
+  return title.length >= 6 ? title.slice(0, 120) : null;
+}
+
+export function extractPublishedAt(html: string, now = new Date()): string | null {
+  const candidates = [
+    html.match(/<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["']/i)?.[1],
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']article:published_time["']/i)?.[1],
+    html.match(/"datePublished"\s*:\s*"([^"]+)"/)?.[1],
+    html.match(/<meta[^>]+name=["'](?:pubdate|publish-date|publication_date|date|dc\.date)["'][^>]+content=["']([^"']+)["']/i)?.[1],
+    html.match(/<time[^>]+datetime=["']([^"']+)["']/i)?.[1],
+  ];
+  for (const value of candidates) {
+    if (!value) continue;
+    const time = Date.parse(value);
+    if (!Number.isFinite(time)) continue;
+    if (time > now.getTime() + 86400000) continue;       // 未來日期＝解析錯
+    if (time < Date.UTC(2015, 0, 1)) continue;           // 太舊＝多半是網站建立日
+    return new Date(time).toISOString();
+  }
+  return null;
+}
+
+export function extractArticle(html: string, now = new Date()): ExtractedArticle {
+  const cleaned = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, ' ')
+    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, ' ')
+    .replace(/<form[^>]*>[\s\S]*?<\/form>/gi, ' ');
+
+  // 優先鎖定 <article>（全部合併）→ <main> → 整頁；JS 渲染的網站 <article> 常是空殼，
+  // 所以每一層都要看抽出來的字夠不夠，不夠就退到下一層。
+  const articles = [...cleaned.matchAll(/<article[^>]*>([\s\S]*?)<\/article>/gi)].map((m) => m[1]).join(' ');
+  const main = cleaned.match(/<main[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? '';
+  const regions = [articles, main, cleaned].filter((region) => region.trim().length > 0);
+
+  const paragraphsOf = (region: string) => {
+    const paragraphs: string[] = [];
+    const pRegex = /<(p|h[1-3]|li)[^>]*>([\s\S]*?)<\/\1>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = pRegex.exec(region)) !== null) {
+      const text = stripTags(match[2]);
+      if (text.length < 40) continue;
+      if (PARAGRAPH_BOILERPLATE.test(text)) continue;
+      paragraphs.push(text);
+    }
+    return paragraphs.join(' ');
+  };
+
+  const MIN_TEXT = 500;
+  let text = '';
+  for (const region of regions) {
+    const fromParagraphs = paragraphsOf(region);
+    if (fromParagraphs.length >= MIN_TEXT) { text = fromParagraphs; break; }
+  }
+  if (!text) {
+    // 段落抽不到（純 div 排版的網站）退回剝標籤，至少導覽列／頁尾已經拿掉了
+    for (const region of regions) {
+      const stripped = stripTags(region);
+      if (stripped.length >= MIN_TEXT) { text = stripped; break; }
+    }
+  }
+  if (!text) text = paragraphsOf(cleaned) || stripTags(cleaned);
+  const normalized = text.toLowerCase().replace(/\d{1,2}:\d{2}(:\d{2})?/g, '').replace(/\s+/g, ' ').trim();
+  return {
+    text,
+    title: extractPageTitle(html),
+    publishedAt: extractPublishedAt(html, now),
+    contentHash: crypto.createHash('md5').update(normalized).digest('hex'),
+  };
+}
+
 // ==================== Fetching ====================
 
-async function fetchPageText(url: string): Promise<{ text: string; status: SourceStatus; pdfUrl?: string | null }> {
+async function fetchPageText(url: string): Promise<{ text: string; status: SourceStatus; pdfUrl?: string | null; article?: ExtractedArticle }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
@@ -99,16 +203,12 @@ async function fetchPageText(url: string): Promise<{ text: string; status: Sourc
       break;
     }
 
-    const text = html
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const article = extractArticle(html);
+    const text = article.text;
     if (!text || text.length < 100) return { text: '', status: 'no_new_report' };
     if (isGatedOrFormPage(text)) return { text, status: 'form_required' };
     if (!isSubstantiveContent(text)) return { text: '', status: 'no_new_report' };
-    return { text, status: 'ok', pdfUrl };
+    return { text, status: 'ok', pdfUrl, article };
   } catch (e: any) {
     clearTimeout(timer);
     if (e?.name === 'AbortError') return { text: '', status: 'timeout' };
@@ -338,7 +438,7 @@ Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Tra
   }
 }
 
-async function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string): Promise<MarketReport[]> {
+async function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: string, article?: ExtractedArticle): Promise<MarketReport[]> {
   const reports: MarketReport[] = [];
   const now = new Date().toISOString();
   const lowerText = text.toLowerCase();
@@ -423,10 +523,12 @@ async function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: 
         reports.push({
           id: `auto-${sourceName.toLowerCase().replace(/\s+/g, '-')}-${catId}-${Date.now()}`,
           source: sourceName,
-          title: `${sourceName} — ${catId} 類別情報`,
+          // 有抓到頁面標題就用真標題；抓不到才退回佔位字（以前一律是「來源 — C04 類別情報」）
+          title: article?.title ? `${sourceName}：${article.title}` : `${sourceName} — ${catId} 類別情報`,
           url: sourceUrl,
-          publishedAt: null, // Cannot determine from HTML scrape
+          publishedAt: article?.publishedAt ?? null,
           fetchedAt: now,
+          contentHash: article?.contentHash,
           categoryIds: [catId],
           signalLevel: 'info',
           riskTypes,
@@ -492,7 +594,7 @@ async function fetchSource(config: MarketReportSourceConfig): Promise<SourceFetc
       return result;
     }
 
-    const { text, status, pdfUrl } = await fetchPageText(targetUrl);
+    const { text, status, pdfUrl, article } = await fetchPageText(targetUrl);
     result.sourceStatus = status;
  
     if (status === 'blocked') {
@@ -513,7 +615,7 @@ async function fetchSource(config: MarketReportSourceConfig): Promise<SourceFetc
     if (pdfUrl) {
       result.url = pdfUrl;
     }
-    const analyzed = await analyzeTextWindowed(text, config.name, finalUrl);
+    const analyzed = await analyzeTextWindowed(text, config.name, finalUrl, article);
     result.reports = analyzed;
   } catch (e) {
     result.sourceStatus = 'parse_failed';

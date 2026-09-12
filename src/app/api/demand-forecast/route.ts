@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { BENCHMARK_PARTS, DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
+import { detectCategories, isBlockedNewsSource } from '@/lib/demand-forecast/news-match';
 import { translateToZhTW } from '@/lib/demand-forecast/translate';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
@@ -38,7 +39,7 @@ const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
   C12: ['"aluminum capacitor"', '"polymer capacitor"', '"electrolytic capacitor"'],
   C13: ['optocoupler', '"digital isolator"', '"isolation IC"'],
   C14: ['Ethernet', '"networking IC"', '"Ethernet PHY"', 'retimer'],
-  C15: ['fan', 'thermal', 'cooling', '"power module"', '"DC DC module"'],
+  C15: ['"cooling fan"', '"liquid cooling"', '"heat sink"', '"power module"', '"power supply unit"'],
 };
 
 interface NewsItem {
@@ -112,14 +113,13 @@ function decodeXml(value: string): string {
     .trim();
 }
 
+// 類別標記走共用的字邊界比對（news-match.ts）；傳原文，縮寫規則需要大小寫
 function tagCategories(text: string): string[] {
-  const lower = text.toLowerCase();
-  return DEMAND_CATEGORIES
-    .filter((cat) => CATEGORY_NEWS_KEYWORDS[cat.categoryId]?.some((word) => lower.includes(word)))
-    .map((cat) => cat.categoryId);
+  const detected = new Set(detectCategories(text));
+  return DEMAND_CATEGORIES.filter((cat) => detected.has(cat.categoryId)).map((cat) => cat.categoryId);
 }
 
-function parseGoogleNews(xml: string, requestedCategoryId?: string, signalWords: string[] = RISK_WORDS): NewsItem[] {
+function parseGoogleNews(xml: string, signalWords: string[] = RISK_WORDS): NewsItem[] {
   const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)];
   return items.slice(0, 60).map((match) => {
     const block = match[1];
@@ -129,10 +129,9 @@ function parseGoogleNews(xml: string, requestedCategoryId?: string, signalWords:
     const source = decodeXml(block.match(/<source[^>]*>([\s\S]*?)<\/source>/)?.[1] ?? 'Google News');
     const snippet = decodeXml(block.match(/<description>([\s\S]*?)<\/description>/)?.[1] ?? '');
     const text = `${title} ${snippet}`;
-    const detectedCategoryIds = tagCategories(text);
-    const categoryIds = requestedCategoryId && !detectedCategoryIds.includes(requestedCategoryId)
-      ? [requestedCategoryId, ...detectedCategoryIds]
-      : detectedCategoryIds;
+    // 只採信標題／摘要實際命中關鍵字的類別。以前「查哪一類就硬貼哪一類」，
+    // Google 對 C15 查詢回的尼泊爾救援設備、冰箱處理新聞全被貼成散熱／電源模組（2026-09-12 修正）。
+    const categoryIds = tagCategories(text);
     return {
       title,
       titleZh: roughTranslateZh(title),
@@ -144,7 +143,7 @@ function parseGoogleNews(xml: string, requestedCategoryId?: string, signalWords:
       categoryIds,
       riskHit: signalWords.some((word) => text.toLowerCase().includes(word)),
     };
-  }).filter((item) => item.title && item.link);
+  }).filter((item) => item.title && item.link && !isBlockedNewsSource(item.source));
 }
 
 function buildCategoryNewsUrl(categoryId: string, kind: 'shortage' | 'lifecycle'): string {
@@ -169,7 +168,7 @@ async function fetchCategoryNews(categoryId: string): Promise<NewsItem[]> {
   });
   if (!resp.ok) return [];
   const xml = await resp.text();
-  return parseGoogleNews(xml, categoryId).filter((item) => item.riskHit || item.categoryIds.length > 0);
+  return parseGoogleNews(xml).filter((item) => item.riskHit || item.categoryIds.length > 0);
 }
 
 async function fetchCategoryLifecycleNews(categoryId: string): Promise<NewsItem[]> {
@@ -180,7 +179,7 @@ async function fetchCategoryLifecycleNews(categoryId: string): Promise<NewsItem[
   });
   if (!resp.ok) return [];
   const xml = await resp.text();
-  return parseGoogleNews(xml, categoryId, LIFECYCLE_WORDS).filter((item) => item.riskHit || item.categoryIds.length > 0);
+  return parseGoogleNews(xml, LIFECYCLE_WORDS).filter((item) => item.riskHit || item.categoryIds.length > 0);
 }
 
 function mergeNewsItems(items: NewsItem[]): NewsItem[] {
@@ -328,7 +327,7 @@ async function translateToZh(text: string): Promise<string> {
 async function fetchIndustryNews(): Promise<NewsItem[]> {
   const perCategory = await runWithConcurrency(DEMAND_CATEGORIES, 5, (cat) => fetchCategoryNews(cat.categoryId));
   const merged = mergeNewsItems(perCategory.flat());
-  const decoded = await runWithConcurrency(merged, 4, async (item) => {
+  const decodedAll = await runWithConcurrency(merged, 4, async (item) => {
     if (item.riskHit) {
       const [decodedLink, translatedTitle, translatedSnippet] = await Promise.all([
         decodeGoogleNewsUrl(item.link),
@@ -344,7 +343,8 @@ async function fetchIndustryNews(): Promise<NewsItem[]> {
     }
     return item;
   });
-  return decoded;
+  // 解碼後才知道真正的網域，再過濾一次股票評論站（來源名稱與網域不一定相同）
+  return decodedAll.filter((item) => !isBlockedNewsSource(item.source, item.link));
 }
 
 async function fetchLifecycleNews(): Promise<NewsItem[]> {
