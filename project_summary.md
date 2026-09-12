@@ -1,6 +1,22 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-12（週報素材正確性三項修正：分類誤中、市場報告抽正文去重、生命週期只算本期新增）
+> 最後更新：2026-09-12（接入華強烽火指數：現貨市場需求端指標，獨立於 150 顆基準料）
+
+---
+
+### 2026-09-12 — 接入華強烽火指數（現貨市場需求端指標）
+
+**背景**：同日 review 指出缺料預測全是落後指標（代理商庫存變低＝缺料已到通路），缺需求端領先指標。查證市面公開的「熱門料件」來源後，只有華強電子網「烽火指數」（fh.hqew.com）同時有訊號價值又抓得到：首頁不需登入、伺服器端渲染、一次請求可得市場三指數與 30 顆當日熱料；Findchips popular_search 無次數無時間窗、Octopart 403 且 API 付費、立創反爬、DigiKey/Mouser 無公開榜。Danny 決定導入，並指示：**熱料清單與 150 顆基準料分開**（認為 150 顆沒有代表性，不混算不比對），**QQ BOM 比對先不做**（原本做了一半，已全數移除）。
+
+- [x] **`src/lib/demand-forecast/fenghuo.ts`（新）**：`parseFenghuoMarket` 用括號配對切出 script 內的 `IndexNew.mockData.market` JSON（搜索／庫存／價格三指數，2025/01 起按月，目前 20 個月）；`parseFenghuoHotParts` 抓「雲報價」表格（型號／品牌／人民幣參考價，14:00 前為前一日）；兩塊都抓不到就丟錯，不寫空快取。`classifyHotPart` 以料號字首規則（C08→C13→C14→C10→C07→C05→C04→C01→C11→C12→C02→C09→C15→C06→C03，先具體後籠統）＋品牌兜底歸到 15 類，正式站 30 顆全部歸類合理（FPGA 併入 MCU／處理器）。快照歷史存 `fenghuo-index-v1`（最多 26 次、同日覆蓋）→ `weeksOnList`（連續在榜次數）與 `isNew`（上次沒有本次有；首次快照一律 false）。`computeMarketTrend`：月增／年增，搜索升＋庫存降或價格升＝轉緊、搜索降＋庫存升＝轉鬆。「今日熱搜」「熱度衝高」是 JS 載入，第一版不碰。
+- [x] **API `/api/demand-forecast/fenghuo`**：GET 回視圖（趨勢、熱料、各類別 total/fresh）；POST 只認 `x-cron-secret`，收 body.html 解析入庫（`?fetch=1` 可由伺服器自抓，僅供本機測試——華強封鎖 Railway IP 不會解封，正式站不要用）。
+- [x] **workflow**：`weekly-report-build.yml` 建構前由 **GitHub Actions runner** 抓 fh.hqew.com（Railway IP 不出面），確認含 `mockData.market` 才 `jq -Rs` 包成 JSON POST 進去；失敗只 warning、沿用舊快照。
+- [x] **缺料預測頁**：風險矩陣新增第四欄「現貨熱搜（華強）」——尚未取得／新上榜 N 顆／持續在榜 N 顆／未見熱搜，點擊跳到新面板；新面板「華強現貨熱料（烽火指數）」：三指數卡（值、月增、年增）＋一句大盤解讀、熱料表（料號連到華強搜尋、品牌、參考價、歸類、上榜狀態），依矩陣點選的類別篩選並有「← 全部類別」；導航列加「現貨熱料」；矩陣 minWidth 1000→1150。
+- [x] **週報**（REPORT_BUILD_REV 6）：大盤趨勢一句以【市場大盤】進 Gemini 脈絡（prompt 允許在 lede 帶過）；各類別熱料以「華強現貨熱搜」進素材，**允許點名型號與人民幣參考價**（這不是本站 150 顆，不受「不點名」限制）；`hotSearchNew > 0` 視為外部訊號（進 crossHit／medium tone／排序），常年在榜的不算事件；`spotMarket` 欄位＋詳情頁新區塊「深圳現貨買家本週在找什麼」（趨勢句＋前 12 顆表）。
+- [x] **`tests/fenghuo.test.ts`（新，納入 npm test）**：解析（fixture 節錄自正式頁）、趨勢計算、改版丟錯、歸類（正式站 30 顆抽樣＋未知料回 null）、快照歷史（連續次數／新上榜／首次快照不判新）。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅（5 個檔）、`npm run build` ✅。本機 dev 以正式頁 HTML 種兩筆快照、臨時帳號登入實測：矩陣第五欄「持續在榜｜7 顆熱料屬此類」（MCU 列）、面板三指數卡與 30 列熱料（中文歸類、ULN2003ADR 顯示「新上榜」）、無水平溢位；帳號驗後已刪。push main 部署成功後，從本機把當日 HTML POST 進正式站（30 顆、20 個月、全部歸類），再觸發週報以 rev 6 重建 9/7 期——Gemini 導言開頭即「華強烽火指數8月顯示現貨市場整體轉鬆，但AI引發的結構性缺料依然嚴峻」，MLCC 篇引用「村田 GCM188R71H104KA57D 報價 0.071 元人民幣」。
+- **注意**：(a) 正式站目前只有 1 次快照，「新上榜」要下週一 workflow 抓第二次後才有意義；(b) 8 月大盤三指數：搜索 −7.5%、庫存 +3.2%、價格 +6.7%——搜索降庫存升判「轉鬆」，但價格在漲，門檻可再看幾個月調整；(c) 華強若改版，解析會丟錯而 POST 回 500，workflow 只 warning，需人工看；(d) QQ BOM 比對的程式碼已移除，之後要做可從 git 歷史（commit 前的 `matchHotPartsToBom`）取回。
+- **修改檔案**：`src/lib/demand-forecast/fenghuo.ts`（新）、`src/app/api/demand-forecast/fenghuo/route.ts`（新）、`tests/fenghuo.test.ts`（新）、`src/app/demand-forecast/page.tsx`、`src/lib/demand-forecast/weekly-report.ts`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`、`.github/workflows/weekly-report-build.yml`、`package.json`、`project_summary.md`
 
 ---
 
