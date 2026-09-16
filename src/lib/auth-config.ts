@@ -53,7 +53,7 @@ export const authOptions: NextAuthOptions = {
         token.id = u.id;
         token.sessionVersion = u.sessionVersion ?? 1;
         token.sessionCheckedAt = Math.floor(Date.now() / 1000);
-        const ttlSec = u.role === 'admin' ? 30 * 24 * 60 * 60 : 48 * 60 * 60;
+        const ttlSec = 48 * 60 * 60; // 所有角色（含管理員）登入後 48 小時須重新登入
         token.sessionExpiresAt = Math.floor(Date.now() / 1000) + ttlSec;
         return token;
       }

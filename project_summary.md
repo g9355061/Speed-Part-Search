@@ -1,6 +1,18 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-15（DigiKey 雙幣別查詢：/api/search 同一把 key 加查 CN/CNY；美金與人民幣分開欄位——首頁階梯價獨立一列、BOM 表格獨立一欄、XLSX 獨立一欄；節流維持 2 秒）
+> 最後更新：2026-09-16（缺料預測改為僅管理員可見；所有角色 session 一律 48 小時）
+
+---
+
+### 2026-09-16 — 缺料預測僅管理員可見；管理員 session 也改 48 小時
+
+**背景**：Danny 貼導覽列截圖要求「缺料預測頁面僅管理者可以看得到」，接著補一句「管理者也是改成兩天要登入一次」。
+
+- [x] **缺料預測限管理員**：`Header.tsx` 的「缺料預測」連結改包在 `isAdmin &&` 裡（與「使用者管理」同一模式；active 判斷改 `startsWith`，週報詳情頁也會亮）。`middleware.ts` 在既有 `/admin/` 規則後加：非管理員打 `/api/demand-forecast*` 回 **403 JSON**（不導頁，前端 fetch 才不會拿到 HTML）、打 `/demand-forecast*`（含 `weekly-reports/[id]`）導回首頁。排程器的 `x-cron-secret` 放行在 token 檢查之前，兩個 workflow 不受影響（本機 `.env` 沒有 `CRON_SECRET`，故本機測 cron 路徑會 307，正式站有設）。
+- [x] **session 一律 48 小時**：`auth-config.ts` `ttlSec` 由「管理員 30 天／其他 48 小時」改為全部 48 小時。**既有管理員 session 的到期時間在登入時就寫進 JWT**，要等下次登入才套用；Danny 與 Chang Wei Li 若要立刻生效需登出再登入。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅、`npm run build` ✅。以簽好的 token 對本機 middleware 實測：一般用戶 `/demand-forecast` → 307 `/`、`/demand-forecast/weekly-reports/abc` → 307 `/`、`/api/demand-forecast/availability` → 403 `{"error":"Forbidden"}`、`/` → 200；管理員 `/demand-forecast` → 200、API → 200。Header 隱藏連結未在瀏覽器實測——瀏覽器分頁的 cookie jar 對 `__Secure-next-auth.session-token` 這個名字開始拒寫（連 `abc` 都存不進，其他名字可以，疑似殘留 HttpOnly 同名 cookie），與程式無關；改動與「使用者管理」連結完全同一模式。
+- **順帶回答**：(1)「最近登入」只在輸入帳密時寫，48 小時規則下最多落後 2 天。(2) `BOM Batch - MFR`（`/batch-manufacturer`）與 `BOM Batch` 的差別：BOM 多一欄廠商，查完後拿 BOM 廠商對 API 回的廠商比對（走廠商對照表別名），料號對但廠商不同標 `mfr-mismatch`／疑似標 `mfr-suspect`；其餘查詢與匯出邏輯相同。**MFR 頁目前還沒有「人民幣單價」欄**（只加在 `/batch`），待 Danny 決定要不要同步。
+- **修改檔案**：`src/components/Header.tsx`、`src/middleware.ts`、`src/lib/auth-config.ts`、`project_summary.md`
 
 ---
 
@@ -17,6 +29,8 @@
 - [x] **測試**（`tests/digikey.test.ts`）：既有 mapping 測試加「預設只打一次 search」斷言（守住缺料預測不燒雙倍配額）；新增雙幣別測試（兩次呼叫的 locale header 依序為 US/USD、CN/CNY；主欄位仍 USD、`altPricing` 為 CNY）與第二次失敗不影響主結果測試。
 - [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅、`npm run build` ✅。以 tsx 直呼 adapter 對 production 實測：NE555P USD 0.59／CNY 4.76（比值 8.07）、GRM155R71C104KA88D USD 0.1／CNY 0.83（8.30）；不帶 flag 的路徑 `altPricing === undefined`。本機 dev（port 5280）以 `NEXTAUTH_SECRET` 簽一枚一小時 JWT 當 session（`.env` 的 `NEXTAUTH_URL` 是 https 正式站網址，故 cookie 名須用 `__Secure-next-auth.session-token`）打 `/api/search` 取得 `altPricing`；瀏覽器實測首頁查 NE555P：DigiKey 分頁 8 個級距皆有 `¥` 第二行（1@¥4.7600 … 2,500@¥2.1496），切到 Mouser VN 分頁 `.price-alt` 為 0。批量頁以 DataTransfer 塞 CSV（NE555P×100、GRM155R71C104KA88D×1000）實跑：DigiKey 平均單價格分別為「÷100 $0.3220 / ¥2.5980」「— / ¥0.0802」（GRM 庫存 0）；攔截 `URL.createObjectURL` 取得匯出 blob 直接讀 sheet XML（SheetJS 未壓縮）：dimension A1:AA4、merges F1:O1／P1:U1／V1:AA1、N2=「人民幣單價」、N3=2.598、N4=0.08022、L3/M3 公式仍指 J/K/F/B、O3 與 AA3=「找到了」、numFmt 含 ¥。驗證用 token 與 scratch 腳本已刪、瀏覽器 cookie 已清。
 - **過程插曲**：dev server 跑著時執行 `npm run build`，`.next/` 被正式建構覆蓋，Danny 開頁面得到 `Cannot find module './9276.js'`；清 `.next` 重啟即恢復。之後要 build 一律先停 dev server。
+- **Mouser HK／VN 也要人民幣（Danny 追問，未動手）**：查證 Mouser Search API swagger（`/api/v1/search/partnumber`、`/search/keyword`）**沒有任何幣別參數**，幣別由 API key 所屬帳號的帳單／出貨地址決定；以 HK、VN 兩把 key 對 GRM155R71C104KA88D 實測，加 `&currencyCode=CNY` 也照樣回 USD（`(1,'$0.12','USD')`）。要有 Mouser 人民幣只有兩條路：(A) 申請 Mouser 中國站帳號（mouser.cn，帳單地址在中國）的 Search API key，當第四個來源「Mouser CN」接進來（`createMouserAdapter('Mouser CN','MOUSER_CN_API_KEY')` 一行）；(B) USD×匯率換算純顯示——與 DigiKey 那欄「當地站別真實報價」口徑不同、不建議。等 Danny 選。
+- **Session 期限確認（Danny 問「兩天沒登入是否要重新登入」，未改程式）**：`auth-config.ts` 登入時寫 `sessionExpiresAt`＝登入時刻＋48 小時（一般用戶）／30 天（管理員），之後 jwt callback 不再改它（next-auth 24 小時的 token 重簽只是原樣帶過，不會延長），`middleware.ts` 逾時即 307 到 /login 並清 cookie——是**從登入起算的絕對時間，不是閒置 2 天**，48 小時到了就算正在用也會被踢去登入。以簽好的 token 對本機實測：過期 token → 307＋兩個 session cookie 清空；未過期 → 200；沒有 `sessionExpiresAt` 的舊 token → 200（走 30 天 cookie），但該欄位 5/29 就已存在，舊 token 早已過期，無實際漏洞。另：管理頁「最近登入」只在輸入帳密那一刻寫 `login_logs`，一般用戶最多落後 2 天、管理員可落後 30 天；若要「最近上線」可在 jwt callback 既有的 5 分鐘 DB 校驗處順帶 `UPDATE users.last_seen_at`，待 Danny 決定。
 - **部署**：push main 自動部署 Railway（第一版 20:41 PT／第二版拆欄位後再部署）；正式站不需新增環境變數（第二幣別有預設值）。拆欄位版本本機實測：首頁 USD 8 格無 `.price-alt`、CNY 列 8 格（1@¥4.7600 … 2,500@¥2.1496，數量 100 那格同步高亮）；BOM 表格 DigiKey 群組 x9、表頭「…平均單價／人民幣單價／狀態／連結」，NE555P 列「÷100 $0.3220」與「¥2.5980」各在自己的欄。
 - **修改檔案**：`src/lib/suppliers/types.ts`、`src/lib/suppliers/digikey/index.ts`、`src/app/api/search/route.ts`、`src/lib/mockData.ts`、`src/app/page.tsx`、`src/components/PriceBreaks.tsx`、`src/app/batch/page.tsx`、`src/app/globals.css`、`tests/digikey.test.ts`、`.env.example`、`project_summary.md`
 

@@ -51,6 +51,15 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith('/admin/') && token.role !== 'admin') {
     return NextResponse.redirect(new URL('/', req.url));
   }
+  // 缺料預測（含週報詳情）僅管理員；API 回 403 而不是導頁，前端 fetch 才不會拿到 HTML
+  if (token.role !== 'admin') {
+    if (pathname.startsWith('/api/demand-forecast')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    if (pathname.startsWith('/demand-forecast')) {
+      return NextResponse.redirect(new URL('/', req.url));
+    }
+  }
   if (pathname.startsWith('/qq-inquiry') && !canAccessQqInquiry(token)) {
     return NextResponse.redirect(new URL('/', req.url));
   }
