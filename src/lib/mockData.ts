@@ -41,6 +41,9 @@ export interface Supplier {
   updated: string;
   updatedSec: number;
   breaks: PriceBreak[];
+  /** 第二幣別參考價（目前只有 DigiKey 有）。純顯示，不參與排序與最低價比較 */
+  altBreaks?: PriceBreak[];
+  altCurrency?: string;
   productUrl?: string;
   isLive?: boolean;
   errorMsg?: string;

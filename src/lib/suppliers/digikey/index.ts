@@ -160,13 +160,36 @@ async function throttleDK(): Promise<void> {
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
 
-async function searchDigiKey(opts: SearchOptions): Promise<PartResult[]> {
+interface DKLocale {
+  site: string;
+  language: string;
+  currency: string;
+}
+
+function primaryLocale(): DKLocale {
+  return {
+    site: process.env.DIGIKEY_LOCALE_SITE ?? 'US',
+    language: process.env.DIGIKEY_LOCALE_LANGUAGE ?? 'en',
+    currency: process.env.DIGIKEY_LOCALE_CURRENCY ?? 'USD',
+  };
+}
+
+// 第二幣別：同一把 key、同一個 token，只換 locale header 就能拿到當地站別報價
+function altLocale(): DKLocale {
+  return {
+    site: process.env.DIGIKEY_ALT_LOCALE_SITE ?? 'CN',
+    language: process.env.DIGIKEY_ALT_LOCALE_LANGUAGE ?? 'zh',
+    currency: process.env.DIGIKEY_ALT_LOCALE_CURRENCY ?? 'CNY',
+  };
+}
+
+async function fetchDigiKeyProducts(
+  partNumber: string,
+  locale: DKLocale
+): Promise<DKProduct[]> {
   await throttleDK();
   const token = await getDigiKeyAccessToken();
   const clientId = process.env.DIGIKEY_CLIENT_ID!;
-  const site = process.env.DIGIKEY_LOCALE_SITE ?? 'US';
-  const language = process.env.DIGIKEY_LOCALE_LANGUAGE ?? 'en';
-  const currency = process.env.DIGIKEY_LOCALE_CURRENCY ?? 'USD';
 
   const url = `${getDigiKeyBaseUrl()}/products/v4/search/keyword`;
   const resp = await fetch(url, {
@@ -174,14 +197,14 @@ async function searchDigiKey(opts: SearchOptions): Promise<PartResult[]> {
     headers: {
       Authorization: `Bearer ${token}`,
       'X-DIGIKEY-Client-Id': clientId,
-      'X-DIGIKEY-Locale-Site': site,
-      'X-DIGIKEY-Locale-Language': language,
-      'X-DIGIKEY-Locale-Currency': currency,
+      'X-DIGIKEY-Locale-Site': locale.site,
+      'X-DIGIKEY-Locale-Language': locale.language,
+      'X-DIGIKEY-Locale-Currency': locale.currency,
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
     body: JSON.stringify({
-      Keywords: opts.partNumber,
+      Keywords: partNumber,
       Limit: 10,
       Offset: 0,
     }),
@@ -208,7 +231,7 @@ async function searchDigiKey(opts: SearchOptions): Promise<PartResult[]> {
     throw new SupplierError(
       SUPPLIER,
       'NOT_FOUND',
-      `Part number "${opts.partNumber}" not found on DigiKey`,
+      `Part number "${partNumber}" not found on DigiKey`,
       404
     );
   }
@@ -229,11 +252,56 @@ async function searchDigiKey(opts: SearchOptions): Promise<PartResult[]> {
     throw new SupplierError(
       SUPPLIER,
       'EMPTY_RESULT',
-      `No results for "${opts.partNumber}" (sandbox 可能回傳空資料，可改試一些 DigiKey 範例料號，例如 "P5555-ND" 或 production 環境)`
+      `No results for "${partNumber}" (sandbox 可能回傳空資料，可改試一些 DigiKey 範例料號，例如 "P5555-ND" 或 production 環境)`
     );
   }
 
-  return products.map((p) => mapProduct(p, currency));
+  return products;
+}
+
+function mpnKey(mpn: string | undefined): string {
+  return (mpn ?? '').trim().toUpperCase();
+}
+
+async function searchDigiKey(opts: SearchOptions): Promise<PartResult[]> {
+  const locale = primaryLocale();
+  const products = await fetchDigiKeyProducts(opts.partNumber, locale);
+  const results = products.map((p) => mapProduct(p, locale.currency));
+
+  const alt = altLocale();
+  const wantAlt =
+    opts.includeAltCurrency &&
+    alt.currency.toUpperCase() !== locale.currency.toUpperCase();
+  if (!wantAlt) return results;
+
+  // 第二幣別是附加資訊：查不到或出錯都不能影響主結果（CN 站有料件限制，部分料查無）
+  try {
+    const altProducts = await fetchDigiKeyProducts(opts.partNumber, alt);
+    const byMpn = new Map<string, DKProduct>();
+    for (const p of altProducts) {
+      const key = mpnKey(p.ManufacturerProductNumber);
+      if (key && !byMpn.has(key)) byMpn.set(key, p);
+    }
+    for (const r of results) {
+      const p = byMpn.get(mpnKey(r.manufacturerPartNumber));
+      if (!p) continue;
+      const priceBreaks = pickPriceBreaks(p, alt.currency);
+      if (!priceBreaks.length && p.UnitPrice == null) continue;
+      r.altPricing = {
+        currency: alt.currency,
+        localeSite: alt.site,
+        unitPrice: p.UnitPrice ?? priceBreaks[0]?.unitPrice ?? null,
+        priceBreaks,
+      };
+    }
+  } catch (e) {
+    console.warn(
+      '[DigiKey] alt-currency lookup failed:',
+      e instanceof Error ? e.message : String(e)
+    );
+  }
+
+  return results;
 }
 
 export const digikeyAdapter: SupplierAdapter = {

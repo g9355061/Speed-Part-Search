@@ -36,6 +36,7 @@ interface ApiPartResult {
   unitPrice: number | null;
   currency: string;
   priceBreaks: ApiPriceBreak[];
+  altPricing?: { currency: string; localeSite: string; unitPrice: number | null; priceBreaks: ApiPriceBreak[] };
   variations?: ApiVariation[];
   marketplaceVariations?: ApiMarketplaceVariation[];
   productUrl: string;
@@ -108,6 +109,12 @@ function supplierFromResult(result: ApiPartResult): Supplier {
     updated: rel.text,
     updatedSec: rel.sec,
     breaks,
+    ...(result.altPricing?.priceBreaks.length
+      ? {
+          altBreaks: result.altPricing.priceBreaks.map((b) => ({ qty: b.quantity, price: b.unitPrice })),
+          altCurrency: result.altPricing.currency,
+        }
+      : {}),
     productUrl: result.productUrl,
     isLive: true,
     ...(result.marketplaceVariations?.length

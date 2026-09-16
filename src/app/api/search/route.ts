@@ -49,7 +49,8 @@ export async function GET(req: NextRequest) {
   const blocks: SupplierBlock[] = await Promise.all(
     suppliers.map(async (s): Promise<SupplierBlock> => {
       try {
-        const results = await s.search({ partNumber });
+        // 人在看價格的入口才雙幣別查詢；缺料預測與名單查驗維持單幣別
+        const results = await s.search({ partNumber, includeAltCurrency: true });
         return { supplier: s.name, results };
       } catch (e) {
         if (e instanceof SupplierError) {

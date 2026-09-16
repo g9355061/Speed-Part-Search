@@ -5,6 +5,10 @@ import type { Supplier } from '@/lib/mockData';
 const fmtNum = (n: number) => n.toLocaleString('en-US');
 const fmtPrice = (n: number) => `$${n.toFixed(4)}`;
 
+const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', USD: '$', HKD: 'HK$', EUR: '€', JPY: '¥', TWD: 'NT$' };
+const fmtAltPrice = (n: number, currency: string) =>
+  `${CURRENCY_SYMBOL[currency] ?? `${currency} `}${n.toFixed(4)}`;
+
 interface Props {
   suppliers: Supplier[];
   activeId: string;
@@ -15,6 +19,8 @@ interface Props {
 
 export function PriceBreaks({ suppliers, activeId, onTab, qty, onQtyChange }: Props) {
   const s = suppliers.find((x) => x.id === activeId) ?? suppliers[0];
+  // 第二幣別是同一個站別的當地報價，不是匯率換算，所以只對齊級距顯示、不參與比價
+  const altByQty = new Map((s.altBreaks ?? []).map((b) => [b.qty, b.price]));
   const effectiveQty = s.stock > 0 && qty > s.stock ? s.stock : qty;
   const updateQty = (value: string) => {
     const next = Number(value.replace(/,/g, ''));
@@ -24,7 +30,11 @@ export function PriceBreaks({ suppliers, activeId, onTab, qty, onQtyChange }: Pr
     <div className="card">
       <div className="card-hd">
         <h3>
-          <Icon name="trend" size={14} /> 階梯價 <span className="sub">— 依數量對應單價</span>
+          <Icon name="trend" size={14} /> 階梯價{' '}
+          <span className="sub">
+            — 依數量對應單價
+            {s.altCurrency ? `；${s.altCurrency} 為 DigiKey 當地站別報價，非匯率換算` : ''}
+          </span>
         </h3>
         <div className="actions">
           <label className="qty-manual">
@@ -66,6 +76,9 @@ export function PriceBreaks({ suppliers, activeId, onTab, qty, onQtyChange }: Pr
             >
               <div className="qty">數量 ≥ {fmtNum(b.qty)}</div>
               <div className="price">{fmtPrice(b.price)}</div>
+              {s.altCurrency && altByQty.has(b.qty) ? (
+                <div className="price-alt mono">{fmtAltPrice(altByQty.get(b.qty)!, s.altCurrency)}</div>
+              ) : null}
               {save > 0 ? (
                 <div className="save">−{save.toFixed(1)}%</div>
               ) : (

@@ -1,6 +1,40 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-13（類別可得性指數＋名單全自動成分審查：每類配額 20 顆，死料 4 週除名，熱料／搜尋遞補）
+> 最後更新：2026-09-15（DigiKey 雙幣別查詢：/api/search 同一把 key 加查 CN/CNY；首頁階梯價、BOM 批量頁表格與 XLSX 皆並列人民幣；節流維持 2 秒）
+
+---
+
+### 2026-09-15 — DigiKey 雙幣別查詢（同一把 key，只在 /api/search 加查人民幣）
+
+**背景**：承同日 DigiKey API 討論，Danny 確認「只有 `/api/search`（首頁單查、batch BOM 逐筆）需要雙查」，缺料預測與名單查驗維持 USD 單查。先做資料層＋首頁顯示；Danny 看過方案後指示「先加」批量頁（表格平均單價下方一行 ¥、XLSX DigiKey 區塊多一欄「人民幣單價」），**節流維持 2 秒不動**（BOM 的 DigiKey 段時間會變兩倍，200 顆約 13 分鐘；要縮短再把 `throttleDK` 放寬到 ~600ms）。
+
+- [x] **型別**（`src/lib/suppliers/types.ts`）：`SearchOptions.includeAltCurrency?`（預設 false）；`PartResult.altPricing?: { currency, localeSite, unitPrice, priceBreaks }`。
+- [x] **adapter**（`src/lib/suppliers/digikey/index.ts`）：把 fetch 抽成 `fetchDigiKeyProducts(partNumber, locale)`，locale 由參數決定而非讀 env；`searchDigiKey` 先查主幣別，`includeAltCurrency` 才再以 `DIGIKEY_ALT_LOCALE_SITE/LANGUAGE/CURRENCY`（預設 CN/zh/CNY）查第二次，依 MPN 對齊掛到 `altPricing`。第二次查詢失敗或查無（CN 站有料件限制）只 `console.warn`，主結果不受影響；兩種幣別相同時不重複查。`token.ts` 未動——token 與 locale 無關，兩次共用。
+- [x] **入口**（`src/app/api/search/route.ts`）：`s.search({ partNumber, includeAltCurrency: true })`；`/api/demand-forecast` 與 `benchmark-roster` 未改，保持單查。
+- [x] **首頁顯示**（`src/lib/mockData.ts` `Supplier.altBreaks/altCurrency`、`src/app/page.tsx` 對應、`src/components/PriceBreaks.tsx`、`globals.css` `.price-alt`）：階梯價每格 USD 下方以小字並列 `¥x.xxxx`，標題副標註明「CNY 為 DigiKey 當地站別報價，非匯率換算」；不進供應商比較表、不參與排序與最低價判定；Mouser 分頁無此列。
+- [x] **批量頁**（`src/app/batch/page.tsx`）：`SupplierData.altUnitPrice/altCurrency`，`mapSupplier` 以 `priceAtQty(altPricing.priceBreaks, qty, stock)` 取同數量級距的人民幣單價（是「單價」不是拆包平均——CNY 只有合併後的級距，沒有 TR/CT 各自的價）；`SupplierCell` 平均單價格下方一行 `¥x.xxxx`（tooltip 註明非匯率換算）。庫存 0 的料 USD 平均單價顯示「—」但 ¥ 仍顯示，與「報價明細」欄同口徑。XLSX：DigiKey 區塊在「含運平均單價」後插入「人民幣單價」（N 欄，數值、格式 `"¥"#,##0.0000`），狀態移到 O，Mouser HK 變 P–U、VN 變 V–AA，共 27 欄；含運總價／含運平均的 L、M 公式不受影響；`SUPPLIER_EXPORT_GROUPS`／`EXPORT_COL_WIDTHS`／merges／autofilter／對齊與數字格式的欄索引全部同步（merges 改由 groups 推導、新增 `EXPORT_LAST_COL`）。
+- [x] **設定**：`.env.example` 與本機 `.env` 補 `DIGIKEY_ALT_LOCALE_*` 三個變數（不設也有預設值，正式站可不加）。
+- [x] **測試**（`tests/digikey.test.ts`）：既有 mapping 測試加「預設只打一次 search」斷言（守住缺料預測不燒雙倍配額）；新增雙幣別測試（兩次呼叫的 locale header 依序為 US/USD、CN/CNY；主欄位仍 USD、`altPricing` 為 CNY）與第二次失敗不影響主結果測試。
+- [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅、`npm run build` ✅。以 tsx 直呼 adapter 對 production 實測：NE555P USD 0.59／CNY 4.76（比值 8.07）、GRM155R71C104KA88D USD 0.1／CNY 0.83（8.30）；不帶 flag 的路徑 `altPricing === undefined`。本機 dev（port 5280）以 `NEXTAUTH_SECRET` 簽一枚一小時 JWT 當 session（`.env` 的 `NEXTAUTH_URL` 是 https 正式站網址，故 cookie 名須用 `__Secure-next-auth.session-token`）打 `/api/search` 取得 `altPricing`；瀏覽器實測首頁查 NE555P：DigiKey 分頁 8 個級距皆有 `¥` 第二行（1@¥4.7600 … 2,500@¥2.1496），切到 Mouser VN 分頁 `.price-alt` 為 0。批量頁以 DataTransfer 塞 CSV（NE555P×100、GRM155R71C104KA88D×1000）實跑：DigiKey 平均單價格分別為「÷100 $0.3220 / ¥2.5980」「— / ¥0.0802」（GRM 庫存 0）；攔截 `URL.createObjectURL` 取得匯出 blob 直接讀 sheet XML（SheetJS 未壓縮）：dimension A1:AA4、merges F1:O1／P1:U1／V1:AA1、N2=「人民幣單價」、N3=2.598、N4=0.08022、L3/M3 公式仍指 J/K/F/B、O3 與 AA3=「找到了」、numFmt 含 ¥。驗證用 token 與 scratch 腳本已刪、瀏覽器 cookie 已清。
+- **過程插曲**：dev server 跑著時執行 `npm run build`，`.next/` 被正式建構覆蓋，Danny 開頁面得到 `Cannot find module './9276.js'`；清 `.next` 重啟即恢復。之後要 build 一律先停 dev server。
+- **部署**：push main 自動部署 Railway；正式站不需新增環境變數（第二幣別有預設值）。
+- **修改檔案**：`src/lib/suppliers/types.ts`、`src/lib/suppliers/digikey/index.ts`、`src/app/api/search/route.ts`、`src/lib/mockData.ts`、`src/app/page.tsx`、`src/components/PriceBreaks.tsx`、`src/app/batch/page.tsx`、`src/app/globals.css`、`tests/digikey.test.ts`、`.env.example`、`project_summary.md`
+
+---
+
+### 2026-09-15 — DigiKey API 申請流程整理（僅諮詢，未改程式）
+
+**背景**：Danny 問「要申請 DigiKey 的 API，怎麼申請」。查證後確認**本專案早就接在 production**：`src/lib/suppliers/digikey/token.ts` 走 2-legged `client_credentials`（token 端點 `https://api.digikey.com/v1/oauth2/token`、快取提前 60 秒失效），`src/lib/suppliers/digikey/index.ts` 打 `/products/v4/search/keyword` 並帶 `X-DIGIKEY-Client-Id`／`Locale-Site=US`／`Language=en`／`Currency=USD`；`.env` 的 `DIGIKEY_CLIENT_ID`（48 碼）、`DIGIKEY_CLIENT_SECRET`（64 碼）、`DIGIKEY_ENV=production` 皆有值。
+
+- **實測**：以現有憑證直打 production token 端點回 **HTTP 200**（`token_type=Bearer`、`expires_in=599`），現有 key 有效，缺料預測的 DigiKey 查驗不需重新申請。
+- **申請流程（給之後要另開一把時用）**：My DigiKey 帳號 → developer.digikey.com 以同帳號登入建開發者帳號 → 建 Organization → 建 App（Sandbox 練手、Production 才是真資料）→ 訂閱 API 產品（本專案只需 Product Information V4）→ 取 Client ID／Secret → 寫進 `.env` 與 Railway 變數。Product Information 只要 2-legged；Order／Quote／MyLists 需 3-legged 授權碼流程＋customer id。
+- **什麼情況才需要第二把**：日配額不夠（portal 的 app 頁看用量，調高要走 portal 客服）、要用公司帳號持有、或要接需要 3-legged 的訂單類 API。
+- **追問：另一組帳號查人民幣、與英文站在網頁總結，有無風險**——實測**同一把 key 換 locale header 就能查人民幣，不需要第二組帳號**。GRM155R71C104KA88D 10k 級距：US/en/USD `0.00524`、CN/zh/CNY `0.04333`（比值 8.27）、HK/en/HKD `0.04307`（8.22），皆高於即期匯率，代表 DigiKey 本地幣別價另含當地稅費與匯率緩衝，**不能用匯率回推比價**。回應標頭 `x-ratelimit-limit: 1000`（每日），FAQ 另有 burst >120/min；每週 132 顆遠低於配額。
+- **若真的雙幣別並陳，已知會壞的三處**：(1) `token.ts` 的 `cached`／`inflight` 是 module 單例、沒有以 clientId 當 key，且 `searchDigiKey` 硬讀 `process.env.DIGIKEY_CLIENT_ID`，兩組憑證併存會 token 與 header client id 不同源 → 401；locale 也是呼叫時讀 env，同一 process 無法同時查兩種幣別。(2) 快照欄位是 `lowestPriceUsd`，`risk.ts:180` 的「最低價週漲 ≥30%」直接比前一筆，幣別一換就是 ×8.3 的假漲價事件，還會被週報當素材。(3) CN 站有料件限制，查不到會使 `supplierCount=0`，撞 `roster.ts` 的 `nodata4` 連續 4 次**自動除名**（不需核准），名單會被無聲砍掉；`availability.ts` 的 12 週基準也假設同一口徑。
+- **ToS**：多帳號本身無明文禁止，但 API User Agreement 明文禁止規避速率限制（超限先 10 分鐘 403，三次停權可終止）、禁止以 API 資料另建資料庫／bulk download，並要求 DigiKey 資料與第三方資料要有區隔與來源標示（現行矩陣分欄符合）。另：帳號連續 90 天未使用會被停用，備而不用的第二把 key 會默默失效。
+- **建議方向（待 Danny 確認才動手）**：維持單一 key，同一顆料打兩次 locale，快照加 `currency` 欄拆成兩條價格線；風險判定只吃 USD 那條，人民幣純顯示（用途應是與華強烽火的人民幣現貨報價對照）。
+- **雙查的適用範圍（Danny 追問「是不是查兩次」時補的界線）**：DigiKey 共三個呼叫點——`/api/search`（首頁單查與 batch BOM 逐筆）**才雙查**；`/api/demand-forecast` 每週 132 顆快照與 `/api/demand-forecast/benchmark-roster` ≤12 顆查驗**維持 USD 單查**（風險規則只吃 USD，多打一次純燒配額與時間）。配額試算：週日固定用掉約 144 次，其餘日子 1000 次可支撐約 420 顆雙查。`token.ts` 不需改——token 屬 client_credentials 層級、與 locale 無關，兩次查詢共用同一個 token，只要把 `searchDigiKey` 的 site/language/currency 由讀 env 改為參數。副作用是 `throttleDK` 全域 2 秒節流會讓單顆從 2 秒變 4 秒、200 顆 BOM 由約 6.7 分鐘變 13.3 分鐘；若要緩解可把節流放寬到 ~600ms（burst 上限 120/min ≈ 500ms/次），屬另一個待確認的決定。
+- **修改檔案**：`project_summary.md`（僅此）
 
 ---
 
