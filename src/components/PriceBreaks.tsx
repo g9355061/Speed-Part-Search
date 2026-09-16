@@ -19,8 +19,6 @@ interface Props {
 
 export function PriceBreaks({ suppliers, activeId, onTab, qty, onQtyChange }: Props) {
   const s = suppliers.find((x) => x.id === activeId) ?? suppliers[0];
-  // 第二幣別是同一個站別的當地報價，不是匯率換算，所以只對齊級距顯示、不參與比價
-  const altByQty = new Map((s.altBreaks ?? []).map((b) => [b.qty, b.price]));
   const effectiveQty = s.stock > 0 && qty > s.stock ? s.stock : qty;
   const updateQty = (value: string) => {
     const next = Number(value.replace(/,/g, ''));
@@ -30,11 +28,7 @@ export function PriceBreaks({ suppliers, activeId, onTab, qty, onQtyChange }: Pr
     <div className="card">
       <div className="card-hd">
         <h3>
-          <Icon name="trend" size={14} /> 階梯價{' '}
-          <span className="sub">
-            — 依數量對應單價
-            {s.altCurrency ? `；${s.altCurrency} 為 DigiKey 當地站別報價，非匯率換算` : ''}
-          </span>
+          <Icon name="trend" size={14} /> 階梯價 <span className="sub">— 依數量對應單價</span>
         </h3>
         <div className="actions">
           <label className="qty-manual">
@@ -76,9 +70,6 @@ export function PriceBreaks({ suppliers, activeId, onTab, qty, onQtyChange }: Pr
             >
               <div className="qty">數量 ≥ {fmtNum(b.qty)}</div>
               <div className="price">{fmtPrice(b.price)}</div>
-              {s.altCurrency && altByQty.has(b.qty) ? (
-                <div className="price-alt mono">{fmtAltPrice(altByQty.get(b.qty)!, s.altCurrency)}</div>
-              ) : null}
               {save > 0 ? (
                 <div className="save">−{save.toFixed(1)}%</div>
               ) : (
@@ -88,6 +79,30 @@ export function PriceBreaks({ suppliers, activeId, onTab, qty, onQtyChange }: Pr
           );
         })}
       </div>
+      {s.altCurrency && s.altBreaks?.length ? (
+        <>
+          {/* 第二幣別獨立一列：同一站別的當地報價，不是匯率換算，不與美金混在同一格 */}
+          <div className="brk-row-label">
+            {s.altCurrency} 人民幣參考價 <span className="sub">— DigiKey 當地站別報價，非匯率換算</span>
+          </div>
+          <div className="brk-grid brk-grid-alt">
+            {s.altBreaks.map((b, i, arr) => {
+              const nextBreak = arr[i + 1]?.qty ?? Number.POSITIVE_INFINITY;
+              const active = effectiveQty >= b.qty && effectiveQty < nextBreak;
+              return (
+                <div
+                  key={b.qty}
+                  className={'brk-cell' + (active ? ' active' : '')}
+                  onClick={() => onQtyChange(b.qty)}
+                >
+                  <div className="qty">數量 ≥ {fmtNum(b.qty)}</div>
+                  <div className="price">{fmtAltPrice(b.price, s.altCurrency!)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

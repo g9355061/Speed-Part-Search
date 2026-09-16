@@ -851,8 +851,10 @@ function SuffixCandidateCell({ row }: { row: ResultRow }) {
   );
 }
 
-function SupplierCell({ s, qty, name, showExternalStock = false }: { s: SupplierData; qty: number; name: string; showExternalStock?: boolean }) {
+function SupplierCell({ s, qty, name, showExternalStock = false, showAltPrice = false }: { s: SupplierData; qty: number; name: string; showExternalStock?: boolean; showAltPrice?: boolean }) {
   const isSearching = s.status === 'searching';
+  // 狀態欄之前的欄數：庫存 [外部庫存] MPQ 報價明細 總價 平均單價 [人民幣單價]
+  const leadingCols = 5 + (showExternalStock ? 1 : 0) + (showAltPrice ? 1 : 0);
   const divisor = s.shortage ? (s.stock ?? 0) : qty;
   const avg = s.totalCost != null && divisor > 0 ? s.totalCost / divisor : null;
   const rowBg = s.shortage ? 'var(--warn-soft)' : s.status === 'found' ? 'var(--row-best)' : undefined;
@@ -860,7 +862,7 @@ function SupplierCell({ s, qty, name, showExternalStock = false }: { s: Supplier
   if (s.status === 'pending' || isSearching) {
     return (
       <>
-        <td colSpan={showExternalStock ? 6 : 5} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
+        <td colSpan={leadingCols} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
           {isSearching ? '查詢中…' : '—'}
         </td>
         <td style={{ textAlign: 'center', background: rowBg }}>
@@ -878,7 +880,7 @@ function SupplierCell({ s, qty, name, showExternalStock = false }: { s: Supplier
       '—';
     return (
       <>
-        <td colSpan={showExternalStock ? 6 : 5} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
+        <td colSpan={leadingCols} style={{ ...mono, textAlign: 'center', background: rowBg, color: 'var(--text-4)', borderLeft: '2px solid var(--border)' }}>
           {emptyLabel}
         </td>
         <td style={{ textAlign: 'center', background: rowBg }}>
@@ -948,12 +950,15 @@ function SupplierCell({ s, qty, name, showExternalStock = false }: { s: Supplier
         {avg != null
           ? <PriceBreakPopover breaks={s.priceBreaks} activePrices={s.unitPrice != null ? [s.unitPrice] : undefined}><span><span style={{ ...dim, fontSize: 10, marginRight: 2 }}>÷{divisor.toLocaleString()}</span>${avg.toFixed(4)}</span></PriceBreakPopover>
           : <span style={dim}>—</span>}
-        {s.altUnitPrice != null && (
-          <div style={{ ...dim, fontSize: 11 }} title={`DigiKey ${s.altCurrency} 站別報價（同數量級距單價），非匯率換算`}>
-            {altSymbol(s.altCurrency)}{s.altUnitPrice.toFixed(4)}
-          </div>
-        )}
       </td>
+      {/* 人民幣單價 — DigiKey only；同數量級距的當地站別報價，非匯率換算 */}
+      {showAltPrice && (
+        <td style={{ ...mono, textAlign: 'right', background: rowBg }} title={s.altUnitPrice != null ? `DigiKey ${s.altCurrency} 站別報價（同數量級距單價），非匯率換算` : undefined}>
+          {s.altUnitPrice != null
+            ? `${altSymbol(s.altCurrency)}${s.altUnitPrice.toFixed(4)}`
+            : <span style={dim}>—</span>}
+        </td>
+      )}
       {/* 狀態 */}
       <td style={{ textAlign: 'center', background: rowBg }}>
         <StatusBadge status={s.status} hasExternalStock={(s.marketplaceVariations?.length ?? 0) > 0} />
@@ -1167,7 +1172,7 @@ export default function BatchPage() {
               </h3>
             </div>
             <div className="card-bd flush" style={{ overflowX: 'auto', paddingBottom: 16 }}>
-	              <table className="sup-tbl" style={{ minWidth: 2340 }}>
+	              <table className="sup-tbl" style={{ minWidth: 2450 }}>
                 <thead>
                   {/* supplier group header */}
                   <tr>
@@ -1177,7 +1182,7 @@ export default function BatchPage() {
                     <th className="sticky-col sticky-best" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
                     <th className="sticky-col sticky-fulfill" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
                     <th className="sticky-col sticky-candidate" style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }} />
-                    <th colSpan={8} style={{ background: '#e8eef7', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--primary)', borderBottom: '1px solid var(--border)' }}>
+                    <th colSpan={9} style={{ background: '#e8eef7', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--primary)', borderBottom: '1px solid var(--border)' }}>
                       DigiKey
                     </th>
 	                    <th colSpan={7} style={{ background: '#fef7ed', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#9a3412', borderBottom: '1px solid var(--border)' }}>
@@ -1202,6 +1207,7 @@ export default function BatchPage() {
                     <th style={{ width: 190 }}>報價明細</th>
                     <th style={{ width: 100, textAlign: 'right' }}>總價</th>
                     <th style={{ width: 110, textAlign: 'right' }}>平均單價</th>
+                    <th style={{ width: 110, textAlign: 'right' }}>人民幣單價</th>
                     <th style={{ width: 72, textAlign: 'center' }}>狀態</th>
                     <th style={{ width: 64, textAlign: 'center' }}>連結</th>
 	                    {/* MS HK cols */}
@@ -1235,7 +1241,7 @@ export default function BatchPage() {
 	                      <td className="sticky-col sticky-best" style={{ textAlign: 'center' }}><span style={{ fontSize: 12 }}>{summary.supplier}</span></td>
 	                      <td className="sticky-col sticky-fulfill" style={{ textAlign: 'center' }}><span style={{ fontSize: 12, color: summary.fulfillment === '部分滿足' ? 'var(--warn)' : 'var(--accent)' }}>{summary.fulfillment}</span></td>
 	                      <SuffixCandidateCell row={r} />
-	                      <SupplierCell s={r.digikey} qty={r.qty} name="DK" showExternalStock />
+	                      <SupplierCell s={r.digikey} qty={r.qty} name="DK" showExternalStock showAltPrice />
 	                      <SupplierCell s={r.mouserHk} qty={r.qty} name="HK" />
 	                      <SupplierCell s={r.mouserVn} qty={r.qty} name="VN" />
                           </>

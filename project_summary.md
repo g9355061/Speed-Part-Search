@@ -1,6 +1,6 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-15（DigiKey 雙幣別查詢：/api/search 同一把 key 加查 CN/CNY；首頁階梯價、BOM 批量頁表格與 XLSX 皆並列人民幣；節流維持 2 秒）
+> 最後更新：2026-09-15（DigiKey 雙幣別查詢：/api/search 同一把 key 加查 CN/CNY；美金與人民幣分開欄位——首頁階梯價獨立一列、BOM 表格獨立一欄、XLSX 獨立一欄；節流維持 2 秒）
 
 ---
 
@@ -11,13 +11,13 @@
 - [x] **型別**（`src/lib/suppliers/types.ts`）：`SearchOptions.includeAltCurrency?`（預設 false）；`PartResult.altPricing?: { currency, localeSite, unitPrice, priceBreaks }`。
 - [x] **adapter**（`src/lib/suppliers/digikey/index.ts`）：把 fetch 抽成 `fetchDigiKeyProducts(partNumber, locale)`，locale 由參數決定而非讀 env；`searchDigiKey` 先查主幣別，`includeAltCurrency` 才再以 `DIGIKEY_ALT_LOCALE_SITE/LANGUAGE/CURRENCY`（預設 CN/zh/CNY）查第二次，依 MPN 對齊掛到 `altPricing`。第二次查詢失敗或查無（CN 站有料件限制）只 `console.warn`，主結果不受影響；兩種幣別相同時不重複查。`token.ts` 未動——token 與 locale 無關，兩次共用。
 - [x] **入口**（`src/app/api/search/route.ts`）：`s.search({ partNumber, includeAltCurrency: true })`；`/api/demand-forecast` 與 `benchmark-roster` 未改，保持單查。
-- [x] **首頁顯示**（`src/lib/mockData.ts` `Supplier.altBreaks/altCurrency`、`src/app/page.tsx` 對應、`src/components/PriceBreaks.tsx`、`globals.css` `.price-alt`）：階梯價每格 USD 下方以小字並列 `¥x.xxxx`，標題副標註明「CNY 為 DigiKey 當地站別報價，非匯率換算」；不進供應商比較表、不參與排序與最低價判定；Mouser 分頁無此列。
-- [x] **批量頁**（`src/app/batch/page.tsx`）：`SupplierData.altUnitPrice/altCurrency`，`mapSupplier` 以 `priceAtQty(altPricing.priceBreaks, qty, stock)` 取同數量級距的人民幣單價（是「單價」不是拆包平均——CNY 只有合併後的級距，沒有 TR/CT 各自的價）；`SupplierCell` 平均單價格下方一行 `¥x.xxxx`（tooltip 註明非匯率換算）。庫存 0 的料 USD 平均單價顯示「—」但 ¥ 仍顯示，與「報價明細」欄同口徑。XLSX：DigiKey 區塊在「含運平均單價」後插入「人民幣單價」（N 欄，數值、格式 `"¥"#,##0.0000`），狀態移到 O，Mouser HK 變 P–U、VN 變 V–AA，共 27 欄；含運總價／含運平均的 L、M 公式不受影響；`SUPPLIER_EXPORT_GROUPS`／`EXPORT_COL_WIDTHS`／merges／autofilter／對齊與數字格式的欄索引全部同步（merges 改由 groups 推導、新增 `EXPORT_LAST_COL`）。
+- [x] **首頁顯示**（`src/lib/mockData.ts` `Supplier.altBreaks/altCurrency`、`src/app/page.tsx` 對應、`src/components/PriceBreaks.tsx`、`globals.css` `.brk-row-label`／`.brk-grid-alt`）：第一版把 `¥` 疊在 USD 格下方，Danny 看了說「美金和人民幣要在不同的欄位」，改為**人民幣獨立一列**——USD 格維持原樣，下方以「CNY 人民幣參考價 — DigiKey 當地站別報價，非匯率換算」標籤隔開，再一排同數量級距的 `¥` 格（同步隨數量高亮、可點選）；不進供應商比較表、不參與排序與最低價判定；Mouser 分頁沒有這列。
+- [x] **批量頁**（`src/app/batch/page.tsx`）：`SupplierData.altUnitPrice/altCurrency`，`mapSupplier` 以 `priceAtQty(altPricing.priceBreaks, qty, stock)` 取同數量級距的人民幣單價（是「單價」不是拆包平均——CNY 只有合併後的級距，沒有 TR/CT 各自的價）；`SupplierCell` 新增 `showAltPrice` prop（只有 DigiKey 開），在「平均單價」右邊**獨立一欄「人民幣單價」**（第一版疊在同一格，依 Danny 要求拆開）；DigiKey 群組表頭 8→9 欄、pending／錯誤列的 colSpan 改由 `leadingCols` 算、表格 `minWidth` 2340→2450。庫存 0 的料 USD 平均單價顯示「—」但 ¥ 仍顯示，與「報價明細」欄同口徑。XLSX：DigiKey 區塊在「含運平均單價」後插入「人民幣單價」（N 欄，數值、格式 `"¥"#,##0.0000`），狀態移到 O，Mouser HK 變 P–U、VN 變 V–AA，共 27 欄；含運總價／含運平均的 L、M 公式不受影響；`SUPPLIER_EXPORT_GROUPS`／`EXPORT_COL_WIDTHS`／merges／autofilter／對齊與數字格式的欄索引全部同步（merges 改由 groups 推導、新增 `EXPORT_LAST_COL`）。
 - [x] **設定**：`.env.example` 與本機 `.env` 補 `DIGIKEY_ALT_LOCALE_*` 三個變數（不設也有預設值，正式站可不加）。
 - [x] **測試**（`tests/digikey.test.ts`）：既有 mapping 測試加「預設只打一次 search」斷言（守住缺料預測不燒雙倍配額）；新增雙幣別測試（兩次呼叫的 locale header 依序為 US/USD、CN/CNY；主欄位仍 USD、`altPricing` 為 CNY）與第二次失敗不影響主結果測試。
 - [x] **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅、`npm run build` ✅。以 tsx 直呼 adapter 對 production 實測：NE555P USD 0.59／CNY 4.76（比值 8.07）、GRM155R71C104KA88D USD 0.1／CNY 0.83（8.30）；不帶 flag 的路徑 `altPricing === undefined`。本機 dev（port 5280）以 `NEXTAUTH_SECRET` 簽一枚一小時 JWT 當 session（`.env` 的 `NEXTAUTH_URL` 是 https 正式站網址，故 cookie 名須用 `__Secure-next-auth.session-token`）打 `/api/search` 取得 `altPricing`；瀏覽器實測首頁查 NE555P：DigiKey 分頁 8 個級距皆有 `¥` 第二行（1@¥4.7600 … 2,500@¥2.1496），切到 Mouser VN 分頁 `.price-alt` 為 0。批量頁以 DataTransfer 塞 CSV（NE555P×100、GRM155R71C104KA88D×1000）實跑：DigiKey 平均單價格分別為「÷100 $0.3220 / ¥2.5980」「— / ¥0.0802」（GRM 庫存 0）；攔截 `URL.createObjectURL` 取得匯出 blob 直接讀 sheet XML（SheetJS 未壓縮）：dimension A1:AA4、merges F1:O1／P1:U1／V1:AA1、N2=「人民幣單價」、N3=2.598、N4=0.08022、L3/M3 公式仍指 J/K/F/B、O3 與 AA3=「找到了」、numFmt 含 ¥。驗證用 token 與 scratch 腳本已刪、瀏覽器 cookie 已清。
 - **過程插曲**：dev server 跑著時執行 `npm run build`，`.next/` 被正式建構覆蓋，Danny 開頁面得到 `Cannot find module './9276.js'`；清 `.next` 重啟即恢復。之後要 build 一律先停 dev server。
-- **部署**：push main 自動部署 Railway；正式站不需新增環境變數（第二幣別有預設值）。
+- **部署**：push main 自動部署 Railway（第一版 20:41 PT／第二版拆欄位後再部署）；正式站不需新增環境變數（第二幣別有預設值）。拆欄位版本本機實測：首頁 USD 8 格無 `.price-alt`、CNY 列 8 格（1@¥4.7600 … 2,500@¥2.1496，數量 100 那格同步高亮）；BOM 表格 DigiKey 群組 x9、表頭「…平均單價／人民幣單價／狀態／連結」，NE555P 列「÷100 $0.3220」與「¥2.5980」各在自己的欄。
 - **修改檔案**：`src/lib/suppliers/types.ts`、`src/lib/suppliers/digikey/index.ts`、`src/app/api/search/route.ts`、`src/lib/mockData.ts`、`src/app/page.tsx`、`src/components/PriceBreaks.tsx`、`src/app/batch/page.tsx`、`src/app/globals.css`、`tests/digikey.test.ts`、`.env.example`、`project_summary.md`
 
 ---

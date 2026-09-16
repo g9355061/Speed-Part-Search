@@ -488,10 +488,12 @@ button { font-family: inherit; }
   font-family: var(--font-mono); font-size: 18px; font-weight: 600;
   color: var(--text); margin-top: 4px; letter-spacing: -0.01em;
 }
-.brk-cell .price-alt {
-  font-size: 12px; font-weight: 500;
-  color: var(--text-4); margin-top: 1px; letter-spacing: -0.01em;
+.brk-row-label {
+  padding: 10px 16px 0; border-top: 1px solid var(--hairline);
+  font-size: 12px; font-weight: 600; color: var(--text-2);
 }
+.brk-row-label .sub { font-weight: 400; color: var(--text-4); }
+.brk-grid-alt .brk-cell .price { font-size: 16px; }
 .brk-cell .save { font-family: var(--font-mono); font-size: 11px; color: var(--accent); margin-top: 2px; }
 .brk-cell.active { background: var(--primary-soft); }
 .brk-cell.active .price { color: var(--primary); }
