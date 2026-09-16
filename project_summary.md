@@ -1,6 +1,18 @@
 # Project Summary — Speed Part Search
 
-> 最後更新：2026-09-16（缺料預測改為僅管理員可見；所有角色 session 一律 48 小時）
+> 最後更新：2026-09-16（BOM Batch 併入 MFR 頁：人民幣單價欄搬過去、/batch 轉址、刪除舊頁；缺料預測僅管理員；session 一律 48 小時）
+
+---
+
+### 2026-09-16 — BOM Batch 併入 BOM Batch - MFR（人民幣欄搬過去、舊頁刪除、/batch 轉址）
+
+**背景**：Danny 問「BOM Batch 和 BOM Batch - MFR 差在哪」→「是不是可以直接取消 BOM Batch」→ 指示「人民幣價錢加到 MFR 頁，取消 BOM Batch」。比對後 MFR 頁是超集：廠商欄選填（`mfrCol === -1` 時廠商為空、跳過比對），其餘查詢／拆包／尾綴候選／匯出邏輯與 `/batch` 相同，唯一差別是 9/15 加的人民幣欄只在 `/batch`。兩頁 90% 程式碼重複（各約 1,300 行），上次只改一邊就是例子。
+
+- [x] **人民幣單價搬到 MFR**（`src/app/batch-manufacturer/page.tsx`）：與 `/batch` 同一做法——`SupplierData.altUnitPrice/altCurrency`、`mapSupplier` 以 `priceAtQty(altPricing.priceBreaks, qty, stock)` 取同數量級距單價、`SupplierCell` 加 `showAltPrice` 獨立一欄（DigiKey 群組 8→9 欄、colSpan 改由 `leadingCols` 計算、`minWidth` 2520→2630）。XLSX 這頁 base 多一欄 `Manufacturer / FMG`，索引整體比 `/batch` 多 1：人民幣單價插在含運平均（N）後為 **O 欄**（index 14），狀態→P(15)，HK Q–V(16–21)，VN W–AB(22–27)，共 28 欄；`SUPPLIER_EXPORT_GROUPS`／`EXPORT_COL_WIDTHS`／merges（改由 groups 推導）／autofilter `A2:AB`／對齊與數字格式索引同步，含運總價／含運平均的 M、N 公式（引用 G/K/L/B）不受影響。
+- [x] **取消 BOM Batch**：`git rm src/app/batch/`；`Header.tsx` 拿掉 `/batch` 連結、MFR 連結改名「BOM Batch」並移到原 BOM Batch 位置（QQ詢價之前）；MFR 頁 h1 由「BOM Batch - Manufacturer」改「BOM Batch」，副標改「上傳含料號、數量的 Excel（廠商欄選填）…有廠商欄時會標記…」；`next.config.js` 加 `redirects()`：`/batch` → `/batch-manufacturer`（308 permanent，舊書籤不 404）。
+- [x] **驗證**：`npx tsc --noEmit --incremental false` ✅（刪頁後 `.next/types` 殘留讓 incremental 模式報 TS6053，非程式錯誤）、`npm test` ✅、`npm run build` ✅（路由表已無 `/batch`）。本機實測：`/batch` 未登入與已登入皆 308 → `/batch-manufacturer`；管理員登入後導覽列為「單料查詢／BOM Batch(→/batch-manufacturer)／QQ詢價／廠商對照表／缺料預測／使用者管理」，h1「BOM Batch」；上傳含廠商欄 CSV（NE555P×100 TI、GRM155×1000 Murata）：DigiKey 群組 x9、表頭「…平均單價／人民幣單價／狀態／連結」，兩列分別「÷100 $0.3220｜¥2.5980」「—｜¥0.0802」；攔截匯出 blob：dimension A1:AB4、merges G1:P1／Q1:V1／W1:AB1、O2=「人民幣單價」、O3=2.598、O4=0.08022、M3/N3 公式原樣、P3 與 AB3=「找到了」、numFmt 含 ¥。
+- **過程插曲（瀏覽器驗證用）**：前一輪 Header 隱藏連結驗不了，原因找到了——瀏覽器分頁用 JS 塞的 session cookie 被 `/api/auth/session` 重簽成 **HttpOnly**，之後 JS 既看不到也蓋不掉、middleware 的 `cookies.delete` 又因 `__Secure-` 前綴缺 `Secure` 屬性被瀏覽器拒收，於是一枚過期的 HttpOnly cookie卡住。改用 `POST /api/auth/signout`（帶 csrf）讓伺服器正規清除後恢復。順帶觀察：`middleware.ts` 過期時的 `res.cookies.delete('__Secure-next-auth.session-token')` 在真實瀏覽器裡實際上是 no-op（缺 Secure 屬性），功能上無害（重新登入會覆蓋），未改。
+- **修改檔案**：`src/app/batch-manufacturer/page.tsx`、`src/components/Header.tsx`、`next.config.js`、`src/app/batch/page.tsx`（刪除）、`project_summary.md`
 
 ---
 

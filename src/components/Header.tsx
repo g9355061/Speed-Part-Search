@@ -51,7 +51,7 @@ export function Header() {
         <Link href="/" className={'hdr-nav-link' + (pathname === '/' ? ' active' : '')}>
           <Icon name="search" size={14} /><span className="lbl">單料查詢</span>
         </Link>
-        <Link href="/batch" className={'hdr-nav-link' + (pathname === '/batch' ? ' active' : '')}>
+        <Link href="/batch-manufacturer" className={'hdr-nav-link' + (pathname === '/batch-manufacturer' ? ' active' : '')}>
           <Icon name="compare" size={14} /><span className="lbl">BOM Batch</span>
         </Link>
         {canUseQqInquiry && (
@@ -59,9 +59,6 @@ export function Header() {
             <Icon name="message" size={14} /><span className="lbl">QQ詢價</span>
           </Link>
         )}
-        <Link href="/batch-manufacturer" className={'hdr-nav-link' + (pathname === '/batch-manufacturer' ? ' active' : '')}>
-          <Icon name="compare" size={14} /><span className="lbl">BOM Batch - MFR</span>
-        </Link>
         <Link href="/manufacturer-mapping" className={'hdr-nav-link' + (pathname === '/manufacturer-mapping' ? ' active' : '')}>
           <Icon name="compare" size={14} /><span className="lbl">廠商對照表</span>
         </Link>
