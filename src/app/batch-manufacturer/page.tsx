@@ -55,6 +55,8 @@ interface ResultRow extends BomRow {
   mouser: SupplierData;
   mouserHk: SupplierData;
   mouserVn: SupplierData;
+  /** Mouser 中國站，報價幣別為 CNY；不進最低供應商判定（跨幣別不能直接比大小） */
+  mouserCn: SupplierData;
 }
 
 /* API shapes */
@@ -302,13 +304,14 @@ function shouldDisableSupplier(block: ApiSupplierBlock | undefined): boolean {
   return code === 'RATE_LIMITED' || code === 'AUTH_FAILED';
 }
 
-type SupplierKey = 'digikey' | 'mouser' | 'mouserHk' | 'mouserVn';
-const SUPPLIER_KEYS: SupplierKey[] = ['digikey', 'mouserHk', 'mouserVn'];
+type SupplierKey = 'digikey' | 'mouser' | 'mouserHk' | 'mouserVn' | 'mouserCn';
+const SUPPLIER_KEYS: SupplierKey[] = ['digikey', 'mouserHk', 'mouserVn', 'mouserCn'];
 const SUPPLIER_QUERY_NAMES: Record<SupplierKey, string> = {
   digikey: 'digikey',
   mouser: 'mouser',
   mouserHk: 'mouser hk',
   mouserVn: 'mouser vn',
+  mouserCn: 'mouser cn',
 };
 
 async function searchBoth(
@@ -317,9 +320,9 @@ async function searchBoth(
   manufacturer: string | undefined,
   disabled: Set<string>,
   onDisable: (supplier: string) => void,
-): Promise<{ digikey: SupplierData; mouser: SupplierData; mouserHk: SupplierData; mouserVn: SupplierData }> {
+): Promise<{ digikey: SupplierData; mouser: SupplierData; mouserHk: SupplierData; mouserVn: SupplierData; mouserCn: SupplierData }> {
   // Track per-supplier consecutive RATE_LIMITED counts across retries
-  const rateLimitedCount: Record<string, number> = { digikey: 0, mouser: 0, mouserHk: 0, mouserVn: 0 };
+  const rateLimitedCount: Record<string, number> = { digikey: 0, mouser: 0, mouserHk: 0, mouserVn: 0, mouserCn: 0 };
   const resolved: Partial<Record<SupplierKey, ApiSupplierBlock | undefined>> = {};
   let retrySuppliers: SupplierKey[] = SUPPLIER_KEYS.filter((s) => !disabled.has(s));
 
@@ -331,6 +334,7 @@ async function searchBoth(
         mouser: { status: 'skipped' },
         mouserHk: resolved.mouserHk ? mapSupplier(resolved.mouserHk, qty, mpn, manufacturer) : disabled.has('mouserHk') ? { status: 'skipped' } : mapSupplier(resolved.mouserHk, qty, mpn, manufacturer),
         mouserVn: resolved.mouserVn ? mapSupplier(resolved.mouserVn, qty, mpn, manufacturer) : disabled.has('mouserVn') ? { status: 'skipped' } : mapSupplier(resolved.mouserVn, qty, mpn, manufacturer),
+        mouserCn: resolved.mouserCn ? mapSupplier(resolved.mouserCn, qty, mpn, manufacturer) : disabled.has('mouserCn') ? { status: 'skipped' } : mapSupplier(resolved.mouserCn, qty, mpn, manufacturer),
       };
     }
 
@@ -349,6 +353,7 @@ async function searchBoth(
           mouser:  { status: 'skipped' },
           mouserHk: disabled.has('mouserHk') ? { status: 'skipped' } : errData,
           mouserVn: disabled.has('mouserVn') ? { status: 'skipped' } : errData,
+          mouserCn: disabled.has('mouserCn') ? { status: 'skipped' } : errData,
         };
       }
       const json: ApiSearchResponse = await resp.json();
@@ -356,13 +361,15 @@ async function searchBoth(
       const ms = json.suppliers.find((b) => b.supplier.toLowerCase() === 'mouser');
       const mhk = json.suppliers.find((b) => b.supplier.toLowerCase() === 'mouser hk');
       const mvn = json.suppliers.find((b) => b.supplier.toLowerCase() === 'mouser vn');
-      const received: Partial<Record<SupplierKey, ApiSupplierBlock | undefined>> = { digikey: dk, mouser: ms, mouserHk: mhk, mouserVn: mvn };
+      const mcn = json.suppliers.find((b) => b.supplier.toLowerCase() === 'mouser cn');
+      const received: Partial<Record<SupplierKey, ApiSupplierBlock | undefined>> = { digikey: dk, mouser: ms, mouserHk: mhk, mouserVn: mvn, mouserCn: mcn };
 
       // Count supplier limit/auth failures that should stop the remaining batch.
       if (shouldDisableSupplier(dk)) rateLimitedCount.digikey++;
       if (shouldDisableSupplier(ms)) rateLimitedCount.mouser++;
       if (shouldDisableSupplier(mhk)) rateLimitedCount.mouserHk++;
       if (shouldDisableSupplier(mvn)) rateLimitedCount.mouserVn++;
+      if (shouldDisableSupplier(mcn)) rateLimitedCount.mouserCn++;
 
       for (const supplier of activeSuppliers) {
         const block = received[supplier];
@@ -387,6 +394,10 @@ async function searchBoth(
         disabled.add('mouserVn');
         onDisable('mouserVn');
       }
+      if (attempt === 2 && rateLimitedCount.mouserCn >= 3 && !disabled.has('mouserCn')) {
+        disabled.add('mouserCn');
+        onDisable('mouserCn');
+      }
 
       retrySuppliers = activeSuppliers.filter((supplier) => needsRetry(received[supplier]));
       if (attempt < 2 && retrySuppliers.length > 0) continue;
@@ -396,6 +407,7 @@ async function searchBoth(
         mouser:  { status: 'skipped' },
         mouserHk: (resolved.mouserHk ?? mhk) ? mapSupplier(resolved.mouserHk ?? mhk, qty, mpn, manufacturer) : disabled.has('mouserHk') ? { status: 'skipped' } : mapSupplier(undefined, qty, mpn, manufacturer),
         mouserVn: (resolved.mouserVn ?? mvn) ? mapSupplier(resolved.mouserVn ?? mvn, qty, mpn, manufacturer) : disabled.has('mouserVn') ? { status: 'skipped' } : mapSupplier(undefined, qty, mpn, manufacturer),
+        mouserCn: (resolved.mouserCn ?? mcn) ? mapSupplier(resolved.mouserCn ?? mcn, qty, mpn, manufacturer) : disabled.has('mouserCn') ? { status: 'skipped' } : mapSupplier(undefined, qty, mpn, manufacturer),
       };
     } catch {
       if (attempt === 2) return {
@@ -403,6 +415,7 @@ async function searchBoth(
         mouser:  { status: 'skipped' },
         mouserHk: disabled.has('mouserHk') ? { status: 'skipped' } : { status: 'error', errorMsg: 'Network error' },
         mouserVn: disabled.has('mouserVn') ? { status: 'skipped' } : { status: 'error', errorMsg: 'Network error' },
+        mouserCn: disabled.has('mouserCn') ? { status: 'skipped' } : { status: 'error', errorMsg: 'Network error' },
       };
     }
   }
@@ -411,6 +424,7 @@ async function searchBoth(
     mouser:  { status: 'skipped' },
     mouserHk: disabled.has('mouserHk') ? { status: 'skipped' } : { status: 'error', errorMsg: 'Max retries' },
     mouserVn: disabled.has('mouserVn') ? { status: 'skipped' } : { status: 'error', errorMsg: 'Max retries' },
+    mouserCn: disabled.has('mouserCn') ? { status: 'skipped' } : { status: 'error', errorMsg: 'Max retries' },
   };
 }
 
@@ -431,6 +445,7 @@ async function runBatch(
           mouser: { status: 'skipped' },
           mouserHk: { status: 'skipped' },
           mouserVn: { status: 'skipped' },
+          mouserCn: { status: 'skipped' },
         });
         break;
       }
@@ -440,6 +455,7 @@ async function runBatch(
         mouser:  { status: 'skipped' },
         mouserHk: disabled.has('mouserHk') ? { status: 'skipped' } : { status: 'searching' },
         mouserVn: disabled.has('mouserVn') ? { status: 'skipped' } : { status: 'searching' },
+        mouserCn: disabled.has('mouserCn') ? { status: 'skipped' } : { status: 'searching' },
       });
       const result = await searchBoth(mpn, qty, manufacturer, disabled, onDisable);
       onUpdate(idx, result);
@@ -453,6 +469,7 @@ async function runBatch(
         mouser: { status: 'skipped' },
         mouserHk: { status: 'skipped' },
         mouserVn: { status: 'skipped' },
+        mouserCn: { status: 'skipped' },
       });
     }
   }
@@ -506,14 +523,16 @@ const SUPPLIER_EXPORT_GROUPS = [
   { start: 6, end: 15, header: '1565C0', fill: 'F4F8FF' },   // DigiKey (10 cols)
   { start: 16, end: 21, header: 'EF6C00', fill: 'FFF3E8' },  // Mouser HK (6 cols)
   { start: 22, end: 27, header: '047857', fill: 'ECFDF5' },  // Mouser VN (6 cols)
+  { start: 28, end: 33, header: 'BE185D', fill: 'FDF2F8' },  // Mouser CN (6 cols, CNY)
 ];
-const EXPORT_LAST_COL = 27;                                   // AB
+const EXPORT_LAST_COL = 33;                                   // AH
 
 const EXPORT_COL_WIDTHS = [
   26, 9, 20, 16, 14, 28,
   13, 11, 8, 22, 12, 10, 14, 14, 12, 14,  // DK: Stock 外部Stock MPQ 報價 料件總價 運費 含運總價 含運平均 人民幣單價 狀態
   14, 8, 22, 12, 12, 14,               // HK
   14, 8, 22, 12, 12, 14,               // VN
+  14, 8, 22, 12, 12, 14,               // CN（人民幣）
 ];
 
 function exportCellStyle(fill: string, opts: { bold?: boolean; color?: string; align?: 'left' | 'center' | 'right'; numFmt?: string } = {}) {
@@ -527,7 +546,7 @@ function exportCellStyle(fill: string, opts: { bold?: boolean; color?: string; a
 }
 
 function estimatedRowHeight(values: unknown[]): number {
-  const detailColumns = [5, 9, 17, 23];
+  const detailColumns = [5, 9, 17, 23, 29];
   const maxLines = Math.max(
     1,
     ...detailColumns.map((c) => {
@@ -548,7 +567,7 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
     const values = Array.from({ length: EXPORT_LAST_COL + 1 }, (_, c) => ws[XLSX.utils.encode_cell({ r: i, c })]?.v ?? '');
     return { hpt: estimatedRowHeight(values) };
   });
-  ws['!autofilter'] = { ref: `A2:AB${rowCount}` };
+  ws['!autofilter'] = { ref: `A2:AH${rowCount}` };
   ws['!merges'] = SUPPLIER_EXPORT_GROUPS.map((g) => ({ s: { r: 0, c: g.start }, e: { r: 0, c: g.end } }));
 
   for (let c = 0; c <= EXPORT_LAST_COL; c++) {
@@ -574,15 +593,17 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
       const dkStatus = String(ws[XLSX.utils.encode_cell({ r, c: 15 })]?.v ?? '');
       const needsExternalShipping = c === 11 && dkStatus === '找到了/外部庫存';
       const fill = needsExternalShipping ? 'FFE599' : group?.fill ?? (r % 2 === 0 ? 'FFFFFF' : 'FAFAFA');
-      const align = c === 0 || c === 2 || c === 3 || c === 4 || c === 5 || [9, 15, 18, 21, 24, 27].includes(c) ? 'left' : 'right';
+      const align = c === 0 || c === 2 || c === 3 || c === 4 || c === 5 || [9, 15, 18, 21, 24, 27, 30, 33].includes(c) ? 'left' : 'right';
       const isTotal = [10, 12, 19, 25].includes(c);   // 料件總價, 含運總價, HK總價, VN總價
       const isFlatUnit = [13, 20, 26].includes(c);    // 含運平均, HK平均, VN平均
       const isShipping = c === 11;                     // 運費 — empty, user fills
       const isAltUnit = c === 14;                      // DK 人民幣單價
+      const isCnMoney = c === 31 || c === 32;          // Mouser CN 總價／平均單價（CNY）
       ws[addr].s = exportCellStyle(fill, {
         align,
-        numFmt: isFlatUnit
-          ? '$#,##0.0000;[Red]-$#,##0.0000;-'
+        numFmt: isCnMoney
+          ? '"¥"#,##0.0000;[Red]-"¥"#,##0.0000;-'
+          : isFlatUnit ? '$#,##0.0000;[Red]-$#,##0.0000;-'
           : isTotal ? '$#,##0.0000;[Red]-$#,##0.0000;-'
           : isShipping ? '$#,##0.00;[Red]-$#,##0.00;-'
           : isAltUnit ? '"¥"#,##0.0000;[Red]-"¥"#,##0.0000;-'
@@ -590,7 +611,7 @@ function styleResultsSheet(ws: XLSX.WorkSheet, rowCount: number) {
       });
     }
 
-    for (const c of [15, 21, 27]) {
+    for (const c of [15, 21, 27, 33]) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) continue;
       const status = String(ws[addr].v ?? '').toLowerCase();
@@ -644,13 +665,14 @@ async function downloadTemplate() {
 async function exportResults(rows: ResultRow[]) {
   // Mouser HK/VN: 6-col block
   const supMouser = (s: SupplierData, qty: number) => {
+    const sym = altSymbol(s.currency) || '$';   // Mouser CN 是 ¥，其餘為 $
     if (s.status === 'skipped') return ['', '', 'Skipped', '', '', 'Skipped'];
     if (s.status === 'restricted') return ['', '', '供貨限制', '', '', '供貨限制'];
     if (s.status === 'limited') return ['', '', s.errorMsg ?? 'Limit exceeded', '', '', 'Limit'];
     if (s.status === 'auth') return ['', '', s.errorMsg ?? 'Auth failed', '', '', 'Auth'];
     const priceDetail = s.split
-      ? s.split.map((l) => `${l.label} @ $${l.unitPrice.toFixed(4)}`).join('\n')
-      : s.unitPrice != null ? `$${s.unitPrice.toFixed(4)}` : '';
+      ? s.split.map((l) => `${l.label} @ ${sym}${l.unitPrice.toFixed(4)}`).join('\n')
+      : s.unitPrice != null ? `${sym}${s.unitPrice.toFixed(4)}` : '';
     const detail = s.status === 'mfr-mismatch' || s.status === 'mfr-suspect'
       ? [priceDetail, `API MFR: ${s.apiManufacturer || '—'}`].filter(Boolean).join('\n')
       : priceDetail;
@@ -689,15 +711,16 @@ async function exportResults(rows: ResultRow[]) {
 
   const dataRows = rows.map((r) => {
     const summary = bestOfferSummary(r);
-    return [r.mpn, r.qty, r.manufacturer ?? '', summary.supplier, summary.fulfillment, suffixCandidateSummary(r), ...supDKValues(effectiveSupplierData(r.digikey, r.manufacturer)), ...supMouser(effectiveSupplierData(r.mouserHk, r.manufacturer), r.qty), ...supMouser(effectiveSupplierData(r.mouserVn, r.manufacturer), r.qty)];
+    return [r.mpn, r.qty, r.manufacturer ?? '', summary.supplier, summary.fulfillment, suffixCandidateSummary(r), ...supDKValues(effectiveSupplierData(r.digikey, r.manufacturer)), ...supMouser(effectiveSupplierData(r.mouserHk, r.manufacturer), r.qty), ...supMouser(effectiveSupplierData(r.mouserVn, r.manufacturer), r.qty), ...supMouser(effectiveSupplierData(r.mouserCn, r.manufacturer), r.qty)];
   });
 
   const data = [
-    ['', '', '', '', '', '', 'DigiKey', '', '', '', '', '', '', '', '', '', 'Mouser HK', '', '', '', '', '', 'Mouser VN', '', '', '', '', ''],
+    ['', '', '', '', '', '', 'DigiKey', '', '', '', '', '', '', '', '', '', 'Mouser HK', '', '', '', '', '', 'Mouser VN', '', '', '', '', '', 'Mouser CN', '', '', '', '', ''],
     ['MPN', 'Qty', 'Manufacturer / FMG', '最低供應商', '滿足狀態', '尾綴候選',
       'Stock', '外部Stock', 'MPQ', '報價', '料件總價', '運費', '含運總價', '含運平均單價', '人民幣單價', '狀態',
       'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態',
-      'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態'],
+      'Stock', 'MPQ', '報價', '總價', '平均單價', '狀態',
+      'Stock', 'MPQ', '報價 ¥', '總價 ¥', '平均單價 ¥', '狀態'],
     ...dataRows,
   ];
 
@@ -825,6 +848,7 @@ function supplierDisplayForRow(r: ResultRow, aliases?: Record<string, string>) {
     digikey: effectiveSupplierData(r.digikey, r.manufacturer, aliases),
     mouserHk: effectiveSupplierData(r.mouserHk, r.manufacturer, aliases),
     mouserVn: effectiveSupplierData(r.mouserVn, r.manufacturer, aliases),
+    mouserCn: effectiveSupplierData(r.mouserCn, r.manufacturer, aliases),
   };
 }
 
@@ -847,6 +871,7 @@ function bestOfferSummary(r: ResultRow, aliases?: Record<string, string>): { sup
     { key: 'digikey' as const, label: SUPPLIER_LABELS.digikey, data: suppliers.digikey },
     { key: 'mouserHk' as const, label: SUPPLIER_LABELS.mouserHk, data: suppliers.mouserHk },
     { key: 'mouserVn' as const, label: SUPPLIER_LABELS.mouserVn, data: suppliers.mouserVn },
+    // Mouser CN 刻意不列入：它報的是 CNY，與其他家的 USD 不能直接比大小（沒有匯率就不是同一把尺）
   ]
     .map((item) => ({ ...item, avg: averageUnitPrice(item.data, r.qty), fulfills: (item.data.stock ?? 0) >= r.qty }))
     .filter((item) => item.avg != null)
@@ -869,6 +894,7 @@ function suffixCandidateSummary(r: ResultRow): string {
     ...((r.digikey.suffixCandidates ?? []).map((c) => ({ ...c, supplier: SUPPLIER_LABELS.digikey }))),
     ...((r.mouserHk.suffixCandidates ?? []).map((c) => ({ ...c, supplier: SUPPLIER_LABELS.mouserHk }))),
     ...((r.mouserVn.suffixCandidates ?? []).map((c) => ({ ...c, supplier: SUPPLIER_LABELS.mouserVn }))),
+    ...((r.mouserCn.suffixCandidates ?? []).map((c) => ({ ...c, supplier: SUPPLIER_LABELS.mouserCn }))),
   ];
   if (!items.length) return '—';
   return items
@@ -905,6 +931,8 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases, showExternalStoc
   const leadingCols = 5 + (showExternalStock ? 1 : 0) + (showAltPrice ? 1 : 0);
   const divisor = display.shortage ? (display.stock ?? 0) : qty;
   const avg = display.totalCost != null && divisor > 0 ? display.totalCost / divisor : null;
+  // Mouser CN 報 CNY，總價／平均單價要跟著換符號，不能一律 $
+  const sym = altSymbol(display.currency) || '$';
   const rowBg = display.status === 'mfr-mismatch'
     ? '#fff3e0'
     : display.status === 'mfr-suspect' ? '#eef4ff'
@@ -998,13 +1026,13 @@ function SupplierCell({ s, qty, name, bomManufacturer, aliases, showExternalStoc
       {/* 總價 */}
       <td style={{ ...mono, textAlign: 'right', fontWeight: 600, background: rowBg }}>
         {display.totalCost != null
-          ? `$${display.totalCost.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+          ? `${sym}${display.totalCost.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
           : <span style={dim}>—</span>}
       </td>
       {/* 平均單價 */}
       <td style={{ ...mono, textAlign: 'right', background: rowBg }}>
         {avg != null
-          ? <PriceBreakPopover breaks={display.priceBreaks} activePrices={display.unitPrice != null ? [display.unitPrice] : undefined}><span><span style={{ ...dim, fontSize: 10, marginRight: 2 }}>÷{divisor.toLocaleString()}</span>${avg.toFixed(4)}</span></PriceBreakPopover>
+          ? <PriceBreakPopover breaks={display.priceBreaks} activePrices={display.unitPrice != null ? [display.unitPrice] : undefined}><span><span style={{ ...dim, fontSize: 10, marginRight: 2 }}>÷{divisor.toLocaleString()}</span>{sym}{avg.toFixed(4)}</span></PriceBreakPopover>
           : <span style={dim}>—</span>}
       </td>
       {/* 人民幣單價 — DigiKey only；同數量級距的當地站別報價，非匯率換算 */}
@@ -1051,6 +1079,7 @@ const SUPPLIER_LABELS: Record<string, string> = {
   digikey: 'DigiKey',
   mouserHk: 'Mouser HK',
   mouserVn: 'Mouser VN',
+  mouserCn: 'Mouser CN',
 };
 
 export default function BatchPage() {
@@ -1082,14 +1111,14 @@ export default function BatchPage() {
 	  const total = results.length;
 	  const doneCnt = results.filter((r) => r.digikey.status !== 'pending' && r.digikey.status !== 'searching').length;
 	  const progress = total > 0 ? Math.round((doneCnt / total) * 100) : 0;
-	  const shortageCnt = results.filter((r) => r.digikey.shortage || r.mouserHk.shortage || r.mouserVn.shortage).length;
+	  const shortageCnt = results.filter((r) => r.digikey.shortage || r.mouserHk.shortage || r.mouserVn.shortage || r.mouserCn.shortage).length;
 	  const mismatchCnt = results.filter((r) => {
 	    const s = supplierDisplayForRow(r, dynamicAliases);
-	    return s.digikey.status === 'mfr-mismatch' || s.mouserHk.status === 'mfr-mismatch' || s.mouserVn.status === 'mfr-mismatch';
+	    return s.digikey.status === 'mfr-mismatch' || s.mouserHk.status === 'mfr-mismatch' || s.mouserVn.status === 'mfr-mismatch' || s.mouserCn.status === 'mfr-mismatch';
 	  }).length;
 	  const suspectCnt = results.filter((r) => {
 	    const s = supplierDisplayForRow(r, dynamicAliases);
-	    return s.digikey.status === 'mfr-suspect' || s.mouserHk.status === 'mfr-suspect' || s.mouserVn.status === 'mfr-suspect';
+	    return s.digikey.status === 'mfr-suspect' || s.mouserHk.status === 'mfr-suspect' || s.mouserVn.status === 'mfr-suspect' || s.mouserCn.status === 'mfr-suspect';
 	  }).length;
 
   const handleFile = useCallback(async (file: File) => {
@@ -1104,6 +1133,7 @@ export default function BatchPage() {
 	        mouser:  { status: 'skipped' },
 	        mouserHk: { status: 'pending' },
 	        mouserVn: { status: 'pending' },
+	        mouserCn: { status: 'pending' },
       })));
     } catch (e) { setParseError(e instanceof Error ? e.message : String(e)); }
   }, []);
@@ -1141,8 +1171,8 @@ export default function BatchPage() {
     stopRef.current = true;
     setStopped(true);
     setResults((prev) => prev.map((r) => {
-	      const pending = r.digikey.status === 'pending' && r.mouserHk.status === 'pending' && r.mouserVn.status === 'pending';
-      return pending ? { ...r, digikey: { status: 'skipped' }, mouser: { status: 'skipped' }, mouserHk: { status: 'skipped' }, mouserVn: { status: 'skipped' } } : r;
+	      const pending = r.digikey.status === 'pending' && r.mouserHk.status === 'pending' && r.mouserVn.status === 'pending' && r.mouserCn.status === 'pending';
+      return pending ? { ...r, digikey: { status: 'skipped' }, mouser: { status: 'skipped' }, mouserHk: { status: 'skipped' }, mouserVn: { status: 'skipped' }, mouserCn: { status: 'skipped' } } : r;
     }));
   };
 
@@ -1245,6 +1275,7 @@ export default function BatchPage() {
               {disabledSuppliers.some((s) => s === 'digikey') && 'DigiKey 已達查詢上限，剩餘料號將只查 Mouser HK / VN；DigiKey 每日額度將於台灣時間 08:00 重置。'}
               {disabledSuppliers.some((s) => s === 'mouserHk') && ' Mouser HK 暫時達到限制，本次批次已略過剩餘 Mouser HK 查詢。'}
               {disabledSuppliers.some((s) => s === 'mouserVn') && ' Mouser VN 暫時達到限制，本次批次已略過剩餘 Mouser VN 查詢。'}
+              {disabledSuppliers.some((s) => s === 'mouserCn') && ' Mouser CN 暫時達到限制，本次批次已略過剩餘 Mouser CN 查詢。'}
             </span>
           </div>
         )}
@@ -1257,7 +1288,7 @@ export default function BatchPage() {
                 BOM 查詢結果
                 <span style={{ fontWeight: 400, color: 'var(--text-4)' }}>
                   — {total} 筆
-	                  {doneCnt > 0 && `，${results.filter(r => r.digikey.status === 'found').length} 筆 DK / ${results.filter(r => r.mouserHk.status === 'found').length} 筆 HK / ${results.filter(r => r.mouserVn.status === 'found').length} 筆 VN 找到`}
+	                  {doneCnt > 0 && `，${results.filter(r => r.digikey.status === 'found').length} 筆 DK / ${results.filter(r => r.mouserHk.status === 'found').length} 筆 HK / ${results.filter(r => r.mouserVn.status === 'found').length} 筆 VN / ${results.filter(r => r.mouserCn.status === 'found').length} 筆 CN 找到`}
 	                  {done && suspectCnt > 0 && <span style={{ color: 'var(--primary)', marginLeft: 8 }}>ℹ {suspectCnt} 筆疑似同廠商</span>}
 	                  {done && mismatchCnt > 0 && <span style={{ color: 'var(--warn)', marginLeft: 8 }}>⚠ {mismatchCnt} 筆廠商不符</span>}
 	                  {done && shortageCnt > 0 && <span style={{ color: 'var(--warn)', marginLeft: 8 }}>⚠ {shortageCnt} 筆庫存不足</span>}
@@ -1265,7 +1296,7 @@ export default function BatchPage() {
               </h3>
             </div>
             <div className="card-bd flush" style={{ overflowX: 'auto', paddingBottom: 16 }}>
-	              <table className="sup-tbl" style={{ minWidth: 2630 }}>
+	              <table className="sup-tbl" style={{ minWidth: 3344 }}>
                 <thead>
                   {/* supplier group header */}
                   <tr>
@@ -1284,6 +1315,9 @@ export default function BatchPage() {
 	                    </th>
                     <th colSpan={7} style={{ background: '#ecfdf5', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#047857', borderBottom: '1px solid var(--border)' }}>
                       Mouser VN
+                    </th>
+                    <th colSpan={7} style={{ background: '#fdf2f8', borderLeft: '2px solid var(--border)', textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#be185d', borderBottom: '1px solid var(--border)' }}>
+                      Mouser CN <span style={{ fontWeight: 400, fontSize: 11 }}>· 人民幣報價</span>
                     </th>
                   </tr>
                   {/* column header */}
@@ -1321,6 +1355,14 @@ export default function BatchPage() {
                     <th style={{ width: 110, textAlign: 'right' }}>平均單價</th>
                     <th style={{ width: 72, textAlign: 'center' }}>狀態</th>
                     <th style={{ width: 64, textAlign: 'center' }}>連結</th>
+                    {/* MS CN cols — 幣別為 CNY */}
+                    <th style={{ width: 90, textAlign: 'right', borderLeft: '2px solid var(--border)' }}>庫存</th>
+                    <th style={{ width: 88, textAlign: 'right' }}>MPQ</th>
+                    <th style={{ width: 190 }}>報價明細</th>
+                    <th style={{ width: 100, textAlign: 'right' }}>總價 ¥</th>
+                    <th style={{ width: 110, textAlign: 'right' }}>平均單價 ¥</th>
+                    <th style={{ width: 72, textAlign: 'center' }}>狀態</th>
+                    <th style={{ width: 64, textAlign: 'center' }}>連結</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1340,6 +1382,7 @@ export default function BatchPage() {
 	                      <SupplierCell s={r.digikey} qty={r.qty} name="DK" bomManufacturer={r.manufacturer} aliases={dynamicAliases} showExternalStock showAltPrice />
 	                      <SupplierCell s={r.mouserHk} qty={r.qty} name="HK" bomManufacturer={r.manufacturer} aliases={dynamicAliases} />
 	                      <SupplierCell s={r.mouserVn} qty={r.qty} name="VN" bomManufacturer={r.manufacturer} aliases={dynamicAliases} />
+	                      <SupplierCell s={r.mouserCn} qty={r.qty} name="CN" bomManufacturer={r.manufacturer} aliases={dynamicAliases} />
                           </>
                         );
                       })()}

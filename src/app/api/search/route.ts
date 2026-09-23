@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getEnabledSuppliers } from '@/lib/suppliers/registry';
+import { getQuoteSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import { logPartSearch } from '@/lib/db';
 
@@ -35,9 +35,10 @@ export async function GET(req: NextRequest) {
   void logPartSearch(partNumber, 'search');
 
   const requested = requestedSupplierNames(req);
+  // 這個入口是給人看價格的，所以含 Mouser CN（人民幣）；呼叫端都會明列 suppliers
   const suppliers = requested
-    ? getEnabledSuppliers().filter((s) => requested.has(s.name.toLowerCase()))
-    : getEnabledSuppliers();
+    ? getQuoteSuppliers().filter((s) => requested.has(s.name.toLowerCase()))
+    : getQuoteSuppliers();
 
   if (requested && suppliers.length === 0) {
     return NextResponse.json(

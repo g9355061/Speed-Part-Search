@@ -7,6 +7,7 @@ const DEFAULT_MIN_INTERVAL_MS = 2100; // ~28 req/min, still below Mouser's obser
 const US_SUPPLIER = 'Mouser';
 const HK_SUPPLIER = 'Mouser HK';
 const VN_SUPPLIER = 'Mouser VN';
+const CN_SUPPLIER = 'Mouser CN';
 
 /* ── Raw API types ── */
 interface MouserPriceBreak {
@@ -49,8 +50,16 @@ interface MouserSearchResponse {
 /* ── Helpers ── */
 function parsePrice(s?: string): number | null {
   if (!s) return null;
-  const n = parseFloat(s.replace(/[$,\s]/g, ''));
+  // 剝掉所有非數字字元：US/HK/VN 是 "$0.4700"、"1,234.56"，CN 站是 "¥5.1189"
+  const n = parseFloat(s.replace(/[^\d.]/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Mouser CN 回的幣別碼是 'RMB'，正規化成 ISO 4217 的 'CNY'，與 DigiKey 人民幣欄同一個代碼 */
+function normalizeCurrency(value?: string): string {
+  const v = (value ?? '').trim().toUpperCase();
+  if (!v) return 'USD';
+  return v === 'RMB' ? 'CNY' : v;
 }
 
 function normalizePartNumber(value?: string): string {
@@ -65,10 +74,10 @@ function parseStock(s?: string): number {
 
 function parseLeadDays(s?: string): number | null {
   if (!s) return null;
-  if (/in stock/i.test(s)) return 0;
-  const w = s.match(/(\d+)\s*week/i);
+  if (/in stock|有库存|有庫存/i.test(s)) return 0;
+  const w = s.match(/(\d+)\s*(?:week|週|周)/i);
   if (w) return parseInt(w[1], 10) * 7;
-  const d = s.match(/(\d+)\s*day/i);
+  const d = s.match(/(\d+)\s*(?:day|天)/i);   // CN 站是 "63 天数"
   if (d) return parseInt(d[1], 10);
   return null;
 }
@@ -76,7 +85,7 @@ function parseLeadDays(s?: string): number | null {
 function parseStandardPackQty(attrs?: MouserProductAttribute[]): number | null {
   if (!attrs) return null;
   const attr = attrs.find((a) =>
-    /^(Standard Pack Qty|標準包裝數量)$/i.test(a.AttributeName?.trim() ?? '')
+    /^(Standard Pack Qty|標準包裝數量|标准包装数量)$/i.test(a.AttributeName?.trim() ?? '')
   );
   if (!attr?.AttributeValue) return null;
   const n = parseInt(attr.AttributeValue.replace(/,/g, ''), 10);
@@ -85,7 +94,7 @@ function parseStandardPackQty(attrs?: MouserProductAttribute[]): number | null {
 
 function mapPart(p: MouserPart, currency: string, supplier: string): PartResult {
   const priceBreaks: PriceBreak[] = (p.PriceBreaks ?? [])
-    .map((b) => ({ quantity: b.Quantity, unitPrice: parsePrice(b.Price) ?? 0, currency: b.Currency || currency }))
+    .map((b) => ({ quantity: b.Quantity, unitPrice: parsePrice(b.Price) ?? 0, currency: b.Currency ? normalizeCurrency(b.Currency) : currency }))
     .filter((b) => b.unitPrice > 0);
 
   const stock = parseStock(p.Availability);
@@ -236,7 +245,7 @@ function createMouserAdapter(name: string, envKey: string): SupplierAdapter {
       throw new SupplierError(name, 'RESTRICTED', `"${opts.partNumber}" restricted on ${name} (distributor purchase not available)`);
     }
 
-    const currency = parts[0]?.PriceBreaks?.[0]?.Currency ?? 'USD';
+    const currency = normalizeCurrency(parts[0]?.PriceBreaks?.[0]?.Currency);
     return [mapPart(parts[0], currency, name)];
   }
 
@@ -277,3 +286,4 @@ function createMouserAdapter(name: string, envKey: string): SupplierAdapter {
 export const mouserAdapter = createMouserAdapter(US_SUPPLIER, 'MOUSER_API_KEY');
 export const mouserHkAdapter = createMouserAdapter(HK_SUPPLIER, 'MOUSER_HK_API_KEY');
 export const mouserVnAdapter = createMouserAdapter(VN_SUPPLIER, 'MOUSER_VN_API_KEY');
+export const mouserCnAdapter = createMouserAdapter(CN_SUPPLIER, 'MOUSER_CN_API_KEY');
