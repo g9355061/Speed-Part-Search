@@ -1,5 +1,12 @@
 # Project Summary — Speed Part Search
 
+### 2026-10-02 — Railway 節費：Chromium 閒置釋放縮短至 3 分鐘
+
+- HQEW／QQ 查詢共用 Chromium 的閒置期限由 10 分鐘改為 3 分鐘，後續查詢會自動重新啟動；既有 3 小時結果快取保留。
+- 計時器觸發時若仍有開啟頁面，延後關閉，避免慢速或並行查詢遭中斷；關閉前先分離共用 browser promise，避免舊 Chromium 關閉完成後清掉新查詢的 browser／timer。
+- `npx tsc --noEmit`、既有 `npm test`、`npm run build`、`git diff --check` 通過；以可控計時器驗證 180 秒期限、查詢中頁面保護、閒置關閉及關閉期間新查詢的競態。
+- 調整前 Railway 過去 24 小時網站 RAM 平均約 333.67 MB、目前 352.89 MB；實際節省需以部署後正常查詢及閒置期間用量比較，尚未宣稱已降低月費。
+
 > 最後更新：2026-09-22（Mouser CN 人民幣報價接進 BOM Batch：adapter + 4 個簡體解析修正 + 第 4 組欄位 + XLSX AC–AH；CN 不進最低供應商判定、不進缺料預測）
 
 ---

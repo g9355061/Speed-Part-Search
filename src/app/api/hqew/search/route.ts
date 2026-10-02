@@ -16,11 +16,11 @@ export const dynamic = 'force-dynamic';
 const HQEW_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 const HQEW_CACHE_PREFIX = 'hqew-search-';
 
-// 瀏覽器閒置自動釋放機制（10 分鐘）：
+// 瀏覽器閒置自動釋放機制（3 分鐘）：
 // 模組層級共用單一 browser 以避免 28 顆 BOM 逐顆冷啟動，但在無查詢時若一直常駐記憶體會增加
-// Railway 記憶體開銷（約 300MB~500MB RAM）。故設置閒置超時，超過 10 分鐘無任何
+// Railway 記憶體開銷。故設置閒置超時，超過 3 分鐘無任何
 // HQEW/QQ 查詢即自動執行 browser.close() 釋放 RAM，待下次查詢再自動重啟。
-const BROWSER_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const BROWSER_IDLE_TIMEOUT_MS = 3 * 60 * 1000;
 
 type LaunchedBrowser = Awaited<ReturnType<typeof chromium.launch>>;
 
@@ -35,16 +35,22 @@ function scheduleBrowserIdleClose(browser: LaunchedBrowser) {
     hqewGlobal.__hqewIdleTimer = null;
   }
   hqewGlobal.__hqewIdleTimer = setTimeout(async () => {
+    hqewGlobal.__hqewIdleTimer = null;
+    // A slow or concurrent query may still have a page open when the timer fires.
+    if (browser.isConnected() && browser.contexts().some((context) => context.pages().length > 0)) {
+      scheduleBrowserIdleClose(browser);
+      return;
+    }
+    // Detach before awaiting close so a new request can launch its own browser.
+    // The old browser's completion must not clear that new browser's promise/timer.
+    hqewGlobal.__hqewBrowserPromise = null;
     try {
       if (browser.isConnected()) {
-        console.log('[HQEW] Playwright Chromium idle for 10m, closing to free memory');
+        console.log('[HQEW] Playwright Chromium idle for 3m, closing to free memory');
         await browser.close();
       }
     } catch (err) {
       console.warn('[HQEW] Error closing idle browser:', err);
-    } finally {
-      hqewGlobal.__hqewBrowserPromise = null;
-      hqewGlobal.__hqewIdleTimer = null;
     }
   }, BROWSER_IDLE_TIMEOUT_MS);
 
