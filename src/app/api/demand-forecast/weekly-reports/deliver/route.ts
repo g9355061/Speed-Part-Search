@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCachedWeeklyReport } from '@/lib/demand-forecast/weekly-report';
-import { buildWeeklyDigest } from '@/lib/demand-forecast/weekly-digest';
+import { buildWeeklyDigest, buildWeeklyEmail } from '@/lib/demand-forecast/weekly-digest';
 import { weeklyDeliveryRecipients } from '@/lib/demand-forecast/weekly-delivery-policy';
 import { isEmailConfigured, sendWeeklyDigestEmail } from '@/lib/email';
 import { claimWeeklyDelivery, listUsers, setGenericCacheOrThrow } from '@/lib/db';
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   try {
     const report = await getCachedWeeklyReport();
     const siteUrl = process.env.NEXTAUTH_URL || process.env.FORECAST_BASE_URL || 'http://localhost:5280';
-    const digest = buildWeeklyDigest(report, siteUrl);
+    const digest = buildWeeklyEmail(report, siteUrl);
     const recipients = weeklyDeliveryRecipients(test ? [] : await listUsers(), test, enabled);
     if (preview) return NextResponse.json({ reportId: report.id, recipients, enabled, test, ...digest });
     if (!isEmailConfigured) return NextResponse.json({ delivered: false, error: 'Gmail API / SMTP 未設定' }, { status: 503 });
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     if (!test && process.env.WEEKLY_REPORT_WEBHOOK_URL) {
       const webhookUrl = process.env.WEEKLY_REPORT_WEBHOOK_URL;
       await deliver('webhook', 'group', async () => {
-        const res = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: digest.text }), signal: AbortSignal.timeout(15_000) });
+        const res = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: buildWeeklyDigest(report, siteUrl).text }), signal: AbortSignal.timeout(15_000) });
         if (!res.ok) throw new Error(`webhook HTTP ${res.status}`);
         return `HTTP ${res.status}`;
       });

@@ -3,7 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import { computeZeroStreak, evaluatePartRisk, DEAD_ZERO_STREAK } from '../src/lib/demand-forecast/risk';
-import { buildWeeklyDigest } from '../src/lib/demand-forecast/weekly-digest';
+import { buildWeeklyDigest, buildWeeklyEmail } from '../src/lib/demand-forecast/weekly-digest';
 
 // ---- computeZeroStreak：從最新一筆往回數 ----
 const pts = (stocks: number[]) => stocks.map((s, i) => ({ date: `2026-08-${String(i + 1).padStart(2, '0')}`, totalStock: s, supplierCount: 2, price: 1, minLeadTimeDays: 84, maxLeadTimeDays: 84, riskLevel: '正常' })) as any;
@@ -45,4 +45,23 @@ assert.ok(digest.text.includes('https://example.com/demand-forecast/weekly-repor
 assert.ok(digest.html.includes('&lt;b&gt;內容&lt;/b&gt;'), 'HTML 要跳脫');
 assert.ok(digest.html.includes('華強烽火指數 2026 年 08 月'));
 
+// 全文郵件：每篇每段、觀察、建議、要聞、現貨表格與來源完整保留。
+const fullReport = {
+  ...report,
+  executiveItems: Array.from({ length: 5 }, (_, i) => ({ ...report.executiveItems[0], headline: `故事${i + 1}`, story: [`故事${i + 1}首段`, `故事${i + 1}末段`], watchpoint: `觀察${i + 1}` })),
+  categorySignals: [{ category: '記憶體', tone: 'high' }],
+  recommendedActions: ['其他採購建議'],
+  newsHighlights: [{ title: '短訊新聞', source: '媒體', url: 'https://news.example.com/?a=1&b=2', summary: '短訊全文', publishedAt: '2026-09-14' }],
+  sourceLinks: [{ title: '本文來源', source: '來源媒體', kind: '新聞', url: 'https://source.example.com/?a=1&b=2', dateLabel: '新聞時間 09/14' }, { title: '不安全網址', source: '媒體', kind: '新聞', url: 'javascript:alert(1)', dateLabel: null }],
+  spotMarket: { ...report.spotMarket, hotParts: [{ mpn: 'TEST-MPN', brand: '測試品牌', priceCny: 1.23, categoryLabel: '記憶體', isNew: true, weeksOnList: 1 }] },
+};
+const full = buildWeeklyEmail(fullReport, 'https://example.com/');
+for (const value of ['故事5末段', '觀察5', '其他採購建議', '短訊全文', 'TEST-MPN', '測試品牌', '1.23', 'MP1584EN-LF-Z', 'MPS', '本文來源', '新聞時間 09/14']) {
+  assert.ok(full.html.includes(value), `HTML 全文缺少 ${value}`);
+  assert.ok(full.text.includes(value), `純文字全文缺少 ${value}`);
+}
+assert.ok(full.html.includes('href="https://source.example.com/?a=1&amp;b=2"'));
+assert.ok(!full.html.includes('href="javascript:'));
+assert.ok(!buildWeeklyDigest(fullReport, 'https://example.com').text.includes('故事5末段'), '群組摘要維持精簡');
+assert.equal(full.subject, digest.subject);
 console.log('risk-digest.test.ts: all assertions passed');
