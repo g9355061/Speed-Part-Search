@@ -1,5 +1,13 @@
 # Project Summary — Speed Part Search
 
+### 2026-10-06 — 管理者週報全文寄送正式啟用（Danny 已核准）
+
+- Danny 確認全文測試信後指示「先寄信給兩個管理者，後續每週週報出來後都寄送」。Railway WEEKLY_REPORT_EMAIL_ENABLED 已改 true；本節取代上方／歷史紀錄的「待確認啟用」狀態。
+- 已透過正式投遞程式、正式 PostgreSQL 與正式 Gmail 設定寄出最近一期 2026/10/05 全文，僅寄 DB 中兩位 active 管理者：Danny Chen（g9355061@gmail.com，Gmail ID `1a111766bc85ef13`）、Chang Wei Li（weili_chang@yangshin.com，Gmail ID `1a111766d6fd4806`），兩封皆成功，沒有失敗。
+- live 正式投遞紀錄已保存；再次呼叫回傳兩人 skipped，防止部署／排程重複寄送本期。
+- 既有 Weekly Report Prebuild GitHub workflow 為 active：每週一台北 05:23 排程（GitHub 執行可能延遲），新週報固化後自動寄全文給已核准管理者；來源新聞／公開報告保留連結供自行點閱。
+
+
 ### 2026-10-06 — 週報郵件改寄全文
 
 - 依 Danny 要求，郵件由摘要改為與網站本期週報相同的全文：本期類別、每篇封面故事的全部段落、後續觀察、採購／工程行動建議、其他要聞、現貨市場指數與前 12 顆熱料表格、長期觀察及全部參考來源。新聞／公開報告原文保留連結，收件人自行點閱；不抓取外部文章塞入信中。
