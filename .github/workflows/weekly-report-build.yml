@@ -10,6 +10,10 @@ on:
     - cron: '23 21 * * 0'
   workflow_dispatch: {} # 允許手動觸發測試
 
+concurrency:
+  group: weekly-report-build
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -94,13 +98,20 @@ jobs:
           fi
 
           # 3) 主動投遞：摘要寄信／貼群組（2026-09-12）。沒人主動登入內部網站看週報，建好就要推出去。
-          #    管道由 Railway 環境變數決定（WEEKLY_REPORT_RECIPIENTS + SMTP、或 WEEKLY_REPORT_WEBHOOK_URL）；
-          #    未設定只 warning，不讓 workflow 失敗。
+          #    WEEKLY_REPORT_EMAIL_ENABLED=true 才寄給已核准管理者；確認測試信前維持關閉。
           echo "--- 投遞週報摘要 ---"
           set +e
           DELIVER=$(curl -s --max-time 120 -X POST -H "x-cron-secret: $CRON_SECRET" "$BASE_URL/api/demand-forecast/weekly-reports/deliver")
           set -e
           echo "$DELIVER"
+          if echo "$DELIVER" | jq -e '(.failures // [] | length) > 0 or .error != null' >/dev/null 2>&1; then
+            echo "::error::週報投遞失敗"
+            exit 1
+          fi
+          if ! echo "$DELIVER" | jq -e 'has("delivered")' >/dev/null 2>&1; then
+            echo "::error::週報投遞回應無效"
+            exit 1
+          fi
           if echo "$DELIVER" | jq -e '.delivered == true' >/dev/null 2>&1; then
             echo "週報摘要已投遞。"
           else

@@ -1523,3 +1523,22 @@ export async function getTopSearchedMpns(days: number = 90, limit: number = 30):
     return [];
   }
 }
+
+/** 原子保留一個週報投遞，避免重疊排程重複寄送。sending 狀態不自動重試（寄出結果可能不明）。 */
+export async function claimWeeklyDelivery(key: string, force = false): Promise<boolean> {
+  await ensureDb();
+  const data = JSON.stringify({ status: 'sending', startedAt: new Date().toISOString() });
+  if (isPostgres) {
+    const result = await getPool().query(
+      `INSERT INTO demand_forecast_cache (key, data, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
+       WHERE $3 OR demand_forecast_cache.data::jsonb->>'status' = 'failed'
+       RETURNING key`, [key, data, force]);
+    return result.rows.length > 0;
+  }
+  const result = getSqlite().prepare(
+    `INSERT INTO demand_forecast_cache (key, data, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT (key) DO UPDATE SET data = excluded.data, updated_at = datetime('now')
+     WHERE ? OR json_extract(demand_forecast_cache.data, '$.status') = 'failed'`).run(key, data, force ? 1 : 0);
+  return result.changes > 0;
+}

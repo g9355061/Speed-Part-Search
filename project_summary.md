@@ -1,5 +1,16 @@
 # Project Summary — Speed Part Search
 
+### 2026-10-06 — 管理者每週週報寄信（待確認啟用）
+
+- 依本次指示新增每週管理者郵件，取代 7/12「本專案不用寄信」的舊決定。沿用既有每週一 05:23 台北時間的 weekly-report-build 排程；GitHub Actions 排程可能延遲，週报建好才寄。
+- 使用 Issue Tracking System 同一個 Gmail OAuth 信箱，顯示名稱 `Speed Part Search <fxnebg@gmail.com>`；HTTPS Gmail API 優先，SMTP 保留備援。OAuth 設定只存 Railway，不進 Git。
+- `WEEKLY_REPORT_EMAIL_ENABLED=false`：正式自動投遞關閉，必須 Danny 確認後才能改 true。啟用後每期寄給 DB 中所有 role=admin、status=active 的使用者，不硬編正式收件名單。
+- `POST /api/demand-forecast/weekly-reports/deliver?test=1`（需 x-cron-secret）只寄 `g9355061@gmail.com`，不送其他管理者／群組，不占正式投遞紀錄。preview=1 不寄信；force=1 供人工明確重寄。
+- 以資料庫原子保留投遞，按期別、測試／正式、管道與收件人分別保存狀態。已寄者不重寄；明確被郵件服務拒絕可重試；逾時等結果不明保留 sending 待人工確認。GitHub workflow 也限制同時執行，實際投遞失敗會回報工作失敗。
+- 郵件包含中文主旨、純文字／HTML 摘要及登入後可開啟的完整週報連結。
+- 驗證：production build 通過；新增隔離 SQLite＋mock Gmail 測試涵蓋核准開關、管理者篩選、cron 權限、預覽不寄、測試隔離、MIME、重複防止、失敗重試、原子保留。實際試寄結果後補於本節。
+
+
 ### 2026-10-02 — Railway 節費：Chromium 閒置釋放縮短至 3 分鐘
 
 - HQEW／QQ 查詢共用 Chromium 的閒置期限由 10 分鐘改為 3 分鐘，後續查詢會自動重新啟動；既有 3 小時結果快取保留。

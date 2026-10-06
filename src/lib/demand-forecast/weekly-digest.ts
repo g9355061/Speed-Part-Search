@@ -15,7 +15,7 @@ export interface WeeklyDigest {
 }
 
 function escapeHtml(value: string) {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 const RISK_LABEL: Record<string, string> = { high: '高風險', medium: '中風險', normal: '平穩' };
@@ -76,7 +76,7 @@ export function buildWeeklyDigest(report: WeeklyReportDetail, siteUrl: string): 
   ${stories.length > 0 ? `<div style="font-size:12px;color:#0F766E;font-weight:900;letter-spacing:.08em">封面故事</div><table style="width:100%;border-collapse:collapse">${storyHtml}</table>` : ''}
   ${spot?.trend ? `<p style="font-size:13.5px;line-height:1.7;color:#374151;margin:16px 0 0"><strong>現貨市場</strong>　${escapeHtml(spot.trend.text)}</p>` : ''}
   ${ongoing.length > 0 ? `<p style="font-size:13px;line-height:1.7;color:#6b7280;margin:12px 0 0"><strong>長期觀察</strong>　${escapeHtml(ongoing.map((o) => `${o.mpn} ${o.status}（自 ${o.sinceDate}）`).join('；'))}</p>` : ''}
-  <p style="margin:20px 0 0"><a href="${link}" style="display:inline-block;background:#111827;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;font-size:14px">看完整週報</a></p>
+  <p style="margin:20px 0 0"><a href="${escapeHtml(link)}" style="display:inline-block;background:#111827;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;font-size:14px">看完整週報</a></p>
   <p style="font-size:11.5px;color:#9ca3af;margin-top:20px">Speed Part Search 缺料預測系統自動寄送。資料來源：DigiKey / Mouser 料件 API、國際媒體 RSS、公開市場報告、華強烽火指數。</p>
 </div>`;
 

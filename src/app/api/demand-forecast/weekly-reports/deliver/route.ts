@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCachedWeeklyReport } from '@/lib/demand-forecast/weekly-report';
 import { buildWeeklyDigest } from '@/lib/demand-forecast/weekly-digest';
+import { weeklyDeliveryRecipients } from '@/lib/demand-forecast/weekly-delivery-policy';
 import { isEmailConfigured, sendWeeklyDigestEmail } from '@/lib/email';
-import { getGenericCache, setGenericCache } from '@/lib/db';
+import { claimWeeklyDelivery, listUsers, setGenericCacheOrThrow } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * 週報主動投遞（2026-09-12）。由 weekly-report-build workflow 在本週週報固化後呼叫，只認 x-cron-secret。
- *
- * 管道（環境變數設哪個就走哪個，可同時）：
- *   - WEEKLY_REPORT_RECIPIENTS：逗號分隔的收件信箱；需 SMTP_HOST / SMTP_USER / SMTP_PASS
- *   - WEEKLY_REPORT_WEBHOOK_URL：Teams / Slack incoming webhook，POST {"text": 純文字摘要}
- * 同一期只投遞一次（generic cache 記錄），?force=1 可重寄；?preview=1 只回摘要不寄。
- */
+/** 排程僅在核准後啟用；test=1 永遠只寄 Danny，且不占用正式投遞紀錄。 */
 export async function POST(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret || req.headers.get('x-cron-secret') !== cronSecret) {
@@ -21,68 +15,55 @@ export async function POST(req: NextRequest) {
   }
   const force = req.nextUrl.searchParams.get('force') === '1';
   const preview = req.nextUrl.searchParams.get('preview') === '1';
-
+  const test = req.nextUrl.searchParams.get('test') === '1';
+  const enabled = process.env.WEEKLY_REPORT_EMAIL_ENABLED === 'true';
+  // 尚未核准時排程完全不投遞（包含既有 webhook）。
+  if (!enabled && !test && !preview) {
+    return NextResponse.json({ delivered: false, reason: '等待管理者確認；每週自動寄送尚未啟用', disabled: true });
+  }
   try {
     const report = await getCachedWeeklyReport();
     const siteUrl = process.env.NEXTAUTH_URL || process.env.FORECAST_BASE_URL || 'http://localhost:5280';
     const digest = buildWeeklyDigest(report, siteUrl);
-    if (preview) return NextResponse.json({ reportId: report.id, ...digest });
-
-    const recipients = (process.env.WEEKLY_REPORT_RECIPIENTS || '').split(/[,\s;]+/).map((s) => s.trim()).filter(Boolean);
-    const webhookUrl = process.env.WEEKLY_REPORT_WEBHOOK_URL || '';
-    const channels: string[] = [];
-    if (recipients.length > 0) channels.push('email');
-    if (webhookUrl) channels.push('webhook');
-    if (channels.length === 0) {
-      return NextResponse.json({
-        delivered: false,
-        reportId: report.id,
-        reason: '未設定任何投遞管道：請在 Railway 設 WEEKLY_REPORT_RECIPIENTS（逗號分隔信箱，需 SMTP_HOST/SMTP_USER/SMTP_PASS）或 WEEKLY_REPORT_WEBHOOK_URL（Teams/Slack incoming webhook）',
-      });
-    }
-
-    const stateKey = `weekly-report-delivered-${report.id}`;
-    const prior: any = await getGenericCache(stateKey).catch(() => null);
-    if (prior?.deliveredAt && !force) {
-      return NextResponse.json({ delivered: false, reportId: report.id, reason: `本期已於 ${prior.deliveredAt} 投遞（${(prior.channels || []).join('、')}）；要重寄請加 ?force=1` });
-    }
+    const recipients = weeklyDeliveryRecipients(test ? [] : await listUsers(), test, enabled);
+    if (preview) return NextResponse.json({ reportId: report.id, recipients, enabled, test, ...digest });
+    if (!isEmailConfigured) return NextResponse.json({ delivered: false, error: 'Gmail API / SMTP 未設定' }, { status: 503 });
+    if (!recipients.length) return NextResponse.json({ delivered: false, error: '沒有已核准管理者' }, { status: 422 });
 
     const results: Record<string, string> = {};
     const failures: string[] = [];
-
-    if (recipients.length > 0) {
-      if (!isEmailConfigured) {
-        failures.push('email: SMTP 未設定（需要 SMTP_HOST / SMTP_USER / SMTP_PASS）');
-      } else {
-        try {
-          results.email = `已寄給 ${recipients.length} 人（${await sendWeeklyDigestEmail(recipients, digest.subject, digest.text, digest.html)}）`;
-        } catch (err) {
-          failures.push(`email: ${err instanceof Error ? err.message : String(err)}`);
+    const skipped: string[] = [];
+    const deliver = async (channel: string, identity: string, send: () => Promise<string>) => {
+      const key = `weekly-report-delivery-${test ? 'test' : 'live'}-${report.id}-${channel}-${identity}`;
+      if (!await claimWeeklyDelivery(key, force)) { skipped.push(identity); return; }
+      try {
+        const messageId = await send();
+        // 紀錄失敗保留 sending，不自動重寄，避免結果不明時產生重複信。
+        results[identity] = messageId;
+        await setGenericCacheOrThrow(key, { status: 'sent', deliveredAt: new Date().toISOString(), messageId, subject: digest.subject });
+      } catch (err) {
+        failures.push(`${identity}: ${err instanceof Error ? err.message : String(err)}`);
+        // 僅有明確 HTTP 拒絕／SMTP 拒絕才允許下次自動重試。逾時可能已寄出。
+        if (!results[identity] && /HTTP (4|5)\d\d|EENVELOPE|EAUTH/.test(String(err))) {
+          await setGenericCacheOrThrow(key, { status: 'failed', failedAt: new Date().toISOString() });
         }
       }
+    };
+    for (const recipient of recipients) {
+      await deliver('email', recipient, () => sendWeeklyDigestEmail([recipient], digest.subject, digest.text, digest.html));
     }
-    if (webhookUrl) {
-      try {
-        const res = await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: digest.text }),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) failures.push(`webhook: HTTP ${res.status} ${(await res.text().catch(() => '')).slice(0, 120)}`);
-        else results.webhook = `HTTP ${res.status}`;
-      } catch (err) {
-        failures.push(`webhook: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    // 測試模式絕不送群組，正式模式沿用既有 webhook。
+    if (!test && process.env.WEEKLY_REPORT_WEBHOOK_URL) {
+      const webhookUrl = process.env.WEEKLY_REPORT_WEBHOOK_URL;
+      await deliver('webhook', 'group', async () => {
+        const res = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: digest.text }), signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) throw new Error(`webhook HTTP ${res.status}`);
+        return `HTTP ${res.status}`;
+      });
     }
-
-    const delivered = Object.keys(results).length > 0;
-    if (delivered) {
-      await setGenericCache(stateKey, { deliveredAt: new Date().toISOString(), channels: Object.keys(results), subject: digest.subject }).catch(() => undefined);
-    }
-    return NextResponse.json({ delivered, reportId: report.id, subject: digest.subject, results, failures }, { status: delivered || failures.length === 0 ? 200 : 502 });
+    return NextResponse.json({ delivered: Object.keys(results).length > 0, reportId: report.id, subject: digest.subject, test, results, skipped, failures, reason: skipped.length ? '已寄送或寄送結果待確認；需要人工重寄時加 force=1' : undefined }, { status: failures.length ? 502 : 200 });
   } catch (err) {
     console.error('[WeeklyDeliver] failed:', err);
-    return NextResponse.json({ delivered: false, error: err instanceof Error ? err.message : '投遞失敗' }, { status: 500 });
+    return NextResponse.json({ delivered: false, error: '週報投遞失敗，請檢查服務紀錄' }, { status: 500 });
   }
 }
