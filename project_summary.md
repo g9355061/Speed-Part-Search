@@ -2581,3 +2581,4 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - 異常檢查（唯讀）：兩個 DB 目前只有內網連線、近 3 天無新帳號、只有 postgres 角色；DB 日誌無登入失敗（Railway Postgres 預設不記連線，無法完全排除）。
 - 處置分兩階段：立即＝關閉公開 TCP Proxy、到供應商撤換 Gemini／Gmail OAuth 等外部金鑰、刪除 ~/.zshrc 失效的 RAILWAY_API_TOKEN；builds 恢復後＝改 DB 密碼、NEXTAUTH_SECRET、cron secret 等並重新部署。
 - 2026-10-22 13:15 ET 追蹤 Railway 官方措施：已撤銷全部 Railway API token、OAuth session、所有 bucket 憑證與 GitHub 連線 token（需手動重連 GitHub，否則 push 不會自動部署）；已通知 AI 供應商撤 key，但實測本專案 Gemini key 仍有效（HTTP 200）需自行撤銷；builds 已恢復 Enterprise/Pro，Hobby 當天稍晚、Free/Trial 最後。官方 PostgreSQL 輪替指南：Database→Config→Regenerate（勿手改 POSTGRES_PASSWORD／ALTER USER），之後必須 redeploy 所有引用服務。10/21 後的 push 都沒有產生新部署。
+- 2026-10-22 ET 第一階段進度：兩個 Postgres 的公開 TCP Proxy 已刪除（DATABASE_PUBLIC_URL host 為空、外部連線失敗；網站登入／頁面正常）。舊 Gemini key（尾碼 9_l8）已由 Danny 在 Google 刪除，實測回 HTTP 400 API_KEY_INVALID ✅。影響：週報 AI 撰寫、市場報告 AI 摘要改走本地備案，翻譯主要靠免費 gtx 端點幾乎無影響；搜尋／查價／報價不受影響。新 key 待第二階段（限 Gemini API＋配額上限＋$5 預算警示）。
