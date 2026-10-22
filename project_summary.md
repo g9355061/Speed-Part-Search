@@ -2573,3 +2573,10 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - 解法：`buildConsoleInstallCommand` 改為在瀏覽器端 fetch 同源 lua 檔（走瀏覽器代理，必通），把內容逸出成單行 lua 字串「整份內嵌」進指令；貼進 Console 執行時**純寫檔、零連網**。Console 輸入列為單行欄位，故不用 long-bracket 多行內嵌而用 `\n` 逸出單行。
 - 驗證：fengari Lua VM 沙盒（記憶體 FS stub）實跑產生的指令兩次——語法通過、寫出檔案與原始檔 byte-identical、init.lua require 冪等恰一行、hs.reload 有被呼叫。`npx tsc --noEmit` 通過。
 - 附註：curl 版失敗不會留殘骸（&& 鏈在下載失敗即中止，config 未動），同事直接用新按鈕重來即可。
+
+## 2026-10-22（美東時間）— Railway 資安事故（10/21）影響盤點
+- Railway 通知：存放環境變數的系統遭未授權存取，部分變數可能已被解密，官方要求撤換全部環境變數；全平台 builds 暫停。
+- 盤點（只看變數名稱，未輸出任何值）：機密集中在 issue-tracking-system（web、mfg-knowledge、aging-review-cron、Postgres）與 Speed-Part-Search（app、Postgres）；cz-vr200、vr200-factory-layout、ca-npi、pleasing-presence、npi-factory-layout 無機密。
+- 兩個 Postgres 都開著公開 TCP Proxy（*.proxy.rlwy.net），應用程式本身都走 postgres.railway.internal → 關閉公開入口不影響網站。
+- 異常檢查（唯讀）：兩個 DB 目前只有內網連線、近 3 天無新帳號、只有 postgres 角色；DB 日誌無登入失敗（Railway Postgres 預設不記連線，無法完全排除）。
+- 處置分兩階段：立即＝關閉公開 TCP Proxy、到供應商撤換 Gemini／Gmail OAuth 等外部金鑰、刪除 ~/.zshrc 失效的 RAILWAY_API_TOKEN；builds 恢復後＝改 DB 密碼、NEXTAUTH_SECRET、cron secret 等並重新部署。
