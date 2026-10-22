@@ -368,8 +368,9 @@ Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Tra
 - Do NOT write generic greetings or intros. Speak like a professional analyst.
 - Output ONLY the summary.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    
+    // 2.5 Flash 已不開放給新 API key；第 1 次用 3.8，429/5xx 重試時退 3.7（3.8 常回 503 高需求）。
+    const modelForAttempt = (n: number) => (n === 1 ? 'gemini-3.8-flash' : 'gemini-3.7-flash');
+
     let attempts = 0;
     const maxAttempts = 3;
     let delayMs = 1500;
@@ -381,6 +382,7 @@ Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Tra
 
       try {
         console.log(`[Gemini] Invoking Gemini API for category ${categoryName} (Attempt ${attempts}/${maxAttempts})...`);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelForAttempt(attempts)}:generateContent?key=${apiKey}`;
         const res = await fetch(url, {
           method: 'POST',
           headers: {
@@ -419,7 +421,8 @@ Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Tra
           // 3. Update monthly usage tracking
           const estimatedInputTokens = Math.ceil((prompt.length + evidenceText.length) / 3.5);
           const estimatedOutputTokens = Math.ceil(cleanSummary.length * 2.5);
-          const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
+          // 3.8 Flash 2027 起正式價 $1.50 / $7.50 per 1M tokens，寧可高估
+          const callCost = (estimatedInputTokens * 0.0015 / 1000) + (estimatedOutputTokens * 0.0075 / 1000);
 
           tracking.cost = (tracking.cost || 0) + callCost;
           tracking.calls = (tracking.calls || 0) + 1;

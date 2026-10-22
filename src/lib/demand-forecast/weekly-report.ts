@@ -636,7 +636,8 @@ items 必須依序涵蓋上面每一個 categoryId，一個都不能少、不能
         // Update cost tracking
         const estimatedInputTokens = Math.ceil(prompt.length / 3.5);
         const estimatedOutputTokens = Math.ceil(resultText.length * 2.5);
-        const callCost = (estimatedInputTokens * 0.000075 / 1000) + (estimatedOutputTokens * 0.0003 / 1000);
+        // 3.8 Flash 2027 起正式價 $1.50 / $7.50 per 1M tokens，寧可高估
+        const callCost = (estimatedInputTokens * 0.0015 / 1000) + (estimatedOutputTokens * 0.0075 / 1000);
 
         tracking.cost = (tracking.cost || 0) + callCost;
         tracking.calls = (tracking.calls || 0) + 1;
