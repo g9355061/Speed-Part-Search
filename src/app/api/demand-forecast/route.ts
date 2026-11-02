@@ -805,11 +805,17 @@ async function runFullForecast() {
   if (counters.snapshotWriteFailures > 0) {
     console.error(`[FORECAST] ${counters.snapshotWriteFailures} 顆料件的快照寫入失敗（趨勢資料可能缺口）`);
   }
-  await setGenericCache(LAST_FULL_RUN_KEY, {
-    at: updatedAt,
-    liveQueried: liveQueriedCount,
-    snapshotWriteFailures: counters.snapshotWriteFailures,
-  });
+  // 排程會接力呼叫 mode=full 多次：同一輪（1 小時內）的查詢數與失敗數要累加；
+  // 全部命中快取的收尾呼叫不寫入，否則會把前面的失敗數蓋成 0、讓 workflow 告警失效。
+  if (liveQueriedCount > 0) {
+    const prev = await getGenericCache(LAST_FULL_RUN_KEY);
+    const sameRun = !!prev?.at && Date.now() - Date.parse(prev.at) < 60 * 60 * 1000;
+    await setGenericCache(LAST_FULL_RUN_KEY, {
+      at: updatedAt,
+      liveQueried: liveQueriedCount + (sameRun ? prev.liveQueried ?? 0 : 0),
+      snapshotWriteFailures: counters.snapshotWriteFailures + (sameRun ? prev.snapshotWriteFailures ?? 0 : 0),
+    });
+  }
 
   return {
     updatedAt,

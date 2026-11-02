@@ -138,7 +138,10 @@ function scoreWeek(w: AvailabilityWeek, base: CategoryAvailability['baseline']) 
   const stockImproving = w.stockMedian != null && base.stockMedian != null && base.stockMedian > 0
     && w.stockMedian >= base.stockMedian * 1.25 && (w.inStockRatio ?? 1) >= (base.inStockRatio ?? 0) - 0.05;
   if (w.leadTimeMedianDays != null && base.leadTimeMedianDays != null) {
-    if (w.leadTimeMedianDays >= base.leadTimeMedianDays * 1.2 && w.leadTimeMedianDays - base.leadTimeMedianDays >= 14) tight += stockImproving ? 1 : 2;
+    // 但交期拉長 ≥8 週且絕對交期 ≥24 週＝原廠產能排擠，架上現貨掃光後要等很久，不受庫存回補降分
+    //（MOSFET 實測：15.5 → 32 週，卻因通路庫存偏高被壓成平穩）
+    const severeLeadTime = w.leadTimeMedianDays - base.leadTimeMedianDays >= 56 && w.leadTimeMedianDays >= 168;
+    if (w.leadTimeMedianDays >= base.leadTimeMedianDays * 1.2 && w.leadTimeMedianDays - base.leadTimeMedianDays >= 14) tight += stockImproving && !severeLeadTime ? 1 : 2;
     if (w.leadTimeMedianDays <= base.leadTimeMedianDays * 0.8 && base.leadTimeMedianDays - w.leadTimeMedianDays >= 14) loose += 1;
   }
   if (w.stockMedian != null && base.stockMedian != null && base.stockMedian > 0) {

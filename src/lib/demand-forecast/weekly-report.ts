@@ -543,12 +543,16 @@ async function synthesizeWeeklyIssueWithGemini(
   sections: WeeklyIssueSection[],
   marketContext = ''
 ): Promise<WeeklyIssueDraft | null> {
-  const usable = sections.filter((section) => section.evidence.length > 0);
+  // 沒有外電新聞但有華強熱搜的類別（例如熱料新上榜而交叉命中）也要送進來寫稿，
+  // 否則它照樣排進封面、卻只剩一行罐頭字
+  const usable = sections.filter((section) => section.evidence.length > 0 || !!section.spotText);
   if (usable.length === 0) return null;
 
   const materialText = usable
     .map((section, index) => {
-      const evidence = section.evidence.map((line) => `  - ${line}`).join('\n');
+      const evidence = section.evidence.length > 0
+        ? section.evidence.map((line) => `  - ${line}`).join('\n')
+        : '  （本週無外電新聞，以華強現貨熱搜為主線）';
       const spot = section.spotText ? `\n 華強現貨熱搜（可點名型號與人民幣參考價）：${section.spotText}` : '';
       return `[${index + 1}] categoryId=${section.categoryId}｜類別：${section.categoryName}\n 外部素材：\n${evidence}${spot}\n 本站通路觀測（僅供一句旁證）：${section.channelText || '（本週通路平穩）'}`;
     })
@@ -599,7 +603,7 @@ ${materialText}
 寫作要求：
 1. 每篇挑一條最有份量的線索當導言（誰、做了什麼、多少），其餘素材當佐證或對照；與主線無關的素材可以捨棄。不要平均分配篇幅，不要逐條並列翻譯。
 2. 每篇走倒金字塔：先寫發生了什麼，再寫為什麼會這樣（背景與成因），最後寫對採購、交期或成本的實際影響。
-3. 素材裡的具體數字必須寫進報導——價格、漲跌幅、交期週數、產能、月份、營收、廠區、產品型號都要保留，這是產業報導的重點。唯一禁止的是「本站通路觀測」的顆數與百分比，那個只能用一句質性描述帶過（例如「本站監測的通路庫存亦同步走低」）。「華強現貨熱搜」的型號與人民幣參考價可以引用，代表深圳現貨市場買家正在找的料；【市場大盤】可在 lede 用一句帶過。
+3. 素材裡的具體數字必須寫進報導——價格、漲跌幅、交期週數、產能、月份、營收、廠區、產品型號都要保留，這是產業報導的重點。唯一禁止的是「本站通路觀測」的顆數與百分比，那個只能用一句質性描述帶過（例如「本站監測的通路庫存亦同步走低」）。「華強現貨熱搜」的型號與人民幣參考價可以引用，代表深圳現貨市場買家正在找的料；沒有外電新聞的篇章就以熱搜型號為導言主線，寫出哪些型號被找、什麼價位，不要自行編造新聞事件；【市場大盤】可在 lede 用一句帶過。
 4. headline 要像報紙標題：主體＋動作＋（有的話）數字，例如「三星減產 DDR4，記憶體現貨價一週漲 12%」。必須取材自該篇素材的具體事實，20 字以內。禁止出現「訊號升溫」「值得留意」「壓力浮現」「水溫上升」「納入觀察」這類空詞，禁止只寫類別名加形容詞。
 5. story 兩到三段、每篇合計 280–420 個中文字，筆調像報紙產業版：自然、好讀、有主詞、有動作動詞。禁止空泛詞堆疊，禁止 meta 說明（不要說「本段整理」「根據素材」）。自然帶出消息來源名稱。
 6. watchpoint：一句 25–45 字的「後續觀察」，說明接下來一兩週該盯哪個指標、價格或事件。是觀察點，不是待辦清單，不要寫「請採購確認…」這種指令句。
@@ -988,7 +992,8 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // v8＝2026-09-13 類別判定改為可得性指數（三條線對自身基準、連續兩週）；名單改為每週自動汰換的現行名單。
 // v9＝crossHit 改需可得性指數轉緊；轉鬆敘述只列變好的項目。
 // v10＝2026-11-01 撰稿模型改 Gemini 4.0（gemini-4-argon）優先並擴充 3.8/3.7/3.6/3.5 降級鏈；全面中文化新聞標題、市場報告與生命週期狀態。
-export const REPORT_BUILD_REV = 10;
+// v11＝2026-11-01 無外電新聞但有華強熱搜的封面類別也交給 Gemini 寫稿，不再只剩罐頭句。
+export const REPORT_BUILD_REV = 11;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;

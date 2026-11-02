@@ -54,6 +54,19 @@ const mkHistory = (opts: { tightenLastWeeks?: number; leadOnly?: boolean } = {})
   assert.equal(a.level, 'medium', '只有交期拉長（庫存不變）＝中');
 }
 {
+  // 庫存回補時：交期 +4 週被降分不亮燈；交期翻倍（15.5 → 32 週）仍要亮燈
+  const build = (lead: number) => {
+    const { history, parts } = mkHistory();
+    for (const rows of Object.values(history)) rows.forEach((r, w) => {
+      r.minLeadTimeDays = w >= 13 ? lead : 109;
+      if (w >= 13) r.totalStock = 18000;
+    });
+    return evaluateCategoryAvailability('C03', buildCategoryWeeks(history, parts).C03);
+  };
+  assert.equal(build(137).level, 'normal', '庫存回補＋交期 +4 週不亮燈');
+  assert.equal(build(224).level, 'medium', '交期 +16.5 週且達 32 週不受庫存回補降分');
+}
+{
   // 記憶體：同樣訊號最多 medium
   const { history, parts } = mkHistory({ tightenLastWeeks: 2 });
   const p4 = parts.map((p) => ({ ...p, categoryId: 'C04' }));

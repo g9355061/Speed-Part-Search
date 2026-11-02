@@ -1,5 +1,12 @@
 # Project Summary — Speed Part Search
 
+### 2026-11-01 — 缺料預測體檢修正：排程監控歸零、MOSFET 交期翻倍被壓、熱搜類別空殼稿（REPORT_BUILD_REV 11）
+
+- **排程快照監控（`src/app/api/demand-forecast/route.ts`）**：`lastFullRun` 原本每次 mode=full 都寫入，排程最後一次「全部命中快取的快速 200」會把 `liveQueried`／`snapshotWriteFailures` 蓋成 0，workflow 的「快照寫入失敗 ≥10 顆」告警形同虛設。改為只在本次有實查（`liveQueriedCount > 0`）時寫入，且同一輪（前次紀錄 1 小時內）接力呼叫的查詢數與失敗數累加。
+- **可得性指數（`src/lib/demand-forecast/availability.ts` `scoreWeek`）**：庫存回補降分（交期 2→1 分）新增例外——交期中位數拉長 ≥56 天且絕對值 ≥168 天（24 週）時維持 2 分。對應正式站 C03 MOSFET 交期 15.5→32 週卻因通路庫存偏高被壓成「平穩」。MLCC 那種 +4 週的情況仍照舊降分。測試 `tests/availability-roster.test.ts` 新增兩條斷言（+4 週不亮燈、+16.5 週達 32 週亮 medium），已確認舊程式會失敗。
+- **週報封面空殼（`src/lib/demand-forecast/weekly-report.ts`）**：華強熱料新上榜可讓類別成為交叉命中而進封面，但送 Gemini 前只留有外電新聞的類別，導致 C02 PMIC／C09 類比 IC 只剩一行罐頭句。改為有華強熱搜素材的類別也送進 Gemini，素材標示「本週無外電新聞，以華強現貨熱搜為主線」，提示詞要求以熱搜型號與價位為主線、不得編造新聞。**刻意不採納**體檢建議中「把通路觸發的料號與交期數字塞進 evidence」的做法——違反週報報紙化原則（通路數據只當一句質性旁證）；純通路轉緊、無新聞的類別（如 C05 MCU）仍不上封面，維持既有設計。`REPORT_BUILD_REV` 升為 11 讓當期重建。
+- 驗證：`npx tsc --noEmit` 通過、`npm test` 全數通過。第 3 項（弱勢類別樣本擴充）、第 4 項（市場報告來源修正）未做。
+
 ### 2026-11-01 — 週報撰稿模型改 Gemini 4.0（gemini-4-argon）優先＋週報全面中文化（REPORT_BUILD_REV 10）
 
 - **週報撰稿模型（`src/lib/demand-forecast/weekly-report.ts`）**：預設 `GEMINI_WRITER_MODEL` 改為 `gemini-4-argon`（Gemini 4.0），降級鏈擴充為 `['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash']`（移除新 API key 已停用的 `gemini-2.5-flash`）。若專案為免費層（`gemini-4-argon` 免費層配額 `limit: 0`）或前段模型達每日上限（`PerDay`），程式偵測後不再空等 70 秒重試同一模型，而是立即在百毫秒內切換至下一撰稿模型，確保整期週報穩定由 Gemini 產出報紙化中文報導。
