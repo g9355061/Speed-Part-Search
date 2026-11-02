@@ -26,12 +26,13 @@ async function main() {
   assert.deepEqual(weeklyDeliveryRecipients(users, false, true), ['admin@example.com']);
   assert.deepEqual(weeklyDeliveryRecipients(users, true, false), ['g9355061@gmail.com']);
   const { POST } = await import('../src/app/api/demand-forecast/weekly-reports/deliver/route');
+  const { REPORT_BUILD_REV } = await import('../src/lib/demand-forecast/weekly-report');
   const { setGenericCacheOrThrow, getGenericCache, claimWeeklyDelivery } = await import('../src/lib/db');
   const taipei = new Date(Date.now() + 8 * 60 * 60 * 1000);
   const day = taipei.getUTCDay();
   taipei.setUTCDate(taipei.getUTCDate() + (day === 0 ? -6 : 1 - day));
   const id = 'weekly-' + taipei.toISOString().slice(0, 10);
-  await setGenericCacheOrThrow(`weekly-report-built-${id}`, { rev: 9, builtAt: Date.now(), report: {
+  await setGenericCacheOrThrow(`weekly-report-built-${id}`, { rev: REPORT_BUILD_REV, builtAt: Date.now(), report: {
     id, title: '物料預測週報｜測試｜中文內容', href: '/demand-forecast/weekly-reports/' + id, date: '2026/10/05', summary: '<測試 & 摘要>', riskLevel: 'normal',
     executiveItems: [], metrics: { partsWithSnapshot: 1 }, sourceLinks: [],
   } });

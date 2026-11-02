@@ -1,5 +1,14 @@
 # Project Summary — Speed Part Search
 
+### 2026-11-01 — 週報撰稿模型改 Gemini 4.0（gemini-4-argon）優先＋週報全面中文化（REPORT_BUILD_REV 10）
+
+- **週報撰稿模型（`src/lib/demand-forecast/weekly-report.ts`）**：預設 `GEMINI_WRITER_MODEL` 改為 `gemini-4-argon`（Gemini 4.0），降級鏈擴充為 `['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash']`（移除新 API key 已停用的 `gemini-2.5-flash`）。若專案為免費層（`gemini-4-argon` 免費層配額 `limit: 0`）或前段模型達每日上限（`PerDay`），程式偵測後不再空等 70 秒重試同一模型，而是立即在百毫秒內切換至下一撰稿模型，確保整期週報穩定由 Gemini 產出報紙化中文報導。
+- **配額分流（`src/lib/demand-forecast/translate.ts`、`src/lib/demand-forecast/market-report-fetcher.ts`）**：翻譯備援與公開市場報告單句摘要優先走獨立配額池的 `gemini-3.6-flash` / `gemini-3.5-flash`，避免在週報建構前耗盡高階模型每日免費配額。
+- **週報英文內容全面中文化**：
+  - `translate.ts` 新增 `isTranslatedZh()`：修正先前 `/[\u4e00-\u9fff]/.test()` 只要字串含一兩個中文字（如尾端來源「`- 富途牛牛`」或詞彙替換殘留的半英半中標題）就跳過翻譯的漏洞；`tryGtx` 逾時拉長至 6 秒並加一次重試。
+  - `weekly-report.ts`：`decodeHtmlEntities` 支援十進位／十六進位數值實體（如 `&#916;`、`&#8217;`）；`splitSentences` 與 `fetchArticlePoints` 過濾留言區與版權雜訊並確保抽句完成繁中翻譯；`buildWeeklyReport` 對本期新聞標題／摘要、公開市場報告標題（如 `Articles & News`、`Market Conditions Report`）與原文片段執行 `ensureZhTW` 正規化；原廠生命週期狀態（如 `Discontinued at DigiKey`、`Obsolete`）透過 `formatLifecycleStatusZh` 轉為中文（如 `DigiKey 停售`、`已停產`）。
+  - `REPORT_BUILD_REV` 升為 `10`，使當期（`weekly-2026-11-02`）自動重建。
+
 ### 2026-10-06 — 管理者週報全文寄送正式啟用（Danny 已核准）
 
 - Danny 確認全文測試信後指示「先寄信給兩個管理者，後續每週週報出來後都寄送」。Railway WEEKLY_REPORT_EMAIL_ENABLED 已改 true；本節取代上方／歷史紀錄的「待確認啟用」狀態。

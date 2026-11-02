@@ -3,7 +3,7 @@ import { computeAvailabilityIndex, type CategoryAvailability } from '@/lib/deman
 import { DEMAND_CATEGORIES, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
 import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
 import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
-import { translateToZhTW } from '@/lib/demand-forecast/translate';
+import { translateToZhTW, isTranslatedZh } from '@/lib/demand-forecast/translate';
 import { keywordMatches } from '@/lib/demand-forecast/news-match';
 import { getFenghuoView, type FenghuoMarketTrend, type FenghuoView } from '@/lib/demand-forecast/fenghuo';
 import crypto from 'crypto';
@@ -15,12 +15,18 @@ const ARTICLE_FETCH_TIMEOUT_MS = 4500;
 const ARTICLE_TEXT_LIMIT = 9000;
 const ARTICLE_POINT_LIMIT = 6;
 
-// 週報撰稿模型：預設 Gemini 3.8 Flash（產出比 2.5 Flash 明顯更像產業版報導）。
+// 週報撰稿模型：預設 Gemini 4.0（gemini-4-argon）。
 // 需要退版或換模型時設 GEMINI_MODEL 環境變數即可，程式不必動。
-const GEMINI_WRITER_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-// 降級鏈：新模型在免費層常回 503（高需求）。主模型重試用盡就換下一個，最後才走本地 fallback。
-// 先退同代（3.7 Flash）保住文筆，2.5 Flash 只當最後一道保險。
-const GEMINI_WRITER_MODELS = Array.from(new Set([GEMINI_WRITER_MODEL, 'gemini-3.7-flash', 'gemini-2.5-flash']));
+const GEMINI_WRITER_MODEL = process.env.GEMINI_MODEL || 'gemini-4-argon';
+// 降級鏈：4.0 Argon（免費層 limit=0 時立即跳下一模型）→ 3.8 Flash → 3.7 Flash → 3.6 Flash → 3.5 Flash。
+// 3.6 / 3.5 Flash 擁有獨立免費配額池，確保 3.8/3.7 撞每日上限時仍能完成 AI 報紙化撰稿。
+const GEMINI_WRITER_MODELS = Array.from(new Set([
+  GEMINI_WRITER_MODEL,
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+]));
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -269,22 +275,63 @@ function pickSummary(item: any) {
   return item.snippetZh || item.snippet || item.summaryZh || item.evidenceTextZh || item.evidenceText || '';
 }
 
+function escapeRegExp(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function cleanEvidenceText(value: string, source = '') {
-  return String(value)
-    .replace(/\s+/g, ' ')
-    .replace(new RegExp(`\\s*-\\s*${source}\\s*$`, 'i'), '')
-    .replace(new RegExp(`\\s+${source}\\s*$`, 'i'), '')
-    .trim();
+  let out = decodeHtmlEntities(String(value)).replace(/\s+/g, ' ').trim();
+  if (source) {
+    const escaped = escapeRegExp(source);
+    // 重複剝除尾端來源名稱（如「- CHOSUNBIZ - Chosunbiz」或「:: I-Connect007」）
+    for (let i = 0; i < 2; i++) {
+      out = out
+        .replace(new RegExp(`\\s*(?:[-–—|]|::)\\s*${escaped}\\s*$`, 'i'), '')
+        .replace(new RegExp(`\\s+${escaped}\\s*$`, 'i'), '')
+        .trim();
+    }
+  }
+  return out;
 }
 
 function decodeHtmlEntities(value: string) {
   return value
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, dec) => {
+      const code = Number(dec);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _;
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _;
+    });
+}
+
+function formatLifecycleStatusZh(status: unknown): string {
+  const raw = String(status ?? '').trim();
+  if (!raw) return '狀態異常';
+  const lower = raw.toLowerCase();
+  if (lower.includes('discontinued at digikey')) return 'DigiKey 停售';
+  if (lower.includes('discontinued at mouser')) return 'Mouser 停售';
+  if (lower.includes('last time buy') || /\bltb\b/.test(lower)) return '最後下單階段（LTB）';
+  if (lower.includes('end of life') || lower.includes('end-of-life') || /\beol\b/.test(lower)) return '停產（EOL）';
+  if (lower.includes('obsolete')) return '已停產';
+  if (lower.includes('discontinued')) return '已停產';
+  if (lower.includes('not for new') || lower.includes('not recommended') || /\bnrnd\b/.test(lower)) return '不建議用於新設計（NRND）';
+  return raw;
+}
+
+async function ensureZhTW(text: string, source = ''): Promise<string> {
+  const cleaned = cleanEvidenceText(text, source);
+  if (!cleaned) return '';
+  if (isTranslatedZh(cleaned)) return cleaned;
+  const translated = await translateToZhTW(cleaned);
+  return cleanEvidenceText(translated, source);
 }
 
 function stripArticleHtml(html: string) {
@@ -317,6 +364,12 @@ function splitSentences(text: string) {
     /logout/i,
     /saved information/i,
     /next time you visit/i,
+    /post comment/i,
+    /more posts/i,
+    /courtesy of/i,
+    /all rights reserved/i,
+    /입력\s*\d{4}/,
+    /구글\s*검색/,
     /登入/,
     /登出/,
     /保持登入/,
@@ -380,11 +433,12 @@ async function fetchArticlePoints(url: string | undefined, categoryId: string) {
       .sort((a, b) => b.score - a.score)
       .slice(0, ARTICLE_POINT_LIMIT)
       .map((item) => item.sentence);
-    const translated = await Promise.all(candidates.map((sentence) => translateToZhTW(sentence)));
+    if (candidates.length === 0) return [];
+    const translated = await Promise.all(candidates.map((sentence) => ensureZhTW(sentence)));
     return translated
       .map((sentence) => cleanEvidenceText(sentence))
-      .filter(Boolean)
-      .filter((sentence) => !/登入|登出|密碼|訂閱|儲存的資訊|下次造訪|cookie|free account|premium stories|editor picks/i.test(sentence));
+      .filter((sentence) => Boolean(sentence) && isTranslatedZh(sentence))
+      .filter((sentence) => !/登入|登出|密碼|訂閱|儲存的資訊|下次造訪|cookie|free account|premium stories|editor picks|post comment|more posts/i.test(sentence));
   } catch {
     return [];
   } finally {
@@ -425,8 +479,8 @@ async function categoryEvidence(categoryId: string, items: any[], limit = 3) {
 
   return Promise.all(matched.map(async (item) => {
       const source = item.source || '來源';
-      const title = cleanEvidenceText(pickTitle(item), source);
-      const summary = cleanEvidenceText(pickSummary(item), source);
+      const title = await ensureZhTW(pickTitle(item), source);
+      const summary = await ensureZhTW(pickSummary(item), source);
       const articlePoints = await fetchArticlePoints(item.link, categoryId);
       const text = articlePoints.length > 0
         ? articlePoints.join(' ')
@@ -656,6 +710,11 @@ items 必須依序涵蓋上面每一個 categoryId，一個都不能少、不能
       const errorBody = await res.text().catch(() => '');
       console.warn(`[WeeklyReport Gemini] API error (Attempt ${attempts}): ${res.status} ${res.statusText} ${errorBody.slice(0, 300)}`);
       if (res.status === 429 || res.status >= 500) {
+        // 若該模型為每日配額耗盡或免費層限額 0（PerDay / limit: 0），不必等待重試同一模型，直接切換下一個撰稿模型
+        if (/PerDay|limit:\s*0\b/i.test(errorBody)) {
+          console.warn(`[WeeklyReport Gemini] Daily/free-tier quota reached on ${model}, switching immediately to next writer model.`);
+          return null;
+        }
         if (attempts < maxAttempts) {
           // 429＝免費層 RPM 上限（Flash 系列每分鐘 5 次）。Google 會在 retryDelay 告知
           // 還要等多久，2 秒的指數退避對它無效——照它給的秒數等（上限 70 秒）。
@@ -927,7 +986,9 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // v7＝2026-09-12 類別訊號改讀 risk.ts 結果（交期升主訊號）、行動建議改由 Gemini 依報導事實生成、
 //     市場報告罐頭摘要退回原文片段、名單瘦身至 133 顆。
 // v8＝2026-09-13 類別判定改為可得性指數（三條線對自身基準、連續兩週）；名單改為每週自動汰換的現行名單。
-const REPORT_BUILD_REV = 9; // v9：crossHit 改需可得性指數轉緊；轉鬆敘述只列變好的項目
+// v9＝crossHit 改需可得性指數轉緊；轉鬆敘述只列變好的項目。
+// v10＝2026-11-01 撰稿模型改 Gemini 4.0（gemini-4-argon）優先並擴充 3.8/3.7/3.6/3.5 降級鏈；全面中文化新聞標題、市場報告與生命週期狀態。
+export const REPORT_BUILD_REV = 10;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
@@ -1089,11 +1150,47 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const previousIssues = await loadPreviousIssues(id);
   const prevMaterial = previousIssueMaterial(previousIssues);
 
-  const shortageNews = Array.isArray(newsCache?.news)
+  const rawShortageNews = Array.isArray(newsCache?.news)
     ? newsCache.news.filter((item: any) =>
         item.riskHit && isRecentSignal(item, now) && !(item.link && prevMaterial.urls.has(item.link)))
     : [];
-  const allMarketReports: any[] = Array.isArray(marketCache?.reports) ? marketCache.reports : [];
+  const shortageNews = await Promise.all(rawShortageNews.map(async (item: any) => {
+    const src = item.source || '';
+    const candidateTitle = isTranslatedZh(cleanEvidenceText(pickTitle(item), src))
+      ? cleanEvidenceText(pickTitle(item), src)
+      : await ensureZhTW(item.title || pickTitle(item), src);
+    const candidateSnippet = isTranslatedZh(cleanEvidenceText(pickSummary(item), src))
+      ? cleanEvidenceText(pickSummary(item), src)
+      : await ensureZhTW(item.snippet || pickSummary(item), src);
+    return {
+      ...item,
+      titleZh: candidateTitle || item.titleZh || item.title,
+      snippetZh: candidateSnippet || item.snippetZh || item.snippet,
+    };
+  }));
+
+  const rawMarketReports: any[] = Array.isArray(marketCache?.reports) ? marketCache.reports : [];
+  const allMarketReports = await Promise.all(rawMarketReports.map(async (report: any) => {
+    const src = report.source || '公開報告';
+    const rawHeadline = reportHeadline(report);
+    const strippedHeadline = rawHeadline.startsWith(`${src}：`) ? rawHeadline.slice(src.length + 1).trim() : rawHeadline;
+    const translatedHeadline = isTranslatedZh(strippedHeadline)
+      ? strippedHeadline
+      : await ensureZhTW(strippedHeadline, src);
+    const titleZh = rawHeadline.startsWith(`${src}：`)
+      ? `${src}：${translatedHeadline}`
+      : translatedHeadline;
+    const rawEv = cleanEvidenceText(report.evidenceTextZh || report.evidenceText || '');
+    const evidenceTextZh = rawEv
+      ? (isTranslatedZh(rawEv) ? rawEv : await ensureZhTW(rawEv, src))
+      : '';
+    return {
+      ...report,
+      titleZh: titleZh || report.title,
+      evidenceTextZh: evidenceTextZh || report.evidenceTextZh,
+    };
+  }));
+
   const isStaleReport = (report: any) =>
     report.contentHash
       ? prevMaterial.hashes.has(report.contentHash)
@@ -1134,7 +1231,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       mpn: String(part.mpn),
       manufacturer: String(part.manufacturer || part.apiManufacturer || ''),
       category: categoryLabel(part.categoryId),
-      status: String(part.lifecycleStatus),
+      status: formatLifecycleStatusZh(part.lifecycleStatus),
       sinceDate: lifecycleRegistry[part.mpn].firstSeenDate,
     }));
 
@@ -1261,7 +1358,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     const lifecycleEvidence = lifecycleParts
       .filter((item) => item.part.categoryId === signal.categoryId)
       .slice(0, 2)
-      .map((item) => `代理商料件 API：${item.part.mpn}（${item.part.manufacturer || item.part.apiManufacturer || ''}）原廠生命週期標示為 ${item.part.lifecycleStatus}，建議比對 BOM 是否使用並評估替代料`);
+      .map((item) => `代理商料件 API：${item.part.mpn}（${item.part.manufacturer || item.part.apiManufacturer || ''}）原廠生命週期標示為 ${formatLifecycleStatusZh(item.part.lifecycleStatus)}，建議比對 BOM 是否使用並評估替代料`);
     const evidence = [
       ...(await categoryEvidence(signal.categoryId, shortageNews, 3)),
       ...lifecycleEvidence,
@@ -1327,13 +1424,16 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     summary: pickSummary(item),
   }));
 
-  const lifecycleHighlights = lifecycleParts.slice(0, 5).map(({ part, severity }) => ({
-    title: `${part.mpn} 原廠標示 ${part.lifecycleStatus}`,
-    source: 'DigiKey / Mouser 料件 API',
-    url: part.productUrl || '#',
-    publishedAt: null,
-    summary: `${categoryLabel(part.categoryId)}：${part.manufacturer || part.apiManufacturer || ''} ${part.mpn} 生命週期狀態為 ${part.lifecycleStatus}${severity === 'high' ? '，建議確認最後下單日（LTB）並啟動替代認證' : '，原廠不建議用於新設計'}`,
-  }));
+  const lifecycleHighlights = lifecycleParts.slice(0, 5).map(({ part, severity }) => {
+    const statusZh = formatLifecycleStatusZh(part.lifecycleStatus);
+    return {
+      title: `${part.mpn} 原廠標示 ${statusZh}`,
+      source: 'DigiKey / Mouser 料件 API',
+      url: part.productUrl || '#',
+      publishedAt: null,
+      summary: `${categoryLabel(part.categoryId)}：${part.manufacturer || part.apiManufacturer || ''} ${part.mpn} 生命週期狀態為 ${statusZh}${severity === 'high' ? '，建議確認最後下單日（LTB）並啟動替代認證' : '，原廠不建議用於新設計'}`,
+    };
+  });
 
   const marketHighlights = marketReports.slice(0, 6).map((report: any) => ({
     title: reportHeadline(report),
@@ -1359,7 +1459,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       .filter((item) => focusCategories.includes(item.part.categoryId))
       .slice(0, 4)
       .map(({ part }) => ({
-        title: `${part.mpn}（${part.manufacturer || part.apiManufacturer || ''}）：${part.lifecycleStatus}`,
+        title: `${part.mpn}（${part.manufacturer || part.apiManufacturer || ''}）：${formatLifecycleStatusZh(part.lifecycleStatus)}`,
         source: 'DigiKey / Mouser 料件 API',
         url: part.productUrl || '#',
         publishedAt: null,

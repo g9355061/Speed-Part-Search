@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
 import { detectCategories, isBlockedNewsSource } from '@/lib/demand-forecast/news-match';
-import { translateToZhTW } from '@/lib/demand-forecast/translate';
+import { translateToZhTW, isTranslatedZh } from '@/lib/demand-forecast/translate';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo, getCustomThresholds, getGenericCache, setGenericCache } from '@/lib/db';
@@ -322,7 +322,7 @@ async function decodeGoogleNewsUrl(sourceUrl: string): Promise<string> {
 async function translateToZh(text: string): Promise<string> {
   if (!text?.trim()) return '';
   const translated = await translateToZhTW(text.trim());
-  return /[\u4e00-\u9fff]/.test(translated) ? translated : roughTranslateZh(translated);
+  return isTranslatedZh(translated) ? translated : roughTranslateZh(translated);
 }
 
 async function fetchIndustryNews(): Promise<NewsItem[]> {

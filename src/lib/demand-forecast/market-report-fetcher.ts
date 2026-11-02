@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { DEMAND_CATEGORIES } from './benchmark';
 import { getGenericCache, setGenericCache } from '@/lib/db';
+import { translateToZhTW } from './translate';
 import { MARKET_REPORT_SOURCES, type MarketReportSourceConfig } from './market-report-sources';
 import {
   MARKET_REPORTS_SCHEMA_VERSION,
@@ -368,11 +369,12 @@ Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Tra
 - Do NOT write generic greetings or intros. Speak like a professional analyst.
 - Output ONLY the summary.`;
 
-    // 2.5 Flash 已不開放給新 API key；第 1 次用 3.8，429/5xx 重試時退 3.7（3.8 常回 503 高需求）。
-    const modelForAttempt = (n: number) => (n === 1 ? 'gemini-3.8-flash' : 'gemini-3.7-flash');
+    // 2.5 Flash 已不開放給新 API key；優先走獨立配額池的 3.6 / 3.5 Flash，保留 4.0 / 3.8 配額給週報撰稿。
+    const summaryModels = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.8-flash'];
+    const modelForAttempt = (n: number) => summaryModels[n - 1] || 'gemini-3.5-flash';
 
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxAttempts = summaryModels.length;
     let delayMs = 1500;
 
     while (attempts < maxAttempts) {
@@ -437,6 +439,11 @@ Write a concise, 1-sentence summary (between 20 to 45 Chinese characters) in Tra
         console.warn(`[Gemini] API error (Attempt ${attempts}): ${res.status} ${res.statusText}`);
         if (res.status === 429 || res.status >= 500) {
           if (attempts < maxAttempts) {
+            // 若為每日配額耗盡（PerDay / limit: 0），等待毫無意義，立即換下一個模型
+            if (/PerDay|limit:\s*0\b/i.test(errorBody)) {
+              console.log(`[Gemini] Daily quota reached on ${modelForAttempt(attempts)}, switching model immediately...`);
+              continue;
+            }
             // 429 時 Google 會在 retryDelay 說要等多久，照它的秒數等（上限 60 秒），固定退避對 RPM 限制無效
             const retryHint = Number(errorBody.match(/"retryDelay"\s*:\s*"(\d+)s"/)?.[1] ?? 0) * 1000;
             const sleepMs = Math.min(Math.max(retryHint + 1000, delayMs), 60000);
@@ -553,12 +560,13 @@ async function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: 
         const evidenceTextVal = evidenceFragments[0] || `偵測到關鍵字: ${keyword}`;
         const catNameZh = DEMAND_CATEGORIES.find(c => c.categoryId === catId)?.category || catId;
         const aiSummary = await summarizeWithGemini(evidenceTextVal, catId, catNameZh);
+        const articleTitleZh = article?.title ? await translateToZhTW(article.title) : '';
 
         reports.push({
           id: `auto-${sourceName.toLowerCase().replace(/\s+/g, '-')}-${catId}-${Date.now()}`,
           source: sourceName,
-          // 有抓到頁面標題就用真標題；抓不到才退回佔位字（以前一律是「來源 — C04 類別情報」）
-          title: article?.title ? `${sourceName}：${article.title}` : `${sourceName} — ${catId} 類別情報`,
+          // 有抓到頁面標題就用真標題（轉繁中）；抓不到才退回佔位字
+          title: articleTitleZh ? `${sourceName}：${articleTitleZh}` : `${sourceName} — ${catId} 類別情報`,
           url: sourceUrl,
           publishedAt: article?.publishedAt ?? null,
           fetchedAt: now,

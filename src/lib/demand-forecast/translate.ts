@@ -9,31 +9,49 @@ const memoryCache = new Map<string, string>();
 const GEMINI_USAGE_KEY = 'gemini_monthly_usage'; // 與週報 Gemini 合寫共用同一個月度熔斷
 const GEMINI_COST_CAP_USD = 5.0;
 const GEMINI_CALL_CAP = 4000;
-// 2.5 Flash 已不開放給新 API key；3.8 常回 503（高需求）時退 3.7。
-const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash'];
+// 2.5 Flash 已不開放給新 API key；翻譯備援優先走獨立配額池的 3.6 / 3.5 Flash，保留 4.0 / 3.8 配額給週報主文撰稿。
+const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.7-flash'];
 // 成本估算用 3.8 Flash 2027 起的正式價（$1.50 / $7.50 per 1M tokens），寧可高估以免熔斷失效。
 const INPUT_USD_PER_1K = 0.0015;
 const OUTPUT_USD_PER_1K = 0.0075;
 
+/**
+ * 判斷字串是否已為繁體中文（排除僅尾端帶有中文來源名如「- 富途牛牛」，或僅被詞彙替換 1-2 個中文字的英文句）。
+ * 忽略全大寫縮寫與料號（MLCC、DDR5、PMIC、CL10A226MQ8NRNE 等），僅計算含小寫字母的英文單字。
+ */
+export function isTranslatedZh(text: string): boolean {
+  if (!text) return false;
+  const cjkCount = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
+  if (cjkCount === 0) return false;
+  const englishProseWords = (text.match(/\b[A-Za-z]*[a-z]{2,}[A-Za-z]*\b/g) ?? []).length;
+  if (englishProseWords >= 4 && cjkCount < englishProseWords * 2) return false;
+  return cjkCount >= englishProseWords;
+}
+
 async function tryGtx(text: string): Promise<string | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3000);
-  try {
-    const resp = await fetch(
-      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text)}`,
-      { signal: controller.signal, cache: 'no-store', headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } }
-    );
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const translated = Array.isArray(data?.[0])
-      ? data[0].map((part: any) => part?.[0] || '').join('').trim()
-      : '';
-    return translated || null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    try {
+      const resp = await fetch(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text)}`,
+        { signal: controller.signal, cache: 'no-store', headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        const translated = Array.isArray(data?.[0])
+          ? data[0].map((part: any) => part?.[0] || '').join('').trim()
+          : '';
+        if (translated) return translated;
+      }
+    } catch {
+      // ignore and retry once
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 400));
   }
+  return null;
 }
 
 async function tryGemini(text: string): Promise<string | null> {
@@ -96,11 +114,11 @@ async function tryGemini(text: string): Promise<string | null> {
   return null;
 }
 
-/** 翻成繁體中文；已含中文或翻譯全數失敗時回原文。 */
+/** 翻成繁體中文；已為繁中或翻譯全數失敗時回原文。 */
 export async function translateToZhTW(text: string): Promise<string> {
   if (!text) return '';
   const cleaned = text.trim();
-  if (!cleaned || /[\u4e00-\u9fff]/.test(cleaned)) return cleaned;
+  if (!cleaned || isTranslatedZh(cleaned)) return cleaned;
   const hit = memoryCache.get(cleaned);
   if (hit) return hit;
 
