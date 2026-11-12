@@ -1,5 +1,15 @@
 # Project Summary — Speed Part Search
 
+### 2026-11-12 — 週報相對評級、三星電機誤譯、HTML 數值實體解碼（REPORT_BUILD_REV 14）
+
+- **相對評級**（`weekly-editorial.ts` `issuePressureScore`／`relativeRiskLevel`）：10/05 起每期都「高風險」，因為舊規則是任一類別交叉命中就高。改為每期算供應壓力分數（類別交叉命中 3、高 2、中 1，歷史期數用存下的 `categorySignals` 重算），對近 8 期中位數：≥+25%「較近 8 週更緊」(high)、≤−25%「較近 8 週轉鬆」(normal)、其餘「與近 8 週持平」(medium)；歷史不足 4 期沿用絕對評級。新欄位 `riskLabel`／`riskBasis`；信件主旨列與詳情頁徽章顯示 `riskLabel`（相對評級文字較長，不套 78px 固定寬），詳情頁加一行「供應壓力 N（近 8 期中位數 M）」。範本導言與開場敘述描述的是絕對狀態，改讀 `absoluteRiskLevel`。各類別的高／中風險標籤不變。
+- **專有名詞誤譯**（`translate.ts` `fixTranslationTerms`）：三星馬達／電動機／機電等 → 三星電機（Samsung Electro-Mechanics）。套在翻譯輸出，也套在週報讀取的新聞標題／摘要／素材與 AI 稿（新聞快取裡已存的舊譯文一併修正）。「三星電子」不受影響。
+- **HTML 數值實體**：`weekly-report.ts` 的 `&#x` 規則改不分大小寫；`fenghuo.ts` `decodeEntities` 補十進位／十六進位數值實體（`&amp;` 最後解、不重複解碼），且 `buildFenghuoView` 讀出時把舊快照與熱料的料號正規化（`MAX9286GTN/V&#X2B;T` → `V+T`，連續在榜比對才對得上）。
+- **預覽回應**：`deliver?preview=1` 多回 `risk: { level, label, basis }`，方便核對評級依據（正式 DB 連線字串在 CLI 被遮蔽，無法直查）。
+- **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅（`tests/weekly-editorial.test.ts` 新增相對評級、誤譯修正、實體解碼斷言）、`npm run build` ✅、GitHub CI ✅。Railway 部署 SUCCESS 後以 preview（不寄信）在正式站重建 11/09 期：審稿 passed；評級「較近 8 週更緊」（壓力 18 vs 近 8 期中位數 14）；全文「三星馬達」0 次、「三星電機」6 次；`&#X` 0 次、`V+T` 正確；¥2200 只出現在現貨原始表格，未進報導。
+- **仍未處理**：本週要聞同一事件未聚類、同期重建後重寄、審稿呼叫未計入 `gemini_monthly_usage`、詳情頁未顯示審稿狀態。
+- **修改檔案**：`src/lib/demand-forecast/weekly-editorial.ts`、`src/lib/demand-forecast/weekly-report.ts`、`src/lib/demand-forecast/translate.ts`、`src/lib/demand-forecast/fenghuo.ts`、`src/lib/demand-forecast/weekly-digest.ts`、`src/app/demand-forecast/weekly-reports/[id]/page.tsx`、`src/app/api/demand-forecast/weekly-reports/deliver/route.ts`、`tests/weekly-editorial.test.ts`、`project_summary.md`
+
 ### 2026-11-12 — 週報改編輯流程：選題 → 撰稿 → 審稿（REPORT_BUILD_REV 13）
 
 **背景**：同日 review 結論——問題不在提示詞，而是流程缺「編輯」與「查證」兩個角色。Danny 指示四項都改。
