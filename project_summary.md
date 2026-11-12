@@ -1,5 +1,21 @@
 # Project Summary — Speed Part Search
 
+### 2026-11-12 — 週報改編輯流程：選題 → 撰稿 → 審稿（REPORT_BUILD_REV 13）
+
+**背景**：同日 review 結論——問題不在提示詞，而是流程缺「編輯」與「查證」兩個角色。Danny 指示四項都改。
+
+- **新模組 `src/lib/demand-forecast/weekly-editorial.ts`**（除 AI 審稿呼叫外皆純函式）：
+  - **選題**：`rankCategoryNews` 把同一事件的多家報導併成一則（標題重疊係數 ≥0.4），分供應事件／產品發表／其他；類別新聞份量＝有供應報導底分 10＋每家媒體 10。`coverScore` 決定封面順序：新聞份量為主，交叉命中 +8、持續在榜熱料（≥2 次）每顆 +3、單日熱搜只 +1。以前交叉命中一律排前，11/09 期 MLCC 短缺被三篇熱搜稿擠出封面。素材行加註〔另有 X 同步報導〕〔產品發表，非供應事件〕。
+  - **素材合理性**：`suspectHotPrices`——非記憶體／處理器／電源模組類單顆 ≥¥1000，或高於同類中位數 20 倍的熱搜價不交給撰稿模型（TPA6304QDDVRQ1 ¥2200）；`qualitativeChannelText`——通路觀測只給質性描述、不帶數字（可得性指數原文的「交期 +16 週」是類別中位數，會被寫成標題與「提前 16 週下單」）。
+  - **落差**：`detectDivergence`——≥2 家媒體報供應吃緊但通路未轉緊＝news-ahead；通路連續轉緊但無新聞＝channel-ahead（記憶體 externalPrimary 不算）。說明文字以【落差】進素材，`categorySignals[].divergence` 存檔。
+  - **連續性**：上一期同類別的 `watchpoint` 以「上期後續觀察」進素材，提示詞要求有素材可回答才交代、不可編造。
+  - **審稿**：`deterministicReview`（空洞標題、漏篇、標題／行動建議中的獨立數字必須出現在外部素材；黏著英文字母的型號代號不算）＋`reviewWeeklyIssueWithGemini`（Flash 系列獨立配額，逐句對照素材、頭條須取材第 [1] 篇、不可推銷新品、不可把通路觀測寫成數字或標題主體）。有問題退稿重寫一次再審；仍不過關或 AI 撰稿全失敗（本地範本稿）→ `report.editorial.status = 'held'`。審稿模型不可用時只採程式規則（`aiReviewed: false`），不因此擋信。
+- **`weekly-report.ts`**：封面排序、素材組裝、提示詞（標題數字須來自外部素材、行動建議不可由通路觀測推導週數、不可推薦新品、頭條取第 [1] 篇、落差與上期回收）；稿件篇數與素材一致時依順序對應類別（正式站實測模型把 C05 抄成 C04，該篇整篇退回範本句）。
+- **投遞端點**：`held` 的期別不寄管理者，改寄一封「【週報暫停寄送】」通知給 Danny（同期只通知一次，回 `held: true`、無 `error`，workflow 只 warning）；`?force=1` 人工放行，`?test=1` 仍可寄全文檢視；`?preview=1` 回傳多帶 `editorial`。歷史期數無 `editorial` 欄視為通過。
+- **驗證**：`npx tsc --noEmit` ✅、`npm test` ✅（新增 `tests/weekly-editorial.test.ts`，案例取自 11/09 實際寄出的稿；`weekly-delivery.test.ts` 加暫停寄送／通知一次／force 放行）、`npm run build` ✅。Railway 部署 SUCCESS 後以 `deliver?preview=1`（不寄信）在正式站重建 11/09 期兩次：rev 12 被審稿擋下（MCU 篇類別抄錯）→ 修正後 rev 13 **審稿通過**，頭條由「STM32H7P 升級 350MHz…MCU 現貨交期拉長 16 週」變為「AI需求爆發，AI伺服器電容器短缺預計2027年初達頂峰」，MLCC 由「本週要聞」升為封面第 1 篇並回收上期後續觀察；¥2200 未再被引用；標題與行動建議不再出現本站通路數字；純熱搜篇章明寫「通路先行的早期訊號」。本期未重寄（11/09 已投遞過）。
+- **已知未處理**：「三星電機」仍被譯成「三星馬達」；`decodeHtmlEntities` 的 `&#x` 無 i 旗標（表格 `V&#X2B;T`）；風險評級仍每期「高風險」；同期重建後重寄、本週要聞未聚類、審稿呼叫未計入 `gemini_monthly_usage`；詳情頁尚未顯示審稿狀態。建構時間約 110–120 秒（多 1–3 次 Gemini 呼叫）。
+- **修改檔案**：`src/lib/demand-forecast/weekly-editorial.ts`（新）、`tests/weekly-editorial.test.ts`（新）、`src/lib/demand-forecast/weekly-report.ts`、`src/lib/demand-forecast/weekly-delivery-policy.ts`、`src/app/api/demand-forecast/weekly-reports/deliver/route.ts`、`tests/weekly-delivery.test.ts`、`package.json`、`project_summary.md`
+
 ### 2026-11-12 — 開發與週報製作 review（僅評估，未改程式）
 
 - **方法**：讀 project_summary、GitHub Actions 紀錄、Gmail 收到的 10/05–11/09 各期週報信。
