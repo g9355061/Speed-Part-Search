@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     const siteUrl = process.env.NEXTAUTH_URL || process.env.FORECAST_BASE_URL || 'http://localhost:5280';
     const digest = buildWeeklyEmail(report, siteUrl);
     const recipients = weeklyDeliveryRecipients(test ? [] : await listUsers(), test, enabled);
-    if (preview) return NextResponse.json({ reportId: report.id, recipients, enabled, test, editorial: report.editorial ?? null, ...digest });
+    if (preview) return NextResponse.json({ reportId: report.id, recipients, enabled, test, editorial: report.editorial ?? null, risk: { level: report.riskLevel, label: report.riskLabel ?? null, basis: report.riskBasis ?? null }, ...digest });
     if (!isEmailConfigured) return NextResponse.json({ delivered: false, error: 'Gmail API / SMTP 未設定' }, { status: 503 });
     if (!recipients.length) return NextResponse.json({ delivered: false, error: '沒有已核准管理者' }, { status: 422 });
 
