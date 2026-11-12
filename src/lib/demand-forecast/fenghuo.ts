@@ -51,10 +51,17 @@ export interface FenghuoCache {
 
 // ==================== 解析 ====================
 
-function decodeEntities(value: string) {
+// 含數值實體（&#43; / &#x2B;，不分大小寫）：MAX9286GTN/V&#x2B;T 以前沒解碼，
+// 又被 toUpperCase 成 &#X2B; 存進快取（2026/11/09 期週報表格原樣顯示）
+export function decodeEntities(value: string) {
+  const fromCode = (code: number, raw: string) =>
+    Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : raw;
   return value
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+    .replace(/&nbsp;/gi, ' ').replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (raw, dec) => fromCode(Number(dec), raw))
+    .replace(/&#x([0-9a-f]+);/gi, (raw, hex) => fromCode(parseInt(hex, 16), raw))
+    .replace(/&amp;/gi, '&').trim();
 }
 
 function parsePrice(raw: string): number | null {
@@ -318,11 +325,12 @@ export function buildFenghuoView(cache: FenghuoCache | null): FenghuoView {
   if (!cache) {
     return { available: false, updatedAt: null, sourceUrl: FENGHUO_SOURCE_URL, market: [], trend: null, hotParts: [], categoryCounts: {}, snapshotCount: 0, hasPrevious: false };
   }
-  const snapshots = cache.snapshots;
+  // 舊快照裡的料號可能還帶著未解碼實體（&#X2B;）——讀出時一併正規化，連續在榜的比對才對得上
+  const snapshots = cache.snapshots.map((snap) => ({ ...snap, mpns: snap.mpns.map((mpn) => decodeEntities(mpn)) }));
   const latestIdx = snapshots.length - 1;
   const previousSet = latestIdx >= 1 ? new Set(snapshots[latestIdx - 1].mpns) : null;
 
-  const hotParts: FenghuoHotPartView[] = cache.hotParts.map((part) => {
+  const hotParts: FenghuoHotPartView[] = cache.hotParts.map((raw) => ({ ...raw, mpn: decodeEntities(raw.mpn) })).map((part) => {
     let weeks = 0;
     for (let i = latestIdx; i >= 0; i--) {
       if (snapshots[i].mpns.includes(part.mpn)) weeks++;

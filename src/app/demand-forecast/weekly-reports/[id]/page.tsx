@@ -100,7 +100,13 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
               <p style={{ margin: '14px 0 0', fontSize: 16.5, fontWeight: 650, color: 'var(--text)', lineHeight: 1.8, maxWidth: 760, borderLeft: '3px solid var(--hairline)', paddingLeft: 12 }}>{report.summary}</p>
             </div>
             <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
-              <WeeklyRiskStatus level={report.riskLevel} label={tone.label} uniform />
+              {/* 固定 78px 寬只容得下「高風險」三字；相對評級文字較長，不套固定寬 */}
+              <WeeklyRiskStatus level={report.riskLevel} label={report.riskLabel ?? tone.label} uniform={!report.riskLabel} />
+              {report.riskBasis && (
+                <span style={{ color: 'var(--text-3)', fontSize: 11.5 }} title="供應壓力分數：每個類別交叉命中 3 分、高 2 分、中 1 分">
+                  供應壓力 {report.riskBasis.score}（近 {report.riskBasis.issues} 期中位數 {report.riskBasis.baseline}）
+                </span>
+              )}
               <span style={{ color: 'var(--text-3)', fontSize: 12 }}>產生時間：{formatDateTime(report.generatedAt)}</span>
             </div>
           </div>

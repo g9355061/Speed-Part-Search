@@ -15,6 +15,18 @@ const GEMINI_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.8-flash
 const INPUT_USD_PER_1K = 0.0015;
 const OUTPUT_USD_PER_1K = 0.0075;
 
+// 機器翻譯常見的專有名詞誤譯：翻譯後一律修正（新聞快取裡已存的舊譯文，週報讀出時也會套用）。
+// Samsung Electro-Mechanics（三星電機，MLCC 大廠）被 gtx 譯成「三星馬達」（2026/11/09 期）。
+const TERM_FIXES: Array<[RegExp, string]> = [
+  [/三星(?:馬達|電動機|電機機械|電子機械|機電)/g, '三星電機'],
+  [/Samsung Electro[- ]?Mechanics/gi, '三星電機'],
+];
+
+export function fixTranslationTerms(text: string): string {
+  if (!text) return text;
+  return TERM_FIXES.reduce((out, [pattern, replacement]) => out.replace(pattern, replacement), text);
+}
+
 /**
  * 判斷字串是否已為繁體中文（排除僅尾端帶有中文來源名如「- 富途牛牛」，或僅被詞彙替換 1-2 個中文字的英文句）。
  * 忽略全大寫縮寫與料號（MLCC、DDR5、PMIC、CL10A226MQ8NRNE 等），僅計算含小寫字母的英文單字。
@@ -118,12 +130,13 @@ async function tryGemini(text: string): Promise<string | null> {
 export async function translateToZhTW(text: string): Promise<string> {
   if (!text) return '';
   const cleaned = text.trim();
-  if (!cleaned || isTranslatedZh(cleaned)) return cleaned;
+  if (!cleaned || isTranslatedZh(cleaned)) return fixTranslationTerms(cleaned);
   const hit = memoryCache.get(cleaned);
   if (hit) return hit;
 
-  const translated = (await tryGtx(cleaned)) ?? (await tryGemini(cleaned));
-  if (translated) {
+  const raw = (await tryGtx(cleaned)) ?? (await tryGemini(cleaned));
+  if (raw) {
+    const translated = fixTranslationTerms(raw);
     memoryCache.set(cleaned, translated);
     return translated;
   }

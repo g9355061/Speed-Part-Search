@@ -358,3 +358,43 @@ ${JSON.stringify(draft)}
   }
   return null;
 }
+
+// ---- 整期評級：相對評級（本期 vs 近 8 期）----
+// 10/05 起每期都判「高風險」（只要任一類別交叉命中就是高），評級失去鑑別力。
+// 改為比較本期與近 8 期的「供應壓力分數」：明顯高於近期中位數才是「更緊」。
+
+export type RelativeRiskLevel = 'high' | 'medium' | 'normal';
+
+export const RELATIVE_RISK_LABEL: Record<RelativeRiskLevel, string> = {
+  high: '較近 8 週更緊',
+  medium: '與近 8 週持平',
+  normal: '較近 8 週轉鬆',
+};
+
+export const RELATIVE_RISK_MIN_HISTORY = 4;
+const RELATIVE_RISK_WINDOW = 8;
+const RELATIVE_RISK_BAND = 0.25;
+
+interface PressureSignal { crossHit: boolean; tone: string }
+
+/** 整期供應壓力：每個類別交叉命中 3 分、高 2 分、中 1 分。歷史期數存下的 categorySignals 也能重算。 */
+export function issuePressureScore(signals: PressureSignal[] | undefined): number {
+  return (signals ?? []).reduce((sum, signal) =>
+    sum + (signal.crossHit ? 3 : signal.tone === 'high' ? 2 : signal.tone === 'medium' ? 1 : 0), 0);
+}
+
+/**
+ * 相對評級：近 8 期（不含本期）壓力分數的中位數為基準，高出 25% 以上為「更緊」、低 25% 以上為「轉鬆」。
+ * 歷史不足 4 期回 null，呼叫端沿用絕對評級。
+ */
+export function relativeRiskLevel(score: number, previousScores: number[]): { level: RelativeRiskLevel; baseline: number } | null {
+  const window = previousScores.slice(0, RELATIVE_RISK_WINDOW);
+  if (window.length < RELATIVE_RISK_MIN_HISTORY) return null;
+  const sorted = [...window].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const baseline = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  if (baseline === 0) return { level: score > 0 ? 'high' : 'medium', baseline };
+  if (score >= baseline * (1 + RELATIVE_RISK_BAND)) return { level: 'high', baseline };
+  if (score <= baseline * (1 - RELATIVE_RISK_BAND)) return { level: 'normal', baseline };
+  return { level: 'medium', baseline };
+}

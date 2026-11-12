@@ -3,12 +3,13 @@ import { computeAvailabilityIndex, type CategoryAvailability } from '@/lib/deman
 import { DEMAND_CATEGORIES, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
 import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
 import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from '@/lib/demand-forecast/cache-util';
-import { translateToZhTW, isTranslatedZh } from '@/lib/demand-forecast/translate';
+import { translateToZhTW, isTranslatedZh, fixTranslationTerms } from '@/lib/demand-forecast/translate';
 import { keywordMatches } from '@/lib/demand-forecast/news-match';
 import { getFenghuoView, type FenghuoMarketTrend, type FenghuoView } from '@/lib/demand-forecast/fenghuo';
 import {
   rankCategoryNews, coverScore, suspectHotPrices, qualitativeChannelText, detectDivergence, divergenceNote,
   deterministicReview, reviewWeeklyIssueWithGemini, sectionMaterialText, isHollowHeadline,
+  issuePressureScore, relativeRiskLevel, RELATIVE_RISK_LABEL,
   type CategoryNewsRanking, type Divergence, type EditorialVerdict, type ReviewSection,
 } from '@/lib/demand-forecast/weekly-editorial';
 import crypto from 'crypto';
@@ -158,6 +159,10 @@ export interface WeeklyReportListItem {
 export interface WeeklyReportDetail extends WeeklyReportListItem {
   generatedAt: string;
   riskLevel: WeeklyRiskLevel;
+  /** 評級文字：相對評級時為「較近 8 週更緊／與近 8 週持平／較近 8 週轉鬆」（2026-11-12 起；舊期數沒有這欄） */
+  riskLabel?: string;
+  /** 相對評級的依據：本期與近 8 期中位數的供應壓力分數 */
+  riskBasis?: { score: number; baseline: number; issues: number };
   summary: string;
   metrics: {
     shortageNews: number;
@@ -277,11 +282,11 @@ function categoryLabel(categoryId: string, fallback = categoryId) {
 }
 
 function pickTitle(item: any) {
-  return item.titleZh || item.title || '未命名情報';
+  return fixTranslationTerms(item.titleZh || item.title || '未命名情報');
 }
 
 function pickSummary(item: any) {
-  return item.snippetZh || item.snippet || item.summaryZh || item.evidenceTextZh || item.evidenceText || '';
+  return fixTranslationTerms(item.snippetZh || item.snippet || item.summaryZh || item.evidenceTextZh || item.evidenceText || '');
 }
 
 function escapeRegExp(str: string) {
@@ -289,7 +294,7 @@ function escapeRegExp(str: string) {
 }
 
 function cleanEvidenceText(value: string, source = '') {
-  let out = decodeHtmlEntities(String(value)).replace(/\s+/g, ' ').trim();
+  let out = fixTranslationTerms(decodeHtmlEntities(String(value)).replace(/\s+/g, ' ').trim());
   if (source) {
     const escaped = escapeRegExp(source);
     // 重複剝除尾端來源名稱（如「- CHOSUNBIZ - Chosunbiz」或「:: I-Connect007」）
@@ -315,7 +320,7 @@ function decodeHtmlEntities(value: string) {
       const code = Number(dec);
       return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _;
     })
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
       const code = parseInt(hex, 16);
       return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _;
     });
@@ -493,7 +498,7 @@ async function categoryEvidence(categoryId: string, ranking: CategoryNewsRanking
 
 // 純文字渲染：剝掉 Gemini 偶爾夾帶的 Markdown 符號與標題行裝飾（**、##、- 條列、【】標題）
 function stripMarkdownDecoration(value: unknown): string {
-  return String(value ?? '')
+  return fixTranslationTerms(String(value ?? ''))
     .replace(/^#{1,4}\s*/, '')
     .replace(/\*\*/g, '')
     .replace(/^[-•*]\s+/, '')
@@ -982,7 +987,8 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 //     通路觀測只給質性描述、離譜的熱搜價不引用、新聞與通路落差明寫、上期後續觀察回收、
 //     撰稿後加審稿（不過關退稿重寫一次，仍不過關則不自動寄送）。
 // v13＝2026-11-12 正式站實測後修正：單一來源的供應新聞也排在純熱搜類別前；稿件依順序對應類別。
-export const REPORT_BUILD_REV = 13;
+// v14＝2026-11-12 整期評級改相對評級（本期 vs 近 8 期）；專有名詞誤譯修正（三星電機）；HTML 數值實體不分大小寫解碼。
+export const REPORT_BUILD_REV = 14;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
@@ -1334,12 +1340,19 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const dataAlertCategories = categorySignals.filter((s) => s.data.tone !== 'normal').length;
   const partsWithSnapshot = categorySignals.reduce((sum, s) => sum + s.data.partsWithSnapshot, 0);
 
-  // 風險等級（刀口4）：交叉命中=高；只有數據異常或外部訊號=中；否則平穩
-  const riskLevel: WeeklyRiskLevel = categorySignals.some((item) => item.crossHit)
+  // 整期評級：相對評級——本期供應壓力 vs 近 8 期中位數（2026-11-12）。
+  // 舊的絕對規則「任一類別交叉命中＝高」讓 10/05 起每期都是高風險；歷史不足 4 期時仍沿用它。
+  const absoluteRiskLevel: WeeklyRiskLevel = categorySignals.some((item) => item.crossHit)
     ? 'high'
     : dataAlertCategories > 0 || categorySignals.length > 0
       ? 'medium'
       : 'normal';
+  const pressureScore = issuePressureScore(categorySignals);
+  const previousScores = previousIssues.map((issue) => issuePressureScore(issue.categorySignals));
+  const relative = relativeRiskLevel(pressureScore, previousScores);
+  const riskLevel: WeeklyRiskLevel = relative ? relative.level : absoluteRiskLevel;
+  const riskLabel = relative ? RELATIVE_RISK_LABEL[relative.level] : undefined;
+  const riskBasis = relative ? { score: pressureScore, baseline: relative.baseline, issues: Math.min(previousScores.length, 8) } : undefined;
 
   // 進「封面故事」的類別：優先挑「有新聞素材可寫」的——交叉命中最佳，其次有新聞/PCN
   // 的類別（不論數據），確保每篇報導都吃得到 RSS 內容、不再出現只有一句通路觀察的空殼。
@@ -1470,15 +1483,15 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     : buildWeeklyTitle(dateText, focusSignalList);
 
   // 導語：AI 導言優先；否則用 high-level 報紙式罐頭句（只說哪幾個類別值得看，不堆數字）
-  const localSummary = riskLevel === 'high'
+  const localSummary = absoluteRiskLevel === 'high'
     ? `本週 ${focusText} 的供應訊號明顯升溫——市場消息與本站通路觀測同步轉緊，建議用到這些類別的專案提早確認未來一至兩個月的需求與交期。`
-    : riskLevel === 'medium'
+    : absoluteRiskLevel === 'medium'
       ? `本週供應鏈大致平穩，惟 ${focusText} 出現值得留意的早期訊號，建議相關採購窗口順手確認交期走勢即可。`
       : '本週市場與通路皆平穩，主要元件交期與供貨正常，維持例行監控即可。';
   const summary = issueDraft?.lede && issueDraft.lede.length >= 40 ? issueDraft.lede : localSummary;
 
   const openingNotes = [
-    riskLevel === 'high'
+    absoluteRiskLevel === 'high'
       ? `本週先看 ${focusText}。這幾個類別的市場消息與通路供應同步出現變化，詳見下方報導；用不到這些類別的專案維持常規作業即可。`
       : dataAlertCategories > 0
         ? `本週先看 ${focusText}。市場消息尚平靜，但通路端已有早期變化的跡象，提早留意總是便宜的。`
@@ -1575,6 +1588,8 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     date: dateText,
     generatedAt: now.toISOString(),
     riskLevel,
+    riskLabel,
+    riskBasis,
     summary,
     metrics: {
       shortageNews: shortageNews.length,

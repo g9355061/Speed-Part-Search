@@ -23,7 +23,7 @@ const RISK_LABEL: Record<string, string> = { high: '高風險', medium: '中風�
 export function buildWeeklyDigest(report: WeeklyReportDetail, siteUrl: string): WeeklyDigest {
   const link = `${siteUrl.replace(/\/$/, '')}${report.href}`;
   const headline = report.title.split('｜').slice(2).join('｜') || report.title;
-  const risk = RISK_LABEL[report.riskLevel] ?? report.riskLevel;
+  const risk = report.riskLabel ?? RISK_LABEL[report.riskLevel] ?? report.riskLevel;
   const stories = report.executiveItems.slice(0, 4);
   const ongoing = report.lifecycleOngoing ?? [];
   const spot = report.spotMarket;
@@ -87,7 +87,7 @@ export function buildWeeklyDigest(report: WeeklyReportDetail, siteUrl: string): 
 export function buildWeeklyEmail(report: WeeklyReportDetail, siteUrl: string): WeeklyDigest {
   const headline = report.title.split('｜').slice(2).join('｜') || report.title;
   const link = `${siteUrl.replace(/\/$/, '')}${report.href}`;
-  const risk = RISK_LABEL[report.riskLevel] ?? report.riskLevel;
+  const risk = report.riskLabel ?? RISK_LABEL[report.riskLevel] ?? report.riskLevel;
   const text: string[] = [`【物料預測週報】${report.date}｜${risk}`, headline, '', report.summary, ''];
   const sections: string[] = [];
   const paragraph = (value: string) => `<p style="margin:0 0 12px;font-size:15px;line-height:1.85;white-space:pre-wrap">${escapeHtml(value)}</p>`;

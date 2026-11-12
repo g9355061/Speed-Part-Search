@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import {
   classifyNewsKind, rankCategoryNews, coverScore, suspectHotPrices, qualitativeChannelText,
   detectDivergence, divergenceNote, deterministicReview, sectionMaterialText,
+  issuePressureScore, relativeRiskLevel, RELATIVE_RISK_LABEL,
   type ReviewSection, type ReviewDraft,
 } from '../src/lib/demand-forecast/weekly-editorial';
+import { fixTranslationTerms } from '../src/lib/demand-forecast/translate';
+import { decodeEntities } from '../src/lib/demand-forecast/fenghuo';
 
 // 以下案例取自 2026/11/09 期實際寄出的週報
 
@@ -116,4 +119,32 @@ assert.ok(badIssues.some((issue) => issue.includes('MLCC') && issue.includes('�
 // 本地範本標題（Gemini 失敗時的罐頭句）一律算空洞
 assert.ok(deterministicReview({ ...good, leadHeadline: 'MCU、PMIC 供應訊號升溫，建議提早確認交期與需求' }, sections).some((issue) => issue.includes('整期頭條空洞')));
 
-console.log('weekly editorial: news kinds, event clustering, cover order, hot price sanity, qualitative channel text, divergence, rule-based review passed');
+
+// ---- 相對評級 ----
+{
+  assert.equal(issuePressureScore([
+    { crossHit: true, tone: 'high' }, { crossHit: false, tone: 'high' }, { crossHit: false, tone: 'medium' }, { crossHit: false, tone: 'normal' },
+  ]), 6);
+  assert.equal(issuePressureScore(undefined), 0);
+  assert.equal(relativeRiskLevel(10, [9, 9, 9]), null, '歷史不足 4 期沿用絕對評級');
+  // 10/05 起每期都是高風險：壓力相近時應判「持平」，不再一律高
+  assert.equal(relativeRiskLevel(13, [12, 14, 13, 12, 13, 11, 14, 12])?.level, 'medium');
+  assert.equal(relativeRiskLevel(18, [12, 14, 13, 12])?.level, 'high');
+  assert.equal(relativeRiskLevel(7, [12, 14, 13, 12])?.level, 'normal');
+  assert.equal(relativeRiskLevel(5, [12, 14, 13, 12, 1, 1, 1, 1, 50, 50])?.baseline, 6.5, '只取最近 8 期');
+  assert.equal(relativeRiskLevel(0, [0, 0, 0, 0])?.level, 'medium');
+  assert.equal(relativeRiskLevel(3, [0, 0, 0, 0])?.level, 'high');
+  assert.equal(RELATIVE_RISK_LABEL.high, '較近 8 週更緊');
+}
+
+// ---- 專有名詞誤譯與實體解碼 ----
+{
+  assert.equal(fixTranslationTerms('AI伺服器電容器短缺將於2027年初達到頂峰，提振對三星馬達的需求'), 'AI伺服器電容器短缺將於2027年初達到頂峰，提振對三星電機的需求');
+  assert.equal(fixTranslationTerms('Samsung Electro-Mechanics 與三星機電'), '三星電機 與三星電機');
+  assert.equal(fixTranslationTerms('三星電子減產'), '三星電子減產', '三星電子不可誤改');
+  assert.equal(decodeEntities('MAX9286GTN/V&#X2B;T'), 'MAX9286GTN/V+T');
+  assert.equal(decodeEntities('MAX9286GTN/V&#x2b;T'), 'MAX9286GTN/V+T');
+  assert.equal(decodeEntities('A&#43;B &amp;lt;'), 'A+B &lt;', '&amp; 最後解，不重複解碼');
+}
+
+console.log('weekly editorial: news kinds, event clustering, cover order, hot price sanity, qualitative channel text, divergence, rule-based review, relative risk, term fixes, entity decode passed');
