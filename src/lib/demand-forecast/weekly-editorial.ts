@@ -96,7 +96,9 @@ export function rankCategoryNews<T extends NewsLike>(items: T[]): CategoryNewsRa
     events,
     supplySources,
     launchOnly: events.length > 0 && events.every((event) => event.kind === 'launch'),
-    score: supplySources * 10 + Math.min(otherEvents, 3) * 3,
+    // 只要有供應面報導就先給底分：單一來源的供應新聞也要排在「只有熱搜」的類別前面
+    // （正式站實測：新聞窗內 MLCC 只剩 1 家報導時，會輸給交叉命中＋熱搜的類比 IC）
+    score: (supplySources > 0 ? 10 : 0) + supplySources * 10 + Math.min(otherEvents, 3) * 3,
   };
 }
 
@@ -322,7 +324,7 @@ ${JSON.stringify(draft)}
 只檢查以下幾項，其餘（文筆、長度）不要管：
 1. 稿件中的事實（公司、產品型號、價格、漲跌幅、交期、時間點、事件）是否都能在該篇素材中找到依據。素材沒有的說法算問題。
 2. leadHeadline 是否取材自第 [1] 篇的主要事件。若頭條寫的是產品發表、規格升級這類非供應事件，而素材中有供應面事件，算問題。
-3. headline、action 是否把「本站通路觀測」寫成具體數字（例如交期拉長幾週、提前幾週下單）。通路觀測只能當一句質性旁證。
+3. headline、action 是否把「本站通路觀測」寫成具體數字（例如交期拉長幾週、提前幾週下單），或 headline 以通路觀測（代理商庫存、通路可得性）當主體。通路觀測只能在內文當一句質性旁證。
 4. action 是否推薦導入或採購某個新產品。行動建議只能針對供應風險，不能替原廠推銷。
 5. 素材標有【落差】的篇章，稿件是否有明說新聞與通路之間的落差；是否把通路沒反映寫成已經缺貨，或編造不存在的新聞。
 6. 有「上期後續觀察」的篇章，若稿件宣稱了後續發展，該發展是否有本期素材支持。

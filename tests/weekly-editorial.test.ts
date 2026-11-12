@@ -36,6 +36,9 @@ const analogCover = coverScore({ newsScore: 0, crossHit: true, lifecycleCount: 0
 const mcuCover = coverScore({ newsScore: mcu.score, crossHit: true, lifecycleCount: 0, marketReportCount: 0, hotSustained: 0, hotNew: 1 });
 assert.ok(mlccCover > analogCover && mlccCover > mcuCover);
 assert.ok(analogCover > mcuCover, '持續在榜的熱料比單日熱搜有份量');
+const singleSource = rankCategoryNews([mlccNews[1]]);
+assert.ok(coverScore({ newsScore: singleSource.score, crossHit: false, lifecycleCount: 0, marketReportCount: 0, hotSustained: 0, hotNew: 0 }) > analogCover,
+  '單一來源的供應新聞也要排在只有熱搜的交叉命中類別前');
 
 // ---- 素材合理性 ----
 const hot = [

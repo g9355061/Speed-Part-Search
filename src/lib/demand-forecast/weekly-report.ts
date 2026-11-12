@@ -652,9 +652,12 @@ items 必須依序涵蓋上面每一個 categoryId，一個都不能少、不能
         }
 
         const rawItems = Array.isArray(parsed?.items) ? parsed.items : [];
+        // 篇數與素材一致時以順序對應類別：模型偶爾會把 categoryId 抄錯（正式站實測 C05 寫成 C04），
+        // 抄錯的那篇會對不上而整篇退回本地範本句
+        const byOrder = rawItems.length === usable.length;
         const items = rawItems
-          .map((item: any) => ({
-            categoryId: String(item?.categoryId ?? '').trim(),
+          .map((item: any, index: number) => ({
+            categoryId: byOrder ? usable[index].categoryId : String(item?.categoryId ?? '').trim(),
             headline: stripMarkdownDecoration(item?.headline),
             story: toParagraphs(item?.story),
             watchpoint: stripMarkdownDecoration(item?.watchpoint),
@@ -978,7 +981,8 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // v12＝2026-11-12 編輯流程：選題排序（多家媒體報導的供應事件優先、產品發表與單日熱搜墊底）、
 //     通路觀測只給質性描述、離譜的熱搜價不引用、新聞與通路落差明寫、上期後續觀察回收、
 //     撰稿後加審稿（不過關退稿重寫一次，仍不過關則不自動寄送）。
-export const REPORT_BUILD_REV = 12;
+// v13＝2026-11-12 正式站實測後修正：單一來源的供應新聞也排在純熱搜類別前；稿件依順序對應類別。
+export const REPORT_BUILD_REV = 13;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
