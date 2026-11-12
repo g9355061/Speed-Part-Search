@@ -6,6 +6,11 @@ import { readCache as readPartsCache, readNewsCacheShared, lifecycleFlag } from 
 import { translateToZhTW, isTranslatedZh } from '@/lib/demand-forecast/translate';
 import { keywordMatches } from '@/lib/demand-forecast/news-match';
 import { getFenghuoView, type FenghuoMarketTrend, type FenghuoView } from '@/lib/demand-forecast/fenghuo';
+import {
+  rankCategoryNews, coverScore, suspectHotPrices, qualitativeChannelText, detectDivergence, divergenceNote,
+  deterministicReview, reviewWeeklyIssueWithGemini, sectionMaterialText, isHollowHeadline,
+  type CategoryNewsRanking, type Divergence, type EditorialVerdict, type ReviewSection,
+} from '@/lib/demand-forecast/weekly-editorial';
 import crypto from 'crypto';
 
 // 一週一刊：本期只收「這一週」的新聞。原本 45 天窗會讓相鄰兩期素材幾乎全同，
@@ -184,6 +189,8 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
     reportNotes: string[];
     data: CategoryDataSignal;
     crossHit: boolean;
+    /** 新聞與通路指數的落差：新聞喊缺但通路沒反映／通路轉緊但沒有新聞（2026-11-12 起） */
+    divergence?: Divergence | null;
   }>;
   newsHighlights: Array<{
     title: string;
@@ -220,6 +227,8 @@ export interface WeeklyReportDetail extends WeeklyReportListItem {
   /** 前幾期已報過、本週仍在異常狀態的生命週期料（不再重複當新聞寫，只列一行長期觀察） */
   lifecycleOngoing?: Array<{ mpn: string; manufacturer: string; category: string; status: string; sinceDate: string }>;
   /** 華強烽火指數（現貨市場需求端）：大盤三指數＋當日熱料，獨立於 150 顆基準料（2026-09-12 起） */
+  /** 審稿結果：held＝不自動寄送，改通知管理者（2026-11-12 起；歷史期數沒有這欄，視為通過） */
+  editorial?: EditorialVerdict;
   spotMarket?: {
     updatedAt: string | null;
     sourceUrl: string;
@@ -458,26 +467,12 @@ function isRecentSignal(item: any, now: Date) {
   return now.getTime() - time <= RECENT_SIGNAL_DAYS * 24 * 60 * 60 * 1000;
 }
 
-async function categoryEvidence(categoryId: string, items: any[], limit = 3) {
-  const keywords = CATEGORY_NEWS_KEYWORDS[categoryId] ?? [];
-  const keywordHit = (item: any) => {
-    if (keywords.length === 0) return true;
-    const text = `${item.title || ''} ${item.snippet || ''} ${pickTitle(item)} ${pickSummary(item)}`;
-    return keywords.some((keyword) => keywordMatches(text, keyword));
-  };
-  // 只要新聞已被標記為此類別就納入（上游 fetcher 已分類）；關鍵字命中者優先排序，
-  // 不再硬篩掉「標題沒關鍵字、但內文相關」的新聞——這是先前報導內容過少的主因。
-  const matched = items
-    .filter((item) => item.categoryIds?.includes(categoryId))
-    .sort((a, b) => {
-      const ka = keywordHit(a) ? 1 : 0;
-      const kb = keywordHit(b) ? 1 : 0;
-      if (ka !== kb) return kb - ka;
-      return dateValue(b) - dateValue(a);
-    })
-    .slice(0, limit);
-
-  return Promise.all(matched.map(async (item) => {
+// 單一類別的新聞素材：依選題排序（供應事件、多家媒體報導者優先；產品發表墊底），
+// 同一事件的多家報導只取代表的一則並註明還有誰在報，不再讓同一則新聞佔掉三個名額。
+async function categoryEvidence(categoryId: string, ranking: CategoryNewsRanking<any> | undefined, limit = 3) {
+  const events = (ranking?.events ?? []).slice(0, limit);
+  return Promise.all(events.map(async (event) => {
+      const item = event.item;
       const source = item.source || '來源';
       const title = await ensureZhTW(pickTitle(item), source);
       const summary = await ensureZhTW(pickSummary(item), source);
@@ -487,7 +482,11 @@ async function categoryEvidence(categoryId: string, items: any[], limit = 3) {
         : summary && !title.includes(summary)
           ? `摘要：${summary}`
           : `標題：${title}`;
-      return `${source}：${text}`;
+      const others = event.sources.filter((name) => name !== source);
+      const tag = event.kind === 'launch'
+        ? '〔產品發表，非供應事件〕'
+        : others.length > 0 ? `〔另有 ${others.join('、')} 同步報導〕` : '';
+      return `${source}${tag}：${text}`;
     }));
 }
 
@@ -507,24 +506,7 @@ function toParagraphs(value: unknown): string[] {
   return raw.flatMap((p) => p.split(/\n+/)).map(stripMarkdownDecoration).filter(Boolean);
 }
 
-// 空詞黑名單：標題出現這些就退回本地標題（報紙標題要有主體與事實，不是形容詞）
-const HOLLOW_HEADLINE_PATTERNS = [
-  /訊號升溫/, /值得留意/, /值得關注/, /壓力浮現/, /水溫上升/, /納入觀察/,
-  /維持觀察/, /蠢蠢欲動/, /待觀察/, /宜先預備/,
-];
-
-function isHollowHeadline(headline: string) {
-  if (!headline || headline.length < 6 || headline.length > 40) return true;
-  return HOLLOW_HEADLINE_PATTERNS.some((pattern) => pattern.test(headline));
-}
-
-export interface WeeklyIssueSection {
-  categoryId: string;
-  categoryName: string;
-  channelText: string;
-  spotText?: string;      // 華強現貨熱搜（可點名型號與人民幣參考價）
-  evidence: string[];
-}
+export type WeeklyIssueSection = ReviewSection;
 
 interface WeeklyIssueDraft {
   leadHeadline: string;
@@ -541,24 +523,22 @@ interface WeeklyIssueDraft {
 async function synthesizeWeeklyIssueWithGemini(
   reportId: string,
   sections: WeeklyIssueSection[],
-  marketContext = ''
+  marketContext = '',
+  revisionNotes: string[] = []
 ): Promise<WeeklyIssueDraft | null> {
   // 沒有外電新聞但有華強熱搜的類別（例如熱料新上榜而交叉命中）也要送進來寫稿，
   // 否則它照樣排進封面、卻只剩一行罐頭字
   const usable = sections.filter((section) => section.evidence.length > 0 || !!section.spotText);
   if (usable.length === 0) return null;
 
-  const materialText = usable
-    .map((section, index) => {
-      const evidence = section.evidence.length > 0
-        ? section.evidence.map((line) => `  - ${line}`).join('\n')
-        : '  （本週無外電新聞，以華強現貨熱搜為主線）';
-      const spot = section.spotText ? `\n 華強現貨熱搜（可點名型號與人民幣參考價）：${section.spotText}` : '';
-      return `[${index + 1}] categoryId=${section.categoryId}｜類別：${section.categoryName}\n 外部素材：\n${evidence}${spot}\n 本站通路觀測（僅供一句旁證）：${section.channelText || '（本週通路平穩）'}`;
-    })
-    .join('\n\n') + (marketContext ? `\n\n【市場大盤】${marketContext}` : '');
+  const materialText = usable.map(sectionMaterialText).join('\n\n')
+    + (marketContext ? `\n\n【市場大盤】${marketContext}` : '');
+  // 審稿退回的問題（有的話）一併進提示詞與快取 key：重寫稿不會撞到上一版的快取
+  const revisionText = revisionNotes.length > 0
+    ? `\n\n【審稿退回】上一版稿件有以下問題，這一版必須全部修正：\n${revisionNotes.map((note) => `- ${note}`).join('\n')}`
+    : '';
 
-  const evidenceHash = crypto.createHash('md5').update(materialText).digest('hex');
+  const evidenceHash = crypto.createHash('md5').update(materialText + revisionText).digest('hex');
   const cacheKey = `weekly-issue-gemini-r${REPORT_BUILD_REV}-${GEMINI_WRITER_MODEL}-${reportId}-${evidenceHash}`;
 
   try {
@@ -597,20 +577,22 @@ async function synthesizeWeeklyIssueWithGemini(
 
   const prompt = `你是公司內部電子供應鏈週刊的主編，本期要寫 ${usable.length} 篇產業版報導。讀者是採購、PM 與工程師。
 
-【本期素材】
-${materialText}
+【本期素材】（排列順序就是編輯台排定的重要性順序，第 [1] 篇最重要）
+${materialText}${revisionText}
 
 寫作要求：
 1. 每篇挑一條最有份量的線索當導言（誰、做了什麼、多少），其餘素材當佐證或對照；與主線無關的素材可以捨棄。不要平均分配篇幅，不要逐條並列翻譯。
 2. 每篇走倒金字塔：先寫發生了什麼，再寫為什麼會這樣（背景與成因），最後寫對採購、交期或成本的實際影響。
-3. 素材裡的具體數字必須寫進報導——價格、漲跌幅、交期週數、產能、月份、營收、廠區、產品型號都要保留，這是產業報導的重點。唯一禁止的是「本站通路觀測」的顆數與百分比，那個只能用一句質性描述帶過（例如「本站監測的通路庫存亦同步走低」）。「華強現貨熱搜」的型號與人民幣參考價可以引用，代表深圳現貨市場買家正在找的料；沒有外電新聞的篇章就以熱搜型號為導言主線，寫出哪些型號被找、什麼價位，不要自行編造新聞事件；【市場大盤】可在 lede 用一句帶過。
-4. headline 要像報紙標題：主體＋動作＋（有的話）數字，例如「三星減產 DDR4，記憶體現貨價一週漲 12%」。必須取材自該篇素材的具體事實，20 字以內。禁止出現「訊號升溫」「值得留意」「壓力浮現」「水溫上升」「納入觀察」這類空詞，禁止只寫類別名加形容詞。
+3. 素材裡的具體數字必須寫進報導——價格、漲跌幅、交期週數、產能、月份、營收、廠區、產品型號都要保留，這是產業報導的重點。「本站通路觀測」只能用一句質性描述帶過（例如「本站監測的通路庫存亦同步走低」），不可替它補上任何數字，也不可寫進標題。「華強現貨熱搜」的型號與人民幣參考價可以引用，代表深圳現貨市場買家正在找的料；沒有外電新聞的篇章就以熱搜型號為導言主線，寫出哪些型號被找、什麼價位，不要自行編造新聞事件；【市場大盤】可在 lede 用一句帶過。
+4. headline 要像報紙標題：主體＋動作＋（有的話）數字，例如「三星減產 DDR4，記憶體現貨價一週漲 12%」。必須取材自該篇「外部素材」或華強熱搜的具體事實，20 字以內；標題裡的數字必須是外部素材原有的數字。標有〔產品發表，非供應事件〕的素材只能當背景，不可當標題與導言主線（除非該篇沒有其他素材）。禁止出現「訊號升溫」「值得留意」「壓力浮現」「水溫上升」「納入觀察」這類空詞，禁止只寫類別名加形容詞。
 5. story 兩到三段、每篇合計 280–420 個中文字，筆調像報紙產業版：自然、好讀、有主詞、有動作動詞。禁止空泛詞堆疊，禁止 meta 說明（不要說「本段整理」「根據素材」）。自然帶出消息來源名稱。
 6. watchpoint：一句 25–45 字的「後續觀察」，說明接下來一兩週該盯哪個指標、價格或事件。是觀察點，不是待辦清單，不要寫「請採購確認…」這種指令句。
-6b. action：一句 30–70 字的「行動建議」，寫給採購／PM／工程，必須對應這篇報導的具體事實（例如針對哪種規格、哪家原廠、鎖價還是備替代料、建議提前幾週下單）。每篇不同，不要套同一句話。
-7. leadHeadline：整期頭條，取本期最重要的一條事實寫成 25 字以內的標題，規則同第 4 點。
+6b. action：一句 30–70 字的「行動建議」，寫給採購／PM／工程，必須對應這篇報導的供應風險（例如針對哪種規格、哪家原廠、鎖價還是備替代料）。只有外部素材明寫的交期或時程才可以引用數字，不可由本站通路觀測推導「提前幾週下單」；不可建議導入或採購某個新產品。每篇不同，不要套同一句話。
+7. leadHeadline：整期頭條，取第 [1] 篇的主要事件寫成 25 字以內的標題，規則同第 4 點。
 8. lede：整期導言一段 80–120 字，說明本期最值得看的是什麼、為什麼。
-9. 全部繁體中文純文字。禁止任何 Markdown 符號（**、#、- 條列）與獨立標題行。
+9. 素材標有【落差】的篇章，照該說明在報導中用一兩句交代新聞與通路之間的落差。
+10. 素材附有「上期後續觀察」的篇章：本期素材若能回答它，用一句交代後續（「上期提到…，本期…」）；素材無法回答就不要提，不可編造後續發展。
+11. 全部繁體中文純文字。禁止任何 Markdown 符號（**、#、- 條列）與獨立標題行。
 
 只輸出 JSON，不要任何其他文字：
 {"leadHeadline":"","lede":"","items":[{"categoryId":"${usable[0].categoryId}","headline":"","story":["",""],"watchpoint":"","action":""}]}
@@ -993,7 +975,10 @@ const EMPTY_REPORT_RETRY_MS = 6 * 60 * 60 * 1000; // 空殼報告 6 小時後才
 // v9＝crossHit 改需可得性指數轉緊；轉鬆敘述只列變好的項目。
 // v10＝2026-11-01 撰稿模型改 Gemini 4.0（gemini-4-argon）優先並擴充 3.8/3.7/3.6/3.5 降級鏈；全面中文化新聞標題、市場報告與生命週期狀態。
 // v11＝2026-11-01 無外電新聞但有華強熱搜的封面類別也交給 Gemini 寫稿，不再只剩罐頭句。
-export const REPORT_BUILD_REV = 11;
+// v12＝2026-11-12 編輯流程：選題排序（多家媒體報導的供應事件優先、產品發表與單日熱搜墊底）、
+//     通路觀測只給質性描述、離譜的熱搜價不引用、新聞與通路落差明寫、上期後續觀察回收、
+//     撰稿後加審稿（不過關退稿重寫一次，仍不過關則不自動寄送）。
+export const REPORT_BUILD_REV = 12;
 
 function currentWeeklyReportId(now = new Date()) {
   return `weekly-${formatDateId(weekStart(now))}`;
@@ -1265,6 +1250,26 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   }
   const hotPartsInCategory = (categoryId: string) => (fenghuo?.hotParts ?? []).filter((p) => p.categoryId === categoryId);
 
+  // 選題：每個類別的新聞先併同一事件、分出供應事件與產品發表，算出新聞份量
+  const newsRankingByCat = new Map<string, CategoryNewsRanking<any>>();
+  for (const cat of DEMAND_CATEGORIES) {
+    newsRankingByCat.set(cat.categoryId, rankCategoryNews(
+      shortageNews
+        .filter((item: any) => item.categoryIds?.includes(cat.categoryId))
+        .sort((a: any, b: any) => dateValue(b) - dateValue(a))));
+  }
+  const coverScoreOf = (s: { categoryId: string; crossHit: boolean; lifecycleCount: number; marketReportCount: number; hotSearchNew?: number }) => {
+    const hot = hotPartsInCategory(s.categoryId);
+    return coverScore({
+      newsScore: newsRankingByCat.get(s.categoryId)?.score ?? 0,
+      crossHit: s.crossHit,
+      lifecycleCount: s.lifecycleCount,
+      marketReportCount: s.marketReportCount,
+      hotSustained: hot.filter((p) => p.weeksOnList >= 2).length,
+      hotNew: s.hotSearchNew ?? 0,
+    });
+  };
+
   const categorySignals = DEMAND_CATEGORIES.map((cat) => {
     const newsCount = shortageNews.filter((item: any) => item.categoryIds?.includes(cat.categoryId)).length;
     const lifecycleCount = lifecycleParts.filter((item) => item.part.categoryId === cat.categoryId).length;
@@ -1304,6 +1309,11 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       reportNotes,
       data,
       crossHit,
+      divergence: detectDivergence({
+        supplySources: newsRankingByCat.get(cat.categoryId)?.supplySources ?? 0,
+        newsCount,
+        state: data.availability ?? null,
+      }),
     };
   }).filter((item) => item.data.tone !== 'normal' || item.newsCount > 0 || item.lifecycleCount > 0 || item.marketReportCount > 0 || item.hotSearchNew > 0)
     .sort((a, b) => {
@@ -1334,7 +1344,13 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
   const executiveSignals = (() => {
     const cross = categorySignals.filter((s) => s.crossHit);
     const newsBacked = categorySignals.filter((s) => !s.crossHit && hasNews(s));
-    const featured = [...cross, ...newsBacked].slice(0, 4);
+    // 封面順序由選題分數決定：多家媒體報導的供應事件排最前，只有單日熱搜或產品發表的排最後。
+    // 以前交叉命中一律排在前面，11/09 期 4 家媒體報導的 MLCC 短缺因此被三篇熱搜稿擠出封面。
+    const featured = [...cross, ...newsBacked]
+      .map((signal, index) => ({ signal, index, score: coverScoreOf(signal) }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, 4)
+      .map((entry) => entry.signal);
     if (featured.length > 0) return featured;
     // 完全沒有新聞素材 → 用數據最顯著的類別墊檔
     const dataHigh = categorySignals.filter((s) => s.data.tone === 'high');
@@ -1365,35 +1381,79 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
       .slice(0, 2)
       .map((item) => `代理商料件 API：${item.part.mpn}（${item.part.manufacturer || item.part.apiManufacturer || ''}）原廠生命週期標示為 ${formatLifecycleStatusZh(item.part.lifecycleStatus)}，建議比對 BOM 是否使用並評估替代料`);
     const evidence = [
-      ...(await categoryEvidence(signal.categoryId, shortageNews, 3)),
+      ...(await categoryEvidence(signal.categoryId, newsRankingByCat.get(signal.categoryId), 3)),
       ...lifecycleEvidence,
       ...reportEvidenceList,
     ].slice(0, 6);
     evidenceByCategory.set(signal.categoryId, evidence);
   }
 
+  // 參考價明顯離譜的熱料（佔位價／整盤價）不把價格交給撰稿模型，免得被寫成「現貨飆至」
+  const suspectPriceMpns = suspectHotPrices(fenghuo?.hotParts ?? []);
   const spotTextFor = (categoryId: string) => {
     const list = hotPartsInCategory(categoryId);
     if (list.length === 0) return '';
     const describe = (p: (typeof list)[number]) => {
       const flags = p.isNew ? '本週新上榜' : p.weeksOnList > 1 ? `連續 ${p.weeksOnList} 次在榜` : '';
-      return `${p.mpn}（${p.brand}${p.priceCny != null ? `，參考價 ¥${p.priceCny}` : ''}${flags ? `；${flags}` : ''}）`;
+      const price = p.priceCny != null && !suspectPriceMpns.has(p.mpn) ? `，參考價 ¥${p.priceCny}` : '';
+      return `${p.mpn}（${p.brand}${price}${flags ? `；${flags}` : ''}）`;
     };
     const sorted = [...list].sort((a, b) => (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0) || b.weeksOnList - a.weeksOnList);
     return sorted.slice(0, 5).map(describe).join('；');
   };
 
-  const issueDraft = await synthesizeWeeklyIssueWithGemini(
-    id,
-    executiveSignals.map((signal) => ({
+  // 上期各篇的「後續觀察」：本期同類別再上封面時交給撰稿模型回收（期與期的連續性）
+  const lastIssue = previousIssues[0];
+  const lastWatchpoints = new Map<string, string>(
+    (lastIssue?.executiveItems ?? [])
+      .filter((item) => item.watchpoint)
+      .map((item) => [item.category, `（${lastIssue.date}）${item.watchpoint}`]));
+
+  const issueSections: WeeklyIssueSection[] = executiveSignals.map((signal) => {
+    const ranking = newsRankingByCat.get(signal.categoryId);
+    const newsWeight = ranking && ranking.events.length > 0
+      ? ranking.launchOnly
+        ? '本週只有產品發表類消息，沒有供應面事件'
+        : ranking.supplySources > 1 ? `本週有 ${ranking.supplySources} 家媒體報導此類別的供應面消息` : ''
+      : '';
+    return {
       categoryId: signal.categoryId,
       categoryName: signal.category,
-      channelText: signal.data.text,
+      // 通路觀測只給質性描述：可得性指數原文帶的「交期 +N 週」是類別中位數，不可當成事實數字引用
+      channelText: qualitativeChannelText(signal.category, signal.data.availability ?? null, buildDataSignalText(signal.categoryId, signal.data)),
       spotText: spotTextFor(signal.categoryId),
       evidence: evidenceByCategory.get(signal.categoryId) ?? [],
-    })),
-    fenghuo?.trend?.text ?? ''
-  );
+      followUp: lastWatchpoints.get(signal.category) ?? '',
+      divergenceNote: divergenceNote(signal.divergence ?? null),
+      newsWeight,
+    };
+  });
+  const reviewSections = issueSections.filter((section) => section.evidence.length > 0 || !!section.spotText);
+  const marketContext = fenghuo?.trend?.text ?? '';
+
+  // 撰稿 → 審稿（程式規則＋AI 對照素材）→ 有問題退稿重寫一次 → 再審。仍不過關就標 held，不自動寄送。
+  const reviewDraft = async (draft: WeeklyIssueDraft | null): Promise<EditorialVerdict> => {
+    if (reviewSections.length === 0) return { status: 'passed', aiWritten: false, aiReviewed: false, revised: false, issues: [] };
+    if (!draft) {
+      return { status: 'held', aiWritten: false, aiReviewed: false, revised: false, issues: ['AI 撰稿失敗（所有撰稿模型皆不可用），本期內容為本地範本稿'] };
+    }
+    const ruleIssues = deterministicReview(draft, reviewSections, marketContext);
+    const aiIssues = await reviewWeeklyIssueWithGemini(draft, reviewSections, marketContext);
+    const issues = [...ruleIssues, ...(aiIssues ?? [])];
+    return { status: issues.length > 0 ? 'held' : 'passed', aiWritten: true, aiReviewed: aiIssues !== null, revised: false, issues };
+  };
+
+  let issueDraft = await synthesizeWeeklyIssueWithGemini(id, issueSections, marketContext);
+  let editorial = await reviewDraft(issueDraft);
+  if (issueDraft && editorial.status === 'held') {
+    console.warn(`[WeeklyReport] review returned ${editorial.issues.length} issue(s); rewriting once.`, editorial.issues);
+    const revised = await synthesizeWeeklyIssueWithGemini(id, issueSections, marketContext, editorial.issues);
+    if (revised) {
+      issueDraft = revised;
+      editorial = { ...(await reviewDraft(revised)), revised: true };
+    }
+  }
+  if (editorial.status === 'held') console.warn('[WeeklyReport] issue held by editorial review:', editorial.issues);
   const draftItems = new Map((issueDraft?.items ?? []).map((item) => [item.categoryId, item]));
 
   const executiveItems = executiveSignals.map((signal) =>
@@ -1530,6 +1590,7 @@ export async function buildWeeklyReport(): Promise<WeeklyReportDetail> {
     recommendedActions,
     materialHashes,
     lifecycleOngoing,
+    editorial,
     spotMarket: fenghuo ? {
       updatedAt: fenghuo.updatedAt,
       sourceUrl: fenghuo.sourceUrl,

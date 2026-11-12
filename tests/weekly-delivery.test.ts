@@ -76,9 +76,30 @@ async function main() {
   assert.equal((await getGenericCache(key)).status, 'failed');
   rejectSend = false;
   assert.equal((await (await POST(req('?test=1'))).json()).delivered, true, '明確拒絕可重試');
+  // 審稿未通過：不寄管理者，只通知 Danny 一次；force=1 才放行
+  await setGenericCacheOrThrow(`weekly-report-built-${id}`, { rev: REPORT_BUILD_REV, builtAt: Date.now(), report: {
+    id, title: '物料預測週報｜測試｜審稿未過', href: '/demand-forecast/weekly-reports/' + id, date: '2026/10/05', summary: '摘要', riskLevel: 'normal',
+    executiveItems: [], metrics: { partsWithSnapshot: 1 }, sourceLinks: [],
+    editorial: { status: 'held', aiWritten: false, aiReviewed: false, revised: false, issues: ['AI 撰稿失敗 <範本稿>'] },
+  } });
+  const before = calls.filter(c => c.raw).length;
+  const heldRes = await POST(req());
+  const heldJson = await heldRes.json();
+  assert.equal(heldRes.status, 200);
+  assert.equal(heldJson.delivered, false);
+  assert.equal(heldJson.held, true);
+  assert.equal(heldJson.notified, true);
+  assert.equal(heldJson.error, undefined, 'workflow 不可把暫停寄送當成投遞失敗');
+  const notices = calls.filter(c => c.raw).slice(before);
+  assert.equal(notices.length, 1, '只寄一封通知');
+  const notice = Buffer.from(notices[0].raw!, 'base64url').toString();
+  assert.ok(notice.includes('To: g9355061@gmail.com') && !notice.includes('weili_chang'), '通知只寄 Danny');
+  assert.equal((await (await POST(req())).json()).notified, false, '同一期通知不重複');
+  assert.equal(calls.filter(c => c.raw).length, before + 1);
+  assert.equal((await (await POST(req('?force=1'))).json()).delivered, true, 'force=1 人工放行');
   const claims = await Promise.all(Array.from({ length: 5 }, () => claimWeeklyDelivery('concurrent-delivery')));
   assert.equal(claims.filter(Boolean).length, 1, '重疊請求只保留一次');
   fs.rmSync(dir, { recursive: true, force: true });
-  console.log('weekly delivery: recipient approval gate, cron auth, preview, Gmail MIME, test isolation, idempotence, failure retry, atomic claim passed');
+  console.log('weekly delivery: recipient approval gate, cron auth, preview, Gmail MIME, test isolation, idempotence, failure retry, editorial hold, atomic claim passed');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
