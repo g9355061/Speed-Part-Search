@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { SubBar } from '@/components/SubBar';
 import { Hero } from '@/components/Hero';
@@ -10,13 +11,10 @@ import { SpecGrid } from '@/components/SpecGrid';
 import { ComparisonChart } from '@/components/ComparisonChart';
 import { Footer } from '@/components/Footer';
 import { Icon } from '@/components/Icon';
-import {
-  PART_DATA,
-  SUPPLIERS,
-  priceAtQty,
-  type PartInfo,
-  type Supplier,
-} from '@/lib/mockData';
+import { priceAtQty, type PartInfo, type Supplier } from '@/lib/part-types';
+
+const RECENT_STORAGE_KEY = 'speedpart.singleSearch.recent.v1';
+const MAX_RECENT_SEARCHES = 6;
 
 interface ApiPriceBreak { quantity: number; unitPrice: number; currency: string }
 interface ApiVariation { packageType: string; minQty: number; breaks: ApiPriceBreak[] }
@@ -40,6 +38,9 @@ interface ApiPartResult {
   variations?: ApiVariation[];
   marketplaceVariations?: ApiMarketplaceVariation[];
   productUrl: string;
+  datasheetUrl?: string | null;
+  category?: string | null;
+  rohsStatus?: string | null;
   leadTimeDays?: number | null;
   availabilityStatus?: string | null;
   lastUpdated: string;
@@ -86,7 +87,9 @@ function supplierFromResult(result: ApiPartResult): Supplier {
   const meta = SUPPLIER_META[key] ?? { id: key, name: result.supplier, region: 'Global' };
   const breaks = result.priceBreaks.length
     ? result.priceBreaks.map((b) => ({ qty: b.quantity, price: b.unitPrice }))
-    : [{ qty: 1, price: result.unitPrice ?? 0 }];
+    : result.unitPrice !== null
+      ? [{ qty: 1, price: result.unitPrice }]
+      : [];
   const rel = relativeTime(result.lastUpdated);
   const leadDays = result.leadTimeDays ?? 0;
   const leadTime = leadDays === 0 ? 'Ships today' : `${Math.round(leadDays / 7)} weeks`;
@@ -99,6 +102,7 @@ function supplierFromResult(result: ApiPartResult): Supplier {
     name: meta.name,
     region: meta.region,
     status: 'available',
+    supplierPartNumber: result.supplierPartNumber,
     stock: result.quantityAvailable,
     moq,
     ...(mpq !== undefined ? { mpq } : {}),
@@ -116,6 +120,8 @@ function supplierFromResult(result: ApiPartResult): Supplier {
         }
       : {}),
     productUrl: result.productUrl,
+    datasheetUrl: result.datasheetUrl ?? undefined,
+    lifecycleStatus: result.availabilityStatus ?? undefined,
     isLive: true,
     ...(result.marketplaceVariations?.length
       ? { marketplaceVariations: result.marketplaceVariations.map((mv) => ({ supplierName: mv.supplierName, stockQty: mv.stockQty, minQty: mv.minQty })) }
@@ -175,11 +181,24 @@ function restrictedSupplierFromBlock(block: ApiSupplierBlock): Supplier {
   };
 }
 
-function partOverrideFromResult(result: ApiPartResult): Partial<PartInfo> {
+function buildPartInfo(query: string, exactResults: ApiPartResult[]): PartInfo {
+  const pickFirst = (getter: (r: ApiPartResult) => string | null | undefined): string | undefined => {
+    for (const r of exactResults) {
+      const v = getter(r)?.trim();
+      if (v) return v;
+    }
+    return undefined;
+  };
   return {
-    mpn: result.manufacturerPartNumber || PART_DATA.mpn,
-    manufacturer: result.manufacturer || PART_DATA.manufacturer,
-    description: result.description || PART_DATA.description,
+    mpn: pickFirst((r) => r.manufacturerPartNumber) ?? query,
+    manufacturer: pickFirst((r) => r.manufacturer) ?? '—',
+    description: pickFirst((r) => r.description) ?? '尚無供應商詳細描述',
+    category: pickFirst((r) => r.category),
+    lifecycle: pickFirst((r) => r.availabilityStatus),
+    rohsStatus: pickFirst((r) => r.rohsStatus),
+    datasheetUrl: pickFirst((r) => r.datasheetUrl),
+    primaryProductUrl: pickFirst((r) => r.productUrl),
+    supplierPartNumber: pickFirst((r) => r.supplierPartNumber),
   };
 }
 
@@ -207,41 +226,109 @@ function shouldShowSupplierAlert(block: ApiSupplierBlock): boolean {
   return code === 'RATE_LIMITED' || code === 'AUTH_FAILED' || code === 'CONFIG_MISSING' || code === 'UPSTREAM_ERROR';
 }
 
-export default function HomePage() {
+function HomePageContent() {
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState('');
-  const [part, setPart] = useState<PartInfo>(PART_DATA);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(SUPPLIERS);
+  const [part, setPart] = useState<PartInfo | null>(null);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('unitPrice');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [activeTab, setActiveTab] = useState('digikey');
-  const [qtyInput, setQtyInput] = useState('');
+  const [activeTab, setActiveTab] = useState('');
+  const [qtyInput, setQtyInput] = useState('1');
   const [qty, setQty] = useState(1);
-  const [selectedRow, setSelectedRow] = useState<string | null>('digikey');
+  const [selectedRow, setSelectedRow] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [onlyInStock, setOnlyInStock] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [toast, setToast] = useState<{ msg: string; kind: 'ok' | 'err' } | null>(null);
-  const [refreshedAt, setRefreshedAt] = useState<string>(formatTimeUTC(new Date()));
+  const [refreshedAt, setRefreshedAt] = useState<string>('—');
+  const lastSearchKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(RECENT_STORAGE_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        setRecentSearches(
+          parsed
+            .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+            .slice(0, MAX_RECENT_SEARCHES)
+        );
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!toast || toast.kind !== 'ok') return;
+    const timer = window.setTimeout(() => setToast(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const recordRecentSearch = useCallback((mpn: string) => {
+    const cleaned = mpn.trim();
+    if (!cleaned) return;
+    setRecentSearches((prev) => {
+      const next = [cleaned, ...prev.filter((item) => item.toUpperCase() !== cleaned.toUpperCase())].slice(
+        0,
+        MAX_RECENT_SEARCHES
+      );
+      try {
+        window.localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  }, []);
 
   const liveCount = useMemo(() => suppliers.filter((s) => s.isLive).length, [suppliers]);
   const totalCount = suppliers.length;
+  const matchedCount = useMemo(
+    () => suppliers.filter((s) => s.status !== 'notfound' && s.status !== 'restricted').length,
+    [suppliers]
+  );
 
   const sorted = useMemo(() => {
+    const getStatusRank = (s: Supplier) => (s.status === 'notfound' ? 2 : s.status === 'restricted' ? 1 : 0);
     const arr = [...suppliers];
     arr.sort((a, b) => {
-      if (a.status === 'restricted' && b.status !== 'restricted') return 1;
-      if (a.status !== 'restricted' && b.status === 'restricted') return -1;
-      const av = sortKey === 'unitPrice' ? priceAtQty(a, qty) : (a as unknown as Record<string, unknown>)[sortKey];
-      const bv = sortKey === 'unitPrice' ? priceAtQty(b, qty) : (b as unknown as Record<string, unknown>)[sortKey];
+      const rankDiff = getStatusRank(a) - getStatusRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      if (sortKey === 'unitPrice') {
+        const ap = priceAtQty(a, qty);
+        const bp = priceAtQty(b, qty);
+        const aFinite = Number.isFinite(ap);
+        const bFinite = Number.isFinite(bp);
+        if (!aFinite && !bFinite) return 0;
+        if (!aFinite) return 1;
+        if (!bFinite) return -1;
+        return sortDir === 'asc' ? ap - bp : bp - ap;
+      }
+      const av = (a as unknown as Record<string, unknown>)[sortKey];
+      const bv = (b as unknown as Record<string, unknown>)[sortKey];
       if (typeof av === 'string' && typeof bv === 'string') {
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
       }
-      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      const an = Number(av ?? 0);
+      const bn = Number(bv ?? 0);
+      return sortDir === 'asc' ? an - bn : bn - an;
     });
     return arr;
   }, [suppliers, sortKey, sortDir, qty]);
 
+  const visibleSuppliers = useMemo(
+    () => (onlyInStock ? sorted.filter((s) => s.stock > 0 && s.status !== 'notfound' && s.status !== 'restricted') : sorted),
+    [sorted, onlyInStock]
+  );
+
   const bestIds = useMemo(() => {
-    const available = suppliers.filter((s) => s.status !== 'restricted' && s.stock > 0 && Number.isFinite(priceAtQty(s, qty)));
+    const available = suppliers.filter(
+      (s) => s.status !== 'restricted' && s.status !== 'notfound' && s.stock > 0 && Number.isFinite(priceAtQty(s, qty))
+    );
     const prices = available.map((s) => priceAtQty(s, qty));
     const bestPrice = Math.min(...prices);
     if (!Number.isFinite(bestPrice)) return [];
@@ -263,22 +350,50 @@ export default function HomePage() {
     }
   };
 
-  const handleSearch = async (q: string) => {
-    const requestedQty = Number(qtyInput.replace(/,/g, ''));
-    if (!Number.isFinite(requestedQty) || requestedQty <= 0) {
-      setToast({ msg: '請輸入數量', kind: 'err' });
+  const handleSearch = useCallback(async (q: string, qtyOverride?: number) => {
+    const trimmedMpn = q.trim();
+    if (!trimmedMpn) {
+      setToast({ msg: '請輸入料號', kind: 'err' });
       return;
     }
-    const normalizedQty = Math.round(requestedQty);
+
+    const rawQty =
+      qtyOverride !== undefined
+        ? qtyOverride
+        : qtyInput.trim() === ''
+          ? 1
+          : Number(qtyInput.replace(/,/g, ''));
+
+    if (!Number.isFinite(rawQty) || rawQty <= 0) {
+      setToast({ msg: '數量必須為正整數', kind: 'err' });
+      return;
+    }
+
+    const normalizedQty = Math.round(rawQty);
+    lastSearchKeyRef.current = `${trimmedMpn.toUpperCase()}:${normalizedQty}`;
+    setQuery(trimmedMpn);
     setQty(normalizedQty);
     setQtyInput(String(normalizedQty));
+
+    if (typeof window !== 'undefined') {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set('mpn', trimmedMpn);
+      nextUrl.searchParams.set('qty', String(normalizedQty));
+      window.history.replaceState(null, '', nextUrl.toString());
+    }
+
     setLoading(true);
     try {
-      const params = new URLSearchParams({ partNumber: q, suppliers: 'digikey,mouser hk,mouser vn' });
+      const params = new URLSearchParams({ partNumber: trimmedMpn, suppliers: 'digikey,mouser hk,mouser vn' });
       const resp = await fetch(`/api/search?${params.toString()}`);
+      if (!resp.ok) {
+        setToast({ msg: `查詢失敗 (${resp.status})`, kind: 'err' });
+        setRefreshedAt(formatTimeUTC(new Date()));
+        return;
+      }
       const json: ApiSearchResponse = await resp.json();
       const exactResults = json.suppliers
-        .map((block) => findExactResult(block, q))
+        .map((block) => findExactResult(block, trimmedMpn))
         .filter((result): result is ApiPartResult => Boolean(result));
       const errors = json.suppliers.filter((b) => b.error);
       const alerts = errors.filter(shouldShowSupplierAlert);
@@ -286,7 +401,7 @@ export default function HomePage() {
         .filter((b) => b.error?.code === 'RESTRICTED')
         .map(restrictedSupplierFromBlock);
       const exactMissRows = json.suppliers
-        .filter((block) => !block.error && !findExactResult(block, q))
+        .filter((block) => !block.error && !findExactResult(block, trimmedMpn))
         .map(notFoundSupplierFromBlock);
       const notFoundErrorRows = errors
         .filter((block) => block.error?.code === 'EMPTY_RESULT' || block.error?.code === 'NOT_FOUND')
@@ -297,29 +412,55 @@ export default function HomePage() {
         const liveRows = exactResults.map((result) => (
           result.quantityAvailable > 0 ? supplierFromResult(result) : emptyStockSupplierFromResult(result)
         ));
-        const nextSup = [...liveRows, ...restrictedRows];
-        const firstResult = exactResults[0];
-        const visibleRows = [...nextSup, ...notFoundRows];
+        const visibleRows = [...liveRows, ...restrictedRows, ...notFoundRows];
+        const nextPart = buildPartInfo(trimmedMpn, exactResults);
         setSuppliers(visibleRows);
-        setPart(firstResult ? { ...PART_DATA, ...partOverrideFromResult(firstResult) } : PART_DATA);
+        setPart(nextPart);
         setHasSearched(true);
-        setSelectedRow(visibleRows[0]?.id ?? null);
-        setActiveTab(liveRows[0]?.id ?? visibleRows[0]?.id ?? 'digikey');
+        setSelectedRow(liveRows[0]?.id ?? visibleRows[0]?.id ?? null);
+        setActiveTab(liveRows.find((s) => s.breaks.length > 0)?.id ?? liveRows[0]?.id ?? visibleRows[0]?.id ?? '');
+        recordRecentSearch(nextPart.mpn || trimmedMpn);
         setToast(alerts.length > 0 ? { msg: alerts.map(friendlySupplierError).join('；'), kind: 'err' } : null);
       } else if (alerts.length > 0) {
         setToast({ msg: alerts.map(friendlySupplierError).join('；'), kind: 'err' });
       } else {
-        setToast({ msg: `No data for "${q}"`, kind: 'err' });
+        setToast({ msg: `找不到 "${trimmedMpn}" 的供應商資料`, kind: 'err' });
       }
       setRefreshedAt(formatTimeUTC(new Date()));
-      setQuery('');
-      setQtyInput('');
     } catch (e) {
       setToast({ msg: e instanceof Error ? e.message : String(e), kind: 'err' });
     } finally {
       setLoading(false);
     }
-  };
+  }, [qtyInput, recordRecentSearch]);
+
+  const handleSearchRef = useRef(handleSearch);
+  handleSearchRef.current = handleSearch;
+
+  useEffect(() => {
+    const urlMpn = searchParams.get('mpn')?.trim() ?? '';
+    if (!urlMpn) return;
+    const rawUrlQty = Number((searchParams.get('qty') ?? '').replace(/,/g, ''));
+    const nextQty = Number.isFinite(rawUrlQty) && rawUrlQty > 0 ? Math.round(rawUrlQty) : 1;
+    const key = `${urlMpn.toUpperCase()}:${nextQty}`;
+    if (lastSearchKeyRef.current === key) return;
+    handleSearchRef.current(urlMpn, nextQty);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const handleQuickSearchEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{ mpn?: string; qty?: number }>;
+      const targetMpn = customEvent.detail?.mpn?.trim();
+      if (!targetMpn) return;
+      const targetQty =
+        typeof customEvent.detail?.qty === 'number' && customEvent.detail.qty > 0
+          ? Math.round(customEvent.detail.qty)
+          : 1;
+      handleSearchRef.current(targetMpn, targetQty);
+    };
+    window.addEventListener('speedpart:quick-search', handleQuickSearchEvent);
+    return () => window.removeEventListener('speedpart:quick-search', handleQuickSearchEvent);
+  }, []);
 
   useEffect(() => {
     if (selectedRow && !suppliers.some((s) => s.id === selectedRow)) {
@@ -327,52 +468,123 @@ export default function HomePage() {
     }
   }, [suppliers, selectedRow]);
 
+  useEffect(() => {
+    if (pricedSuppliers.length > 0 && !pricedSuppliers.some((s) => s.id === activeTab)) {
+      setActiveTab(pricedSuppliers[0].id);
+    }
+  }, [pricedSuppliers, activeTab]);
+
+  const handleCopyShare = async () => {
+    if (!part) return;
+    try {
+      const shareUrl = `${window.location.origin}/?mpn=${encodeURIComponent(part.mpn)}&qty=${qty}`;
+      await navigator.clipboard.writeText(shareUrl);
+      setToast({ msg: '已複製分享連結', kind: 'ok' });
+    } catch {
+      setToast({ msg: '無法存取剪貼簿，請直接複製網址列', kind: 'err' });
+    }
+  };
+
+  const handleCopyQuote = async () => {
+    if (!part) return;
+    const lines = [
+      `料號: ${part.mpn}（${part.manufacturer}）`,
+      `需求數量: ${qty.toLocaleString('en-US')} pcs`,
+      `查詢時間: ${refreshedAt}`,
+      '',
+      ...suppliers.map((s) => {
+        if (s.status === 'restricted') return `- ${s.name}: 供貨限制`;
+        if (s.status === 'notfound') return `- ${s.name}: 平台沒有這顆料`;
+        if (s.stock <= 0) return `- ${s.name}: 沒有庫存`;
+        const unit = priceAtQty(s, qty);
+        const effectiveQty = s.stock > 0 && qty > s.stock ? s.stock : qty;
+        const unitStr = Number.isFinite(unit) ? `${s.currency} ${unit.toFixed(4)}` : '—';
+        const totalStr = Number.isFinite(unit) ? `$${(unit * effectiveQty).toFixed(2)}` : '—';
+        return `- ${s.name} (${s.region}): 庫存 ${s.stock.toLocaleString('en-US')} / 平均單價 ${unitStr} / 小計 ${totalStr}`;
+      }),
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setToast({ msg: '已複製報價摘要', kind: 'ok' });
+    } catch {
+      setToast({ msg: '無法存取剪貼簿', kind: 'err' });
+    }
+  };
+
   return (
     <div className="app">
       <Header />
-      <Hero query={query} setQuery={setQuery} qtyInput={qtyInput} setQtyInput={setQtyInput} onSearch={handleSearch} loading={loading} />
-      <SubBar
+      <Hero
         query={query}
-        category={part.category}
+        setQuery={setQuery}
+        qtyInput={qtyInput}
+        setQtyInput={setQtyInput}
+        onSearch={(mpn) => handleSearch(mpn)}
+        loading={loading}
+        recentSearches={recentSearches}
+        onSelectRecent={(mpn) => handleSearch(mpn)}
+      />
+      <SubBar
+        mpn={part?.mpn ?? null}
+        category={part?.category ?? null}
+        hasSearched={hasSearched}
         liveCount={liveCount}
         totalCount={totalCount}
         refreshedAt={refreshedAt}
       />
 
       <div className="main">
-        {!hasSearched ? (
-          <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--gray-400)' }}>
-            <Icon name="search" size={32} />
-            <p style={{ marginTop: '16px', fontSize: '15px' }}>
-              請在上方輸入料號，查詢價格與庫存。
+        {!hasSearched || !part ? (
+          <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-4)' }}>
+            <Icon name="search" size={32} aria-hidden="true" />
+            <p style={{ marginTop: '16px', fontSize: '15px', color: 'var(--text-3)' }}>
+              請在上方輸入料號，查詢即時價格與庫存。
             </p>
           </div>
         ) : (
           <>
             <div className="row-2">
-              <ProductCard part={part} />
+              <ProductCard part={part} matchedCount={matchedCount} totalCount={totalCount} />
               <div className="card">
                 <div className="card-hd">
                   <h3>
                     <Icon name="compare" size={14} />
                     供應商比較
-                    <span className="sub">— {suppliers.length} 個來源，可排序</span>
+                    <span className="sub">
+                      — {visibleSuppliers.length}{onlyInStock ? `/${suppliers.length}` : ''} 個來源，可排序
+                    </span>
                   </h3>
                   <div className="actions">
-                    <button className="btn ghost"><Icon name="filter" size={12} /> 篩選</button>
-                    <button className="btn ghost"><Icon name="share" size={12} /> 分享</button>
-                    <button className="btn"><Icon name="cart" size={12} /> 加入 BOM</button>
+                    <button
+                      type="button"
+                      className={'btn ghost' + (onlyInStock ? ' active' : '')}
+                      aria-pressed={onlyInStock}
+                      onClick={() => setOnlyInStock((v) => !v)}
+                    >
+                      <Icon name="filter" size={12} /> {onlyInStock ? '僅看有庫存 ✓' : '僅看有庫存'}
+                    </button>
+                    <button type="button" className="btn ghost" onClick={handleCopyShare}>
+                      <Icon name="share" size={12} /> 分享
+                    </button>
+                    <button type="button" className="btn" onClick={handleCopyQuote}>
+                      <Icon name="copy" size={12} /> 複製報價
+                    </button>
                   </div>
                 </div>
                 <div className="card-bd flush">
                   <SupplierTable
-                    suppliers={sorted}
+                    suppliers={visibleSuppliers}
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={handleSort}
                     bestIds={bestIds}
                     qty={qty}
-                    onSelect={setSelectedRow}
+                    onSelect={(id) => {
+                      setSelectedRow(id);
+                      if (pricedSuppliers.some((s) => s.id === id)) {
+                        setActiveTab(id);
+                      }
+                    }}
                     selectedId={selectedRow}
                   />
                 </div>
@@ -385,15 +597,17 @@ export default function HomePage() {
                 activeId={activeTab}
                 onTab={setActiveTab}
                 qty={qty}
+                mpn={part.mpn}
                 onQtyChange={(nextQty) => {
                   setQty(nextQty);
                   setQtyInput(String(nextQty));
                 }}
+                onExported={(supplierName) => setToast({ msg: `已匯出 ${supplierName} 階梯價 CSV`, kind: 'ok' })}
               />
             )}
 
-            <div className="row-3">
-              <SpecGrid part={part} />
+            <div className={'row-3' + (pricedSuppliers.length === 0 ? ' single' : '')}>
+              <SpecGrid part={part} suppliers={suppliers} qty={qty} />
               {pricedSuppliers.length > 0 && <ComparisonChart suppliers={pricedSuppliers} qty={qty} bestIds={bestIds} />}
             </div>
           </>
@@ -403,11 +617,31 @@ export default function HomePage() {
       <Footer refreshedAt={refreshedAt} />
 
       {toast && (
-        <div className={'toast' + (toast.kind === 'err' ? ' error' : '')}>
-          <Icon name={toast.kind === 'err' ? 'alert' : 'check'} size={14} />
-          {toast.msg}
+        <div
+          className={'toast' + (toast.kind === 'err' ? ' error' : '')}
+          role={toast.kind === 'err' ? 'alert' : 'status'}
+          aria-live={toast.kind === 'err' ? 'assertive' : 'polite'}
+        >
+          <Icon name={toast.kind === 'err' ? 'alert' : 'check'} size={14} aria-hidden="true" />
+          <span>{toast.msg}</span>
+          <button
+            type="button"
+            className="toast-close"
+            aria-label="關閉通知"
+            onClick={() => setToast(null)}
+          >
+            ×
+          </button>
         </div>
       )}
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={null}>
+      <HomePageContent />
+    </Suspense>
   );
 }

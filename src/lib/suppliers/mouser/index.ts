@@ -1,4 +1,4 @@
-import { PackagingVariation, PartResult, PriceBreak, SearchOptions, SupplierAdapter, SupplierError } from '../types';
+import { normalizeExternalUrl, PackagingVariation, PartResult, PriceBreak, SearchOptions, SupplierAdapter, SupplierError } from '../types';
 
 const BASE_URL = 'https://api.mouser.com/api/v1';
 const CACHE_TTL_MS = 15 * 60 * 1000;
@@ -26,6 +26,9 @@ interface MouserPart {
   ManufacturerPartNumber?: string;
   Manufacturer?: string;
   Description?: string;
+  Category?: string;
+  DataSheetUrl?: string;
+  ROHSStatus?: string;
   Availability?: string;          // e.g. "15,000 In Stock"
   UnitPrice?: string;             // e.g. "$0.4700"
   PriceBreaks?: MouserPriceBreak[];
@@ -128,6 +131,9 @@ function mapPart(p: MouserPart, currency: string, supplier: string): PartResult 
         ? p.ProductDetailUrl
         : `https://www.mouser.com${p.ProductDetailUrl}`
       : '',
+    datasheetUrl: normalizeExternalUrl(p.DataSheetUrl),
+    category: p.Category?.trim() || null,
+    rohsStatus: p.ROHSStatus?.trim() || null,
     leadTimeDays: parseLeadDays(p.LeadTime),
     availabilityStatus: p.LifecycleStatus || (stock > 0 ? 'In Stock' : 'Out of Stock'),
     lifecycleStatus: p.LifecycleStatus || null,

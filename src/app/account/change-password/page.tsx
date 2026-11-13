@@ -3,10 +3,11 @@
 import { useState, FormEvent } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 
 export default function ChangePasswordPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
 
   const [current, setCurrent] = useState('');
@@ -47,18 +48,10 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
-      {/* Mini header */}
-      <header style={{ height: 56, background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 26, height: 26, borderRadius: 5, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700 }}>S</div>
-          <span style={{ fontWeight: 600, fontSize: 14 }}>Speed Part Search</span>
-        </div>
-        <Link href="/" style={{ marginLeft: 12, padding: '6px 10px', borderRadius: 'var(--r-sm)', color: 'var(--text-2)', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>← 返回主頁</Link>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)' }}>{session?.user?.email}</span>
-      </header>
+    <div className="app" style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      <Header />
 
-      <main style={{ maxWidth: 480, margin: '48px auto', padding: '0 24px' }}>
+      <main style={{ maxWidth: 480, width: '100%', margin: '48px auto', padding: '0 24px', flex: 1 }}>
         <h1 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700 }}>變更密碼</h1>
         <p style={{ margin: '0 0 28px', fontSize: 13, color: 'var(--text-3)' }}>請輸入目前密碼與新密碼</p>
 
@@ -78,10 +71,10 @@ export default function ChangePasswordPage() {
           )}
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Field label="目前密碼" value={current} onChange={setCurrent} />
+            <Field label="目前密碼" value={current} onChange={setCurrent} autoComplete="current-password" />
             <hr style={{ border: 'none', borderTop: '1px solid var(--hairline)', margin: '4px 0' }} />
-            <Field label="新密碼" value={next} onChange={setNext} hint="至少 8 個字元" />
-            <Field label="確認新密碼" value={confirm} onChange={setConfirm} />
+            <Field label="新密碼" value={next} onChange={setNext} hint="至少 8 個字元" autoComplete="new-password" />
+            <Field label="確認新密碼" value={confirm} onChange={setConfirm} autoComplete="new-password" />
 
             <button
               type="submit"
@@ -95,11 +88,24 @@ export default function ChangePasswordPage() {
           )}
         </div>
       </main>
+      <Footer />
     </div>
   );
 }
 
-function Field({ label, value, onChange, hint }: { label: string; value: string; onChange: (v: string) => void; hint?: string }) {
+function Field({
+  label,
+  value,
+  onChange,
+  hint,
+  autoComplete,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  hint?: string;
+  autoComplete?: string;
+}) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
@@ -107,6 +113,7 @@ function Field({ label, value, onChange, hint }: { label: string; value: string;
       </span>
       <input
         type="password"
+        autoComplete={autoComplete}
         value={value}
         onChange={e => onChange(e.target.value)}
         required

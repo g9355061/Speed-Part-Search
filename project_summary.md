@@ -2640,3 +2640,20 @@ curl "http://localhost:5280/api/search?partNumber=NE555P"
 - 2026-10-22 22:50 ET Postgres 密碼輪替：Danny 在 Railway 按 Regenerate。發現 Speed-Part-Search 的 `DATABASE_URL` 是**寫死的字串**（Regenerate 後沒跟著變），已改成參照 `${{Postgres.DATABASE_URL}}`，之後再輪替會自動同步。部署 SUCCESS；驗證：benchmark-health 從 DB 讀出 147 顆料全健康、logs 無連線錯誤。
 - 2026-10-22 23:30 ET Gmail OAuth 輪替完成：新 client secret＋refresh token 已寫入 Railway（與 Tracklane web 共用），redeploy SUCCESS、容器內寄測試信 200；舊密鑰已在 GCP 刪除，實測舊組合 `invalid_client`。剩餘：DigiKey／Mouser 金鑰換新。
 - 2026-10-22 ET Railway 事件結案：Danny 決定 DigiKey client secret 與 Mouser 金鑰 ×4 **不換**（無商務價值，最壞情況是查價配額被耗用）。事件處置總結：DB 公開入口關閉、Gemini key、NEXTAUTH_SECRET ×3、cron 密碼 ×2、Postgres 密碼 ×2、Gmail OAuth 皆已輪替；Tracklane 預設密碼改為邀請連結；~/.zshrc 失效 token 已清。未處理（已決定）：舊預設密碼帳號清查、DigiKey／Mouser。若之後查價出現配額異常或供應商停權，再回頭換金鑰。
+
+## 29. 前台導覽統一、Dead UI 清理與單料查詢體驗改善（Review 項目 1–3）
+
+- **清除 Dead UI 與假資料（Mock Data）**：
+  - 全站型別與 helpers 抽離至 `src/lib/part-types.ts`，移除殘留 STM32 預設假資料 `src/lib/mockData.ts`。
+  - 供應商型別與轉接器（`src/lib/suppliers/types.ts`、`digikey`、`mouser`）補齊實時 `datasheetUrl`（經 `normalizeExternalUrl` 規範化）、`category`、`rohsStatus`；`ProductCard` 與 `SpecGrid` 全面改呈真實 API 彙整欄位，並僅於實際有連結時渲染真實 `<a>`（移除假「追蹤」按鈕與無網址的假外連按鈕）。
+  - `SupplierTable` 移除無作用的「加入採購車」與假外連按鈕，升級為可鍵盤聚焦之水平滾動容器 + `<th scope="col">` 內建 `<button type="button">` 與 `aria-sort`，並支援空白篩選狀態提示及與階梯價分頁連動選取。
+  - `PriceBreaks` 實作「匯出 CSV」（含 UTF-8 BOM 與第二幣別報價列）、改用無障礙 `tablist`/`tab` 與 `<button type="button">` 階梯格，以及可順暢編輯的數量欄草稿狀態；主頁卡片補齊「僅看有庫存」切換、「分享」（複製帶 `?mpn=&qty=` 連結）與「複製報價」（純文字報價摘要）。
+  - `Footer` 改用真實頁面 `<Link>`（依角色/權限顯示）與 `/api/health`。
+- **單料查詢 UX 改善**：
+  - Topbar 右上角 `快速查詢料號…` 改為 `<search><form>`（同頁派發 `speedpart:quick-search`、跨頁導向 `/?mpn=...&qty=1`）。
+  - 查詢完成後保留 `query` 與 `qtyInput`，Qty 預設為 `1`（留空查詢時自動視為 `1`，不再以錯誤 Toast 阻擋）；`Hero` 支援 `<search><form>`、清除（`×`）鈕、`inputMode="numeric"` 與 `localStorage` 最近查詢紀錄。
+  - `SubBar` 麵包屑改呈現已查詢之 `part.mpn` 與真實分類，同步 URL 查詢參數（附 `lastSearchKeyRef` 防重複查詢迴圈），且 `refreshedAt` 初值安全渲染 `'—'` 避免 Hydration mismatch；成功 Toast 3.5 秒自動關閉並提供手動關閉鈕。
+- **全站品牌與導覽一致性／行動版選單**：
+  - 新增共用 `BrandLogo`（YAS + IC 標誌 + `SpeedPart.`），統一套用至 `Header`、`Footer` 與 `login` / `register` / `forgot-password` / `reset-password`；`admin/users` 與 `account/change-password` 改用共用 `Header` 與 `Footer`。
+  - 於 `Header` 新增基於原生 `<dialog>` + scroll-snap 之行動／平板側邊導覽抽屜（`≤1080px` 啟用漢堡鈕，涵蓋所有導覽頁、快速查詢與帳號操作，含 `IntersectionObserver`、`animation-timeline` 與 JS fallback），並修正 `--brand`／`--gray-400` 缺失 CSS 變數與 active 頁底線識別。
+- **驗證**：`npx tsc --noEmit`、`npm test`（9 個測試檔全數通過）、`npm run build`（21 個路由建置＋型別／ESLint 檢查通過）；於 localhost:5280 驗證 `<html lang="zh-Hant">` / `<title>` 並開啟既有 Google Chrome 分頁。

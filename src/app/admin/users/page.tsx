@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 
 interface UserRow {
   id: number;
@@ -77,17 +78,10 @@ export default function AdminUsersPage() {
   const pendingCount = users.filter(u => u.status === 'pending').length;
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
-      <header style={{ height: 56, background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 24, position: 'sticky', top: 0, zIndex: 50 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 26, height: 26, borderRadius: 5, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700 }}>S</div>
-          <span style={{ fontWeight: 600, fontSize: 14 }}>Speed Part Search</span>
-        </div>
-        <Link href="/" style={{ padding: '6px 10px', borderRadius: 'var(--r-sm)', color: 'var(--text-2)', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>← 返回主頁</Link>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)' }}>{session?.user?.email}</span>
-      </header>
+    <div className="app" style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      <Header />
 
-      <main style={{ maxWidth: 1000, margin: '0 auto', padding: '32px 24px' }}>
+      <main style={{ maxWidth: 1080, width: '100%', margin: '0 auto', padding: '32px 24px', flex: 1 }}>
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 700 }}>使用者管理</h1>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--text-3)' }}>
@@ -98,12 +92,17 @@ export default function AdminUsersPage() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-3)', fontSize: 13 }}>載入中…</div>
         ) : (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-1)' }}>
+          <div
+            role="region"
+            aria-label="使用者管理清單"
+            tabIndex={0}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', overflowX: 'auto', boxShadow: 'var(--shadow-1)' }}
+          >
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
                   {['姓名', '部門', 'Email', '角色', '狀態', '申請時間', '最近登入', '登入地點', '操作'].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11.5, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.03em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} scope="col" style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11.5, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.03em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -112,8 +111,8 @@ export default function AdminUsersPage() {
                   <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>尚無使用者</td></tr>
                 )}
                 {users.map(user => (
-                  <>
-                    <tr key={user.id} style={{ borderBottom: '1px solid var(--hairline)' }}>
+                  <Fragment key={user.id}>
+                    <tr style={{ borderBottom: '1px solid var(--hairline)' }}>
                       <td style={{ padding: '11px 14px', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>{user.name}</td>
                       <td style={{ padding: '11px 14px', fontSize: 12, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>
                         {user.department || <span style={{ color: 'var(--text-4)' }}>—</span>}
@@ -195,13 +194,14 @@ export default function AdminUsersPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
         )}
       </main>
+      <Footer />
     </div>
   );
 }

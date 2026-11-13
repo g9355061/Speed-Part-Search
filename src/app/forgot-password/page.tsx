@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -35,9 +36,8 @@ export default function ForgotPasswordPage() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '24px' }}>
       <div style={{ width: '100%', maxWidth: '380px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 32, justifyContent: 'center' }}>
-          <div style={{ width: 32, height: 32, borderRadius: 7, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 14, fontWeight: 700 }}>S</div>
-          <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-0.01em' }}>Speed Part Search</span>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+          <BrandLogo size="lg" />
         </div>
 
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: '32px 28px', boxShadow: 'var(--shadow-2)' }}>
@@ -70,6 +70,7 @@ export default function ForgotPasswordPage() {
                   <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>Email</span>
                   <input
                     type="email"
+                    autoComplete="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     required

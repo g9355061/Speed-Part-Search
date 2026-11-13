@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const DEPARTMENTS = [
   '採購',
@@ -69,9 +70,8 @@ export default function RegisterPage() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '24px' }}>
       <div style={{ width: '100%', maxWidth: '400px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 32, justifyContent: 'center' }}>
-          <div style={{ width: 32, height: 32, borderRadius: 7, background: 'var(--primary)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 14, fontWeight: 700 }}>S</div>
-          <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-0.01em' }}>Speed Part Search</span>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+          <BrandLogo size="lg" />
         </div>
 
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: '32px 28px', boxShadow: 'var(--shadow-2)' }}>
@@ -87,12 +87,12 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <span style={labelStyle}>姓名</span>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="王小明" style={inputStyle} />
+              <input type="text" autoComplete="name" value={name} onChange={e => setName(e.target.value)} required placeholder="王小明" style={inputStyle} />
             </label>
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <span style={labelStyle}>Email</span>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" style={inputStyle} />
+              <input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" style={inputStyle} />
             </label>
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -112,12 +112,12 @@ export default function RegisterPage() {
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <span style={labelStyle}>密碼</span>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="至少 8 個字元" style={inputStyle} />
+              <input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="至少 8 個字元" style={inputStyle} />
             </label>
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <span style={labelStyle}>確認密碼</span>
-              <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required placeholder="再次輸入密碼" style={inputStyle} />
+              <input type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} required placeholder="再次輸入密碼" style={inputStyle} />
             </label>
 
             <button

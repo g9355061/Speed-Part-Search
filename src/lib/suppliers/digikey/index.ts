@@ -1,5 +1,6 @@
 import {
   MarketplaceVariation,
+  normalizeExternalUrl,
   PackagingVariation,
   PartResult,
   PriceBreak,
@@ -31,6 +32,9 @@ interface DKProduct {
   Manufacturer?: { Name?: string };
   ManufacturerProductNumber?: string;
   ProductUrl?: string;
+  DatasheetUrl?: string;
+  Category?: { Name?: string; ChildCategories?: Array<{ Name?: string }> };
+  Classifications?: { RohsStatus?: string; ReachStatus?: string };
   QuantityAvailable?: number;
   UnitPrice?: number;
   ProductVariations?: DKVariation[];
@@ -121,6 +125,7 @@ function mapProduct(p: DKProduct, currency: string): PartResult {
   const priceBreaks = pickPriceBreaks(p, currency);
   const variations = buildVariations(p, currency);
   const marketplaceVariations = buildMarketplaceVariations(p, currency);
+  const category = p.Category?.ChildCategories?.[0]?.Name || p.Category?.Name || null;
   return {
     supplier: SUPPLIER,
     manufacturerPartNumber: p.ManufacturerProductNumber ?? '',
@@ -144,6 +149,9 @@ function mapProduct(p: DKProduct, currency: string): PartResult {
         ? p.ProductUrl
         : `https://www.digikey.com${p.ProductUrl}`
       : '',
+    datasheetUrl: normalizeExternalUrl(p.DatasheetUrl),
+    category,
+    rohsStatus: p.Classifications?.RohsStatus || null,
     leadTimeDays: leadWeeksToDays(p.ManufacturerLeadWeeks),
     availabilityStatus: p.ProductStatus?.Status ?? null,
     lifecycleStatus: p.ProductStatus?.Status ?? null,

@@ -1,4 +1,5 @@
 'use client';
+import { useId, useRef } from 'react';
 import { Icon } from './Icon';
 
 interface Props {
@@ -8,6 +9,8 @@ interface Props {
   setQtyInput: (qty: string) => void;
   onSearch: (q: string) => void;
   loading: boolean;
+  recentSearches?: string[];
+  onSelectRecent?: (mpn: string) => void;
 }
 
 function HeroIllu() {
@@ -64,15 +67,35 @@ function HeroIllu() {
   );
 }
 
-export function Hero({ query, setQuery, qtyInput, setQtyInput, onSearch, loading }: Props) {
+export function Hero({
+  query,
+  setQuery,
+  qtyInput,
+  setQtyInput,
+  onSearch,
+  loading,
+  recentSearches,
+  onSelectRecent,
+}: Props) {
+  const mpnInputId = useId();
+  const qtyInputId = useId();
+  const mpnInputRef = useRef<HTMLInputElement>(null);
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) onSearch(query.trim());
+    if (loading) return;
+    const trimmed = query.trim();
+    if (!trimmed) {
+      mpnInputRef.current?.focus();
+    }
+    onSearch(trimmed);
   };
+
   const updateQty = (value: string) => {
     const cleaned = value.replace(/[^\d,]/g, '');
     setQtyInput(cleaned);
   };
+
   return (
     <section className="hero">
       <div className="hero-inner">
@@ -81,35 +104,77 @@ export function Hero({ query, setQuery, qtyInput, setQtyInput, onSearch, loading
           <p className="lede">
             輸入料號與需求數量，即時比對 DigiKey、Mouser HK、Mouser VN 的庫存、MOQ、交期與階梯價。
           </p>
-          <form className="search-box" onSubmit={submit}>
-            <Icon name="search" className="s-ic" size={18} />
-            <input
-              className="mono"
-              placeholder="輸入料號 — 例如 STM32F103C8T6 / TPS7A47 / ATMEGA328P"
-              value={query}
-              onChange={(e) => setQuery(e.target.value.trimStart())}
-              onPaste={(e) => {
-                e.preventDefault();
-                setQuery(e.clipboardData.getData('text').trim());
-              }}
-              autoFocus
-            />
-            <label className="search-qty">
-              <span>Qty</span>
+          <search>
+            <form className="search-box" onSubmit={submit} noValidate>
+              <Icon name="search" className="s-ic" size={18} />
+              <label htmlFor={mpnInputId} className="visually-hidden">
+                製造商料號（MPN）
+              </label>
               <input
-                className="mono qty-input"
-                type="number"
-                min="1"
-                step="1"
-                value={qtyInput}
-                onChange={(e) => updateQty(e.target.value)}
+                ref={mpnInputRef}
+                id={mpnInputId}
+                className="mono"
+                type="search"
+                placeholder="輸入料號 — 例如 STM32F103C8T6 / TPS7A47 / ATMEGA328P"
+                value={query}
+                onChange={(e) => setQuery(e.target.value.trimStart())}
+                onPaste={(e) => {
+                  e.preventDefault();
+                  setQuery(e.clipboardData.getData('text').trim());
+                }}
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="search"
+                autoFocus
               />
-            </label>
-            <button type="submit" className="btn-primary" disabled={loading}>
-              <Icon name="search" size={14} stroke={2.2} />
-              {loading ? '查詢中…' : '查詢'}
-            </button>
-          </form>
+              {query.length > 0 && (
+                <button
+                  type="button"
+                  className="search-clear-btn"
+                  aria-label="清除料號"
+                  onClick={() => {
+                    setQuery('');
+                    mpnInputRef.current?.focus();
+                  }}
+                >
+                  ×
+                </button>
+              )}
+              <label className="search-qty" htmlFor={qtyInputId}>
+                <span>Qty</span>
+                <input
+                  id={qtyInputId}
+                  className="mono qty-input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9,]*"
+                  placeholder="1"
+                  value={qtyInput}
+                  onChange={(e) => updateQty(e.target.value)}
+                />
+              </label>
+              <button type="submit" className="btn-primary" aria-busy={loading}>
+                <Icon name="search" size={14} stroke={2.2} />
+                {loading ? '查詢中…' : '查詢'}
+              </button>
+            </form>
+          </search>
+          {recentSearches && recentSearches.length > 0 && (
+            <div className="tags-row" aria-label="最近查詢">
+              <span className="label">最近查詢</span>
+              {recentSearches.map((mpn) => (
+                <button
+                  key={mpn}
+                  type="button"
+                  className="tag-chip mono"
+                  onClick={() => onSelectRecent?.(mpn)}
+                >
+                  {mpn}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <HeroIllu />
       </div>

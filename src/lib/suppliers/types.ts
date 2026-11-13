@@ -39,6 +39,9 @@ export interface PartResult {
   marketplaceVariations?: MarketplaceVariation[];
   altPricing?: AltCurrencyPricing;
   productUrl: string;
+  datasheetUrl?: string | null;
+  category?: string | null;
+  rohsStatus?: string | null;
   leadTimeDays?: number | null;
   availabilityStatus?: string | null;
   lifecycleStatus?: string | null;
@@ -58,6 +61,14 @@ export interface SearchOptions {
 export interface SupplierAdapter {
   readonly name: string;
   search(opts: SearchOptions): Promise<PartResult[]>;
+}
+
+export function normalizeExternalUrl(url?: string | null): string | null {
+  const trimmed = url?.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return null;
 }
 
 export class SupplierError extends Error {

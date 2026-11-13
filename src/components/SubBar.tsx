@@ -1,21 +1,35 @@
 'use client';
 
 interface Props {
-  query: string;
-  category: string;
+  mpn: string | null;
+  category: string | null;
+  hasSearched: boolean;
   liveCount: number;
   totalCount: number;
   refreshedAt: string;
 }
 
-export function SubBar({ query, category, liveCount, totalCount, refreshedAt }: Props) {
+export function SubBar({ mpn, category, hasSearched, liveCount, totalCount, refreshedAt }: Props) {
   return (
     <div className="subbar">
       <span className="crumb">單料查詢</span>
-      <span className="sep">/</span>
-      <span className="crumb">{category}</span>
-      <span className="sep">/</span>
-      <span className="crumb curr mono">{query}</span>
+      {hasSearched && mpn ? (
+        <>
+          {category && (
+            <>
+              <span className="sep">/</span>
+              <span className="crumb">{category}</span>
+            </>
+          )}
+          <span className="sep">/</span>
+          <span className="crumb curr mono">{mpn}</span>
+        </>
+      ) : (
+        <>
+          <span className="sep">/</span>
+          <span className="crumb curr">準備查詢</span>
+        </>
+      )}
       <div className="right">
         <span className="stat"><span className="k">來源</span><span className="v">{liveCount}/{totalCount}</span></span>
         <span className="stat"><span className="k">更新</span><span className="v">{refreshedAt}</span></span>

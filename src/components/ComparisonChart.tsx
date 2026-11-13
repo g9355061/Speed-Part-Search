@@ -1,6 +1,6 @@
 'use client';
 import { Icon } from './Icon';
-import { priceAtQty, type Supplier } from '@/lib/mockData';
+import { priceAtQty, type Supplier } from '@/lib/part-types';
 
 const fmtNum = (n: number) => n.toLocaleString('en-US');
 const fmtPrice = (n: number) => `$${n.toFixed(4)}`;
