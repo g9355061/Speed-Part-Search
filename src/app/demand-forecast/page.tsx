@@ -1,193 +1,24 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { useSession } from 'next-auth/react';
+import { Footer } from '@/components/Footer';
 import { Header } from '@/components/Header';
 import { Icon } from '@/components/Icon';
 import { BENCHMARK_PARTS, DEMAND_CATEGORIES, CATEGORY_THRESHOLDS } from '@/lib/demand-forecast/benchmark';
 import type { FenghuoView, FenghuoHotPartView } from '@/lib/demand-forecast/fenghuo';
 import type { AvailabilityIndex, CategoryAvailability } from '@/lib/demand-forecast/availability';
 
-// --- Client-side translation utilities ---
-const clientTranslationCache = new Map<string, string>();
-
+/** 僅用於排版判斷（是否額外顯示英文原句佐證）；所有翻譯皆由伺服器端預先寫入資料庫。 */
 function looksLikeEnglish(text: string): boolean {
   if (!text) return false;
-  // Count ASCII letter chars vs total length (excluding spaces/punctuation)
   const letters = text.replace(/[^a-zA-Z\u4e00-\u9fff]/g, '');
   if (!letters) return false;
   const asciiLetters = letters.replace(/[^a-zA-Z]/g, '').length;
   return asciiLetters / letters.length > 0.5;
 }
-
-async function translateBatchClient(texts: string[]): Promise<Map<string, string>> {
-  const results = new Map<string, string>();
-  const toTranslate: string[] = [];
-
-  for (const t of texts) {
-    const cleaned = t.trim();
-    if (!cleaned) continue;
-    if (clientTranslationCache.has(cleaned)) {
-      results.set(cleaned, clientTranslationCache.get(cleaned)!);
-    } else if (looksLikeEnglish(cleaned)) {
-      toTranslate.push(cleaned);
-    }
-  }
-
-  // Batch translate in chunks of 8 to avoid overly long URLs
-  const chunkSize = 8;
-  for (let i = 0; i < toTranslate.length; i += chunkSize) {
-    const chunk = toTranslate.slice(i, i + chunkSize);
-    try {
-      // Concatenate with delimiter for batch translation (using a number to prevent Google Translate from translating it)
-      const delimiter = '\n\n999888999\n\n';
-      const combined = chunk.join(delimiter);
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(combined)}`;
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json();
-      const translated = (json[0] as any[]).map((item: any) => item[0]).join('');
-      // Split back, supporting translated versions or standard number delimiter
-      const parts = translated.split(/\s*(?:999888999|###分割###|### 分割 ###|###SPLIT###)\s*/i);
-      for (let j = 0; j < chunk.length; j++) {
-        const result = parts[j]?.trim() || chunk[j];
-        clientTranslationCache.set(chunk[j], result);
-        results.set(chunk[j], result);
-      }
-    } catch (err) {
-      console.error('[CLIENT_TRANSLATOR] Batch failed:', err);
-      // Fallback: try one-by-one
-      for (const text of chunk) {
-        try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=zh-TW&dt=t&q=${encodeURIComponent(text)}`;
-          const resp = await fetch(url);
-          if (!resp.ok) continue;
-          const json = await resp.json();
-          const translated = (json[0] as any[]).map((item: any) => item[0]).join('');
-          if (translated) {
-            clientTranslationCache.set(text, translated);
-            results.set(text, translated);
-          }
-        } catch { /* skip individual failures */ }
-      }
-    }
-    // Small delay between batches
-    if (i + chunkSize < toTranslate.length) {
-      await new Promise(r => setTimeout(r, 200));
-    }
-  }
-
-  return results;
-}
-
-function useClientTranslatedNews(news: ForecastNews[]): ForecastNews[] {
-  const [translated, setTranslated] = useState<ForecastNews[]>([]);
-  const [sourceRef, setSourceRef] = useState<ForecastNews[]>([]);
-
-  // Always sync with upstream news first
-  useEffect(() => {
-    if (!news.length) { setTranslated([]); setSourceRef([]); return; }
-
-    // If news reference changed, reset to show the raw news immediately
-    setTranslated(news);
-    setSourceRef(news);
-
-    // Check if any titles/snippets need client-side translation
-    const needsTranslation = news.some(
-      (n) => (looksLikeEnglish(n.titleZh || n.title)) || (looksLikeEnglish(n.snippetZh || n.snippet))
-    );
-
-    if (!needsTranslation) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        // Collect all texts that need translation
-        const allTexts: string[] = [];
-        for (const n of news) {
-          if (looksLikeEnglish(n.titleZh || n.title)) allTexts.push((n.titleZh || n.title).trim());
-          if (looksLikeEnglish(n.snippetZh || n.snippet)) allTexts.push((n.snippetZh || n.snippet).trim());
-        }
-
-        const unique = [...new Set(allTexts)];
-        const translations = await translateBatchClient(unique);
-
-        if (cancelled) return;
-
-        const updated = news.map((n) => {
-          const titleKey = (n.titleZh || n.title).trim();
-          const snippetKey = (n.snippetZh || n.snippet).trim();
-          return {
-            ...n,
-            titleZh: translations.get(titleKey) || n.titleZh || n.title,
-            snippetZh: translations.get(snippetKey) || n.snippetZh || n.snippet,
-          };
-        });
-        setTranslated(updated);
-      } catch (err) {
-        console.error('[CLIENT_TRANSLATOR] Translation failed, keeping original:', err);
-        // On error, keep original news - already set above
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [news]);
-
-  // If translated is empty but news has data, always fallback to news
-  return translated.length > 0 ? translated : news;
-}
-
-function useClientTranslatedReports(reports: any[]): any[] {
-  const [translated, setTranslated] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (!reports.length) { setTranslated([]); return; }
-
-    setTranslated(reports);
-
-    const allTexts: string[] = [];
-    for (const r of reports) {
-      const title = r.title || '';
-      const evidence = r.evidenceText || '';
-      if (looksLikeEnglish(title)) allTexts.push(title.trim());
-      if (looksLikeEnglish(evidence)) allTexts.push(evidence.trim());
-    }
-
-    if (allTexts.length === 0) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const unique = [...new Set(allTexts)];
-        const translations = await translateBatchClient(unique);
-
-        if (cancelled) return;
-
-        const updated = reports.map((r) => {
-          const title = r.title || '';
-          const evidence = r.evidenceText || '';
-          return {
-            ...r,
-            titleZh: translations.get(title.trim()) || r.titleZh || title,
-            evidenceTextZh: translations.get(evidence.trim()) || r.evidenceTextZh || evidence,
-          };
-        });
-        setTranslated(updated);
-      } catch (err) {
-        console.error('[CLIENT_TRANSLATOR] Market reports translation failed:', err);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [reports]);
-
-  return translated.length > 0 ? translated : reports;
-}
-
-// --- End client-side translation utilities ---
 
 interface ForecastPart {
   categoryId: string;
@@ -374,7 +205,6 @@ export default function DemandForecastPage() {
   const [isEditing, setIsEditing] = useState(false);
 
   const [marketReports, setMarketReports] = useState<any[]>([]);
-  const translatedMarketReports = useClientTranslatedReports(marketReports);
   const [marketSourceResults, setMarketSourceResults] = useState<any[]>([]);
   const [loadingMarketReports, setLoadingMarketReports] = useState(false);
   const [weeklyReports, setWeeklyReports] = useState<WeeklyReportLink[]>([]);
@@ -753,9 +583,6 @@ export default function DemandForecastPage() {
     if (category === 'all') return riskNews;
     return riskNews.filter((item) => item.categoryIds.includes(category));
   }, [data?.news, category]);
-
-  // Client-side translation: translate any remaining English titles/snippets
-  const translatedDisplayNews = useClientTranslatedNews(displayNews);
 
   const selectedCategoryLabel = category === 'all'
     ? '全部類別'
@@ -1180,7 +1007,7 @@ export default function DemandForecastPage() {
             id="shortage-news-panel"
             title={`RSS 缺料新聞：${selectedCategoryLabel}`}
             tone="shortage"
-            items={translatedDisplayNews}
+            items={displayNews}
             emptyText={category === 'all' ? '目前沒有缺料相關新聞。' : '此類別無缺料相關新聞。'}
             badge="缺料訊號"
             onClearCategory={category === 'all' ? undefined : () => setCategory('all')}
@@ -1188,7 +1015,7 @@ export default function DemandForecastPage() {
           <MarketReportsListPanel
             id="market-reports-panel"
             category={category}
-            reports={translatedMarketReports}
+            reports={marketReports}
             sourceResults={marketSourceResults}
             onSelectCategory={setCategory}
           />
@@ -1268,6 +1095,15 @@ export default function DemandForecastPage() {
                           <span>{categoryTitle(part.categoryId, part.category)}</span>
                         </div>
                         <RoleBadge role={part.role} />
+                      </div>
+                      <div className="forecast-part-search-wrap">
+                        <Link
+                          href={`/?mpn=${encodeURIComponent(part.mpn)}&qty=1`}
+                          className={`forecast-part-search-btn${part.summary === '有缺料風險' || part.summary === '中風險' ? ' forecast-part-search-btn-risk' : ''}`}
+                        >
+                          <Icon name="search" size={11} stroke={2.2} />
+                          <span>回本站查價格與庫存</span>
+                        </Link>
                       </div>
                     </Td>
                     <Td label="廠商 / 基本資料">
@@ -1481,7 +1317,7 @@ export default function DemandForecastPage() {
                   </span>
                 ) : (
                   <span>
-                    💡 <strong>檢視模式：</strong> 您目前以一般使用者身份檢視水位數值。唯有系統管理員（如 Chang Wei Li 或 Danny Chen）具備修改此水位數值的權限。
+                    💡 <strong>檢視模式：</strong> 您目前以一般使用者身份檢視水位數值。唯有系統管理員具備修改此水位數值的權限。
                   </span>
                 )}
               </div>
@@ -1760,6 +1596,7 @@ export default function DemandForecastPage() {
           </div>
         </div>
       )}
+      <Footer refreshedAt={data?.updatedAt ? updatedAt : undefined} />
     </div>
   );
 }
@@ -2336,7 +2173,13 @@ function FenghuoPanel({ view, category, onClearCategory }: { view: FenghuoView |
                 ) : parts.map((p) => (
                   <tr key={p.mpn}>
                     <td style={{ padding: '8px 10px', fontWeight: 700, fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                      <a href={`https://www.hqew.com/search/${encodeURIComponent(p.mpn)}`} target="_blank" rel="noreferrer" style={{ color: 'var(--text)', textDecoration: 'none' }} title="到華強電子網查看">{p.mpn}</a>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                        <a href={`https://www.hqew.com/search/${encodeURIComponent(p.mpn)}`} target="_blank" rel="noreferrer" style={{ color: 'var(--text)', textDecoration: 'none' }} title="到華強電子網查看">{p.mpn}</a>
+                        <Link href={`/?mpn=${encodeURIComponent(p.mpn)}&qty=1`} className="forecast-part-search-btn">
+                          <Icon name="search" size={11} stroke={2.2} />
+                          <span>回本站查價格與庫存</span>
+                        </Link>
+                      </div>
                     </td>
                     <td style={{ padding: '8px 10px' }}>{p.brand}</td>
                     <td style={{ padding: '8px 10px', textAlign: 'right' }}>{p.priceCny == null ? '—' : p.priceCny.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>

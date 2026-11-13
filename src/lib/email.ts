@@ -11,7 +11,7 @@ const transporter = configured
     })
   : null;
 
-const FROM = process.env.SMTP_FROM || 'Speed Part Search <noreply@speedpartsearch.com>';
+const FROM = process.env.SMTP_FROM || 'SpeedPart. <noreply@speedpartsearch.com>';
 const SITE_URL = process.env.NEXTAUTH_URL || 'http://localhost:5280';
 
 export const isEmailConfigured = configured || !!getGmailConfig();
@@ -34,7 +34,7 @@ export async function sendPasswordResetEmail(email: string, token: string) {
   await transporter.sendMail({
     from: FROM,
     to: email,
-    subject: '【Speed Part Search】密碼重設',
+    subject: '【SpeedPart.】密碼重設',
     html: `<p>您好，</p>
 <p>請點擊以下連結完成密碼重設（1 小時內有效）：</p>
 <p><a href="${url}">${url}</a></p>
@@ -51,9 +51,9 @@ export async function sendApprovalEmail(email: string, name: string) {
   await transporter.sendMail({
     from: FROM,
     to: email,
-    subject: '【Speed Part Search】帳號已核准',
+    subject: '【SpeedPart.】帳號已核准',
     html: `<p>${name} 您好，</p>
-<p>您的 Speed Part Search 帳號申請已通過審核，請點擊以下連結登入：</p>
+<p>您的 SpeedPart. 帳號申請已通過審核，請點擊以下連結登入：</p>
 <p><a href="${url}">${url}</a></p>`,
   });
 }
@@ -66,9 +66,9 @@ export async function sendRejectionEmail(email: string, name: string) {
   await transporter.sendMail({
     from: FROM,
     to: email,
-    subject: '【Speed Part Search】帳號申請結果',
+    subject: '【SpeedPart.】帳號申請結果',
     html: `<p>${name} 您好，</p>
-<p>很遺憾，您的 Speed Part Search 帳號申請未通過審核。</p>
+<p>很遺憾，您的 SpeedPart. 帳號申請未通過審核。</p>
 <p>如有疑問，請聯絡管理員。</p>`,
   });
 }

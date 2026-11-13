@@ -55,11 +55,17 @@ const fullReport = {
   sourceLinks: [{ title: '本文來源', source: '來源媒體', kind: '新聞', url: 'https://source.example.com/?a=1&b=2', dateLabel: '新聞時間 09/14' }, { title: '不安全網址', source: '媒體', kind: '新聞', url: 'javascript:alert(1)', dateLabel: null }],
   spotMarket: { ...report.spotMarket, hotParts: [{ mpn: 'TEST-MPN', brand: '測試品牌', priceCny: 1.23, categoryLabel: '記憶體', isNew: true, weeksOnList: 1 }] },
 };
-const full = buildWeeklyEmail(fullReport, 'https://example.com/');
-for (const value of ['故事5末段', '觀察5', '其他採購建議', '短訊全文', 'TEST-MPN', '測試品牌', '1.23', 'MP1584EN-LF-Z', 'MPS', '本文來源', '新聞時間 09/14']) {
+const full = buildWeeklyEmail(fullReport, 'https://example.com/', 133);
+for (const value of ['故事5末段', '觀察5', '其他採購建議', '短訊全文', 'TEST-MPN', '測試品牌', '1.23', 'MP1584EN-LF-Z', 'MPS', '本文來源', '新聞時間 09/14', '本站 133 顆基準料']) {
   assert.ok(full.html.includes(value), `HTML 全文缺少 ${value}`);
   assert.ok(full.text.includes(value), `純文字全文缺少 ${value}`);
 }
+assert.ok(full.html.includes('SpeedPart.'), '週報全文 HTML 應顯示 SpeedPart. 品牌署名');
+assert.ok(digest.html.includes('SpeedPart.'), '週報摘要 HTML 應顯示 SpeedPart. 品牌署名');
+assert.ok(!full.html.includes('150 顆'), '週報信件不可殘留過時的 150 顆文案');
+assert.ok(!digest.html.includes('Speed Part Search'), '摘要不可殘留舊品牌名稱');
+assert.ok(!full.html.includes('Speed Part Search'), '週報全文不可殘留舊品牌名稱');
+assert.ok(buildWeeklyEmail(fullReport, 'https://example.com/').text.includes('本站基準料無關'), '未傳顆數時顯示不寫死數量的基準料文字');
 assert.ok(full.html.includes('href="https://source.example.com/?a=1&amp;b=2"'));
 assert.ok(!full.html.includes('href="javascript:'));
 assert.ok(!buildWeeklyDigest(fullReport, 'https://example.com').text.includes('故事5末段'), '群組摘要維持精簡');

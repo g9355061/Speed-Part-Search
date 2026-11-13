@@ -50,6 +50,7 @@ export interface MarketReport {
   id: string;
   source: string;
   title: string;
+  titleZh?: string;
   url: string;
   publishedAt: string | null;  // null = 無法從內容判定發布日期
   fetchedAt: string;
@@ -58,6 +59,7 @@ export interface MarketReport {
   riskTypes: RiskType[];
   summaryZh: string;
   evidenceText: string;
+  evidenceTextZh?: string;
   confidence: ConfidenceLevel;
   status: 'auto';
   extractionMethod: ExtractionMethod;

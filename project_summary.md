@@ -1,5 +1,26 @@
 # Project Summary — Speed Part Search
 
+### 2026-11-14 — 缺料預測／週報三項改善（移除瀏覽器即時翻譯、品牌與數字清理、串接單料查詢＋期數切換＋PDF 列印）
+- **原因與目標**:
+  1. 廠區內網環境無法保證瀏覽器能直接連到 Google 翻譯，因此將翻譯全部收斂至伺服器端於抓取或快取回補時一次譯好並寫入資料庫，頁面開啟直接讀取中文快取（後端仍採用免費 Google 翻譯 `client=gtx` 通道為主，僅異常時才退回額度受控的 Gemini 備援）。
+  2. 清理頁面與週報/系統信件的穿幫文字：將寫死的「150 顆」改為依實際啟用基準料清單動態計算數量（目前為 133 顆）、將殘留的 `Speed Part Search` 統一正名為 `SpeedPart.`、移除門檻設定中寫死的特定同仁姓名範例，並為缺料預測與週報頁面補上共用頁尾（`Footer`）。
+  3. 打通缺料情報與「單料查詢」的工作流，並在週報頁補齊「上一期／下一期」切換與適合印成 PDF 的列印按鈕及列印排版。
+- **修改檔案清單**:
+  - `src/lib/demand-forecast/translate.ts`：新增並匯出並發控制工具 `mapWithConcurrency`，供市場報導與快取回補批次翻譯共用。
+  - `src/lib/demand-forecast/market-report-types.ts`：擴充 `MarketReport` 型別，納入 `titleZh` 與 `evidenceTextZh` 欄位。
+  - `src/lib/demand-forecast/market-report-fetcher.ts`：於抓取並分類新聞／市場報導時，在伺服器端直接翻譯標題與原文證據段落並寫入結構中。
+  - `src/app/api/demand-forecast/market-reports/route.ts` 與 `src/app/api/demand-forecast/route.ts`：讀取既有快取若發現缺少中文譯文時，在伺服器端自動補翻一次並寫回資料庫快取（搭配冷卻追蹤避免重複翻譯）。
+  - `src/app/demand-forecast/page.tsx`：移除前端瀏覽器直連 `translate.googleapis.com` 的即時翻譯 hook 與快取；補上基準料與華強現貨熱料旁的「回本站查價格與庫存」快速連結（導向 `/?mpn=...&qty=1`）；移除「如 Chang Wei Li 或 Danny Chen」個人姓名範例；底部補上 `<Footer />`。
+  - `src/app/demand-forecast/weekly-reports/[id]/page.tsx` 與 `ReportPrintButton.tsx`：動態帶入實際有效基準料顆數、加入頂部／底部「上一期／下一期」導覽、新增「列印 / 另存 PDF」按鈕、在現貨與長期觀察料號旁加入「回本站查價格與庫存」連結，並補上 `<Footer />`。
+  - `src/lib/demand-forecast/weekly-digest.ts`、`src/app/api/demand-forecast/weekly-reports/deliver/route.ts` 與 `src/lib/email.ts`：週報信件與系統通知信寄件名稱／文案統一改為 `SpeedPart.`，週報信件摘要同步改用實際基準料顆數。
+  - `src/components/Icon.tsx` 與 `src/app/globals.css`：新增 `chevron-left`、`chevron-right`、`printer` 圖示，並新增缺料查價連結樣式、週報翻頁列、`@page` 與 `@media print` 列印樣式。
+  - `tests/risk-digest.test.ts`：配合 `SpeedPart.` 品牌正名與動態基準料數量調整週報信件斷言。
+  - 同步於工作區上層 `AGENTS.md` 新增規則：回覆一律盡量以日常白話文繁體中文說明。
+- **驗證紀錄**:
+  - `npx tsc --noEmit` 通過，零型別錯誤。
+  - `npm test` 全部 9 支測試套件通過（包含 `digikey`、`qq-quote-utils`、`hqew-parse`、`news-match`、`fenghuo`、`risk-digest`、`availability-roster`、`weekly-delivery`、`weekly-editorial`）。
+  - `npm run build` 正式建置（含 Next.js ESLint 與型別檢查）通過。
+
 ### 2026-11-12 — 週報相對評級、三星電機誤譯、HTML 數值實體解碼（REPORT_BUILD_REV 14）
 
 - **相對評級**（`weekly-editorial.ts` `issuePressureScore`／`relativeRiskLevel`）：10/05 起每期都「高風險」，因為舊規則是任一類別交叉命中就高。改為每期算供應壓力分數（類別交叉命中 3、高 2、中 1，歷史期數用存下的 `categorySignals` 重算），對近 8 期中位數：≥+25%「較近 8 週更緊」(high)、≤−25%「較近 8 週轉鬆」(normal)、其餘「與近 8 週持平」(medium)；歷史不足 4 期沿用絕對評級。新欄位 `riskLabel`／`riskBasis`；信件主旨列與詳情頁徽章顯示 `riskLabel`（相對評級文字較長，不套 78px 固定寬），詳情頁加一行「供應壓力 N（近 8 期中位數 M）」。範本導言與開場敘述描述的是絕對狀態，改讀 `absoluteRiskLevel`。各類別的高／中風險標籤不變。

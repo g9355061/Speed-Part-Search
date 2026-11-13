@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DEMAND_CATEGORIES, BenchmarkPart, CATEGORY_THRESHOLDS, CATEGORY_NEWS_KEYWORDS } from '@/lib/demand-forecast/benchmark';
 import { detectCategories, isBlockedNewsSource } from '@/lib/demand-forecast/news-match';
-import { translateToZhTW, isTranslatedZh } from '@/lib/demand-forecast/translate';
+import { translateToZhTW, isTranslatedZh, mapWithConcurrency } from '@/lib/demand-forecast/translate';
 import { getEnabledSuppliers } from '@/lib/suppliers/registry';
 import { PartResult, SupplierError } from '@/lib/suppliers/types';
 import { getDemandForecastCache, setDemandForecastCache, saveDemandForecastSnapshot, getDemandForecastSnapshot7DaysAgo, getCustomThresholds, getGenericCache, setGenericCache } from '@/lib/db';
@@ -580,6 +580,55 @@ interface NewsCache {
 }
 
 let memoryNewsCache: NewsCache | null = null;
+const attemptedNewsTranslations = new Set<string>();
+
+/** 補譯既有新聞快取中仍為英文的標題／摘要，避免瀏覽器端再直連翻譯。 */
+async function ensureNewsCacheTranslated(cache: NewsCache | null): Promise<NewsCache | null> {
+  if (!cache || !Array.isArray(cache.news) || cache.news.length === 0) return cache;
+
+  const targets = cache.news.filter((item) => {
+    if (!item.riskHit) return false;
+    const key = item.link || item.title;
+    if (attemptedNewsTranslations.has(key)) return false;
+    const needTitle = !isTranslatedZh(item.titleZh || item.title);
+    const needSnippet = !!item.snippet && !isTranslatedZh(item.snippetZh || item.snippet);
+    return needTitle || needSnippet;
+  });
+  if (targets.length === 0) return cache;
+
+  if (attemptedNewsTranslations.size > 500) attemptedNewsTranslations.clear();
+
+  let changed = false;
+  const translatedByLink = new Map<string, NewsItem>();
+  await mapWithConcurrency(targets, 4, async (item) => {
+    const key = item.link || item.title;
+    attemptedNewsTranslations.add(key);
+    let next = item;
+    if (!isTranslatedZh(item.titleZh || item.title)) {
+      const titleZh = await translateToZh(item.title);
+      if (titleZh && titleZh !== item.titleZh) {
+        next = { ...next, titleZh };
+        changed = true;
+      }
+    }
+    if (item.snippet && !isTranslatedZh(item.snippetZh || item.snippet)) {
+      const snippetZh = await translateToZh(item.snippet);
+      if (snippetZh && snippetZh !== item.snippetZh) {
+        next = { ...next, snippetZh };
+        changed = true;
+      }
+    }
+    translatedByLink.set(key, next);
+  });
+
+  if (!changed) return cache;
+  const nextCache: NewsCache = {
+    ...cache,
+    news: cache.news.map((item) => translatedByLink.get(item.link || item.title) ?? item),
+  };
+  await writeNewsCache(nextCache);
+  return nextCache;
+}
 
 async function readNewsCache(): Promise<NewsCache | null> {
   if (memoryNewsCache) return memoryNewsCache;
@@ -636,7 +685,7 @@ export async function GET(req: NextRequest) {
 
   // --- mode=cached: return cached data instantly (for page load) ---
   if (mode === 'cached') {
-    const newsCache = await readNewsCache();
+    const newsCache = await ensureNewsCacheTranslated(await readNewsCache());
     let partsCache = await readCache();
     if (partsCache) {
       partsCache = await recalculatePartsCache(partsCache);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCachedWeeklyReport } from '@/lib/demand-forecast/weekly-report';
+import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
 import { buildWeeklyDigest, buildWeeklyEmail } from '@/lib/demand-forecast/weekly-digest';
 import { weeklyDeliveryRecipients, WEEKLY_OWNER_EMAIL } from '@/lib/demand-forecast/weekly-delivery-policy';
 import { isEmailConfigured, sendWeeklyDigestEmail } from '@/lib/email';
@@ -25,8 +26,9 @@ export async function POST(req: NextRequest) {
   }
   try {
     const report = await getCachedWeeklyReport();
+    const activeBenchmarkCount = (await getActiveBenchmarkParts()).length;
     const siteUrl = process.env.NEXTAUTH_URL || process.env.FORECAST_BASE_URL || 'http://localhost:5280';
-    const digest = buildWeeklyEmail(report, siteUrl);
+    const digest = buildWeeklyEmail(report, siteUrl, activeBenchmarkCount);
     const recipients = weeklyDeliveryRecipients(test ? [] : await listUsers(), test, enabled);
     if (preview) return NextResponse.json({ reportId: report.id, recipients, enabled, test, editorial: report.editorial ?? null, risk: { level: report.riskLevel, label: report.riskLabel ?? null, basis: report.riskBasis ?? null }, ...digest });
     if (!isEmailConfigured) return NextResponse.json({ delivered: false, error: 'Gmail API / SMTP 未設定' }, { status: 503 });

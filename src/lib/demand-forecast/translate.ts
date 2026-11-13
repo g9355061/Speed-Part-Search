@@ -142,3 +142,20 @@ export async function translateToZhTW(text: string): Promise<string> {
   }
   return cleaned;
 }
+
+/**
+ * 有限併發執行清單工作，供各模組伺服器端批次翻譯與補譯共用。
+ */
+export async function mapWithConcurrency<T, R>(items: T[], limit: number, workerFn: (item: T) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      results[idx] = await workerFn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}

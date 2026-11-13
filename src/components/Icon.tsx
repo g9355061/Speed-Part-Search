@@ -2,8 +2,8 @@ import * as React from 'react';
 
 type IconName =
   | 'search' | 'bookmark' | 'history' | 'bell' | 'menu'
-  | 'chevron-down' | 'chevron-up' | 'arrow-up' | 'arrow-down'
-  | 'external' | 'download' | 'cart' | 'filter' | 'more'
+  | 'chevron-down' | 'chevron-up' | 'chevron-left' | 'chevron-right' | 'arrow-up' | 'arrow-down'
+  | 'external' | 'download' | 'printer' | 'cart' | 'filter' | 'more'
   | 'info' | 'check' | 'alert' | 'file' | 'compare'
   | 'trend' | 'share' | 'zap' | 'globe' | 'package'
   | 'thermo' | 'circuit' | 'x' | 'copy' | 'lock' | 'settings'
@@ -30,10 +30,13 @@ export function Icon({ name, size = 16, stroke = 1.75, ...rest }: Props) {
     case 'menu': return <svg {...props}><path d="M3 6h18M3 12h18M3 18h18" /></svg>;
     case 'chevron-down': return <svg {...props}><path d="m6 9 6 6 6-6" /></svg>;
     case 'chevron-up': return <svg {...props}><path d="m6 15 6-6 6 6" /></svg>;
+    case 'chevron-left': return <svg {...props}><path d="m15 18-6-6 6-6" /></svg>;
+    case 'chevron-right': return <svg {...props}><path d="m9 18 6-6-6-6" /></svg>;
     case 'arrow-up': return <svg {...props}><path d="M12 19V5M5 12l7-7 7 7" /></svg>;
     case 'arrow-down': return <svg {...props}><path d="M12 5v14M19 12l-7 7-7-7" /></svg>;
     case 'external': return <svg {...props}><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" /></svg>;
     case 'download': return <svg {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /><path d="M12 15V3" /></svg>;
+    case 'printer': return <svg {...props}><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>;
     case 'cart': return <svg {...props}><circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6" /></svg>;
     case 'filter': return <svg {...props}><path d="M22 3H2l8 9.5V19l4 2v-8.5z" /></svg>;
     case 'more': return <svg {...props}><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" /></svg>;

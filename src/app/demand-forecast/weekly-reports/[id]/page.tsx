@@ -2,8 +2,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import { Icon } from '@/components/Icon';
-import { getWeeklyReportById } from '@/lib/demand-forecast/weekly-report';
+import { getActiveBenchmarkParts } from '@/lib/demand-forecast/roster';
+import { getWeeklyReportById, listWeeklyReports } from '@/lib/demand-forecast/weekly-report';
+import { ReportPrintButton } from './ReportPrintButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,8 +61,17 @@ function formatShortDate(value: string | null) {
 }
 
 export default async function WeeklyReportPage({ params }: { params: { id: string } }) {
-  const report = await getWeeklyReportById(params.id);
+  const [report, allReports, activeBenchmarkParts] = await Promise.all([
+    getWeeklyReportById(params.id),
+    listWeeklyReports(),
+    getActiveBenchmarkParts(),
+  ]);
   if (!report) notFound();
+
+  const currentIndex = allReports.findIndex((item) => item.id === report.id);
+  const newerReport = currentIndex > 0 ? allReports[currentIndex - 1] : null;
+  const olderReport = currentIndex >= 0 && currentIndex < allReports.length - 1 ? allReports[currentIndex + 1] : null;
+  const issuePositionText = currentIndex >= 0 ? `第 ${allReports.length - currentIndex} / ${allReports.length} 期` : null;
 
   const tone = riskColor(report.riskLevel);
 
@@ -77,16 +89,42 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
     .map((item) => ({ ...item, dateText: formatShortDate(item.publishedAt) }));
 
   return (
-    <div>
+    <div className="weekly-report-shell">
       <Header />
-      <main style={{ maxWidth: 1120, margin: '0 auto', padding: '34px 24px 56px', width: '100%' }}>
-        <div style={{ marginBottom: 18 }}>
-          <Link href="/demand-forecast" style={{ color: 'var(--primary)', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+      <main className="weekly-report-main" style={{ maxWidth: 1120, margin: '0 auto', padding: '34px 24px 56px', width: '100%' }}>
+        <div className="weekly-report-toolbar no-print">
+          <Link href="/demand-forecast" className="weekly-report-back-link">
             ← 回到缺料預測
           </Link>
+          <div className="weekly-report-nav-group">
+            {olderReport ? (
+              <Link href={olderReport.href} className="weekly-report-nav-btn" title={olderReport.title}>
+                <Icon name="chevron-left" size={14} stroke={2.2} />
+                <span>上一期（{olderReport.date}）</span>
+              </Link>
+            ) : (
+              <span className="weekly-report-nav-btn weekly-report-nav-disabled" aria-disabled="true">
+                <Icon name="chevron-left" size={14} stroke={2.2} />
+                <span>已是最早一期</span>
+              </span>
+            )}
+            {issuePositionText && <span className="weekly-report-issue-count">{issuePositionText}</span>}
+            {newerReport ? (
+              <Link href={newerReport.href} className="weekly-report-nav-btn" title={newerReport.title}>
+                <span>下一期（{newerReport.date}）</span>
+                <Icon name="chevron-right" size={14} stroke={2.2} />
+              </Link>
+            ) : (
+              <span className="weekly-report-nav-btn weekly-report-nav-disabled" aria-disabled="true">
+                <span>已是最新一期</span>
+                <Icon name="chevron-right" size={14} stroke={2.2} />
+              </span>
+            )}
+            <ReportPrintButton />
+          </div>
         </div>
 
-        <section style={{ border: `1px solid ${tone.border}`, borderLeft: `4px solid ${tone.text}`, borderRadius: 8, background: '#fff', padding: 22, marginBottom: 18 }}>
+        <section className="weekly-report-masthead" style={{ border: `1px solid ${tone.border}`, borderLeft: `4px solid ${tone.text}`, borderRadius: 8, background: '#fff', padding: 22, marginBottom: 18 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10, paddingBottom: 8, borderBottom: '2px solid var(--text)' }}>
@@ -216,10 +254,10 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                 <p style={{ margin: '0 0 12px', fontSize: 14, lineHeight: 1.8, color: 'var(--text-2)' }}>
                   華強烽火指數當日熱料共 {spot.hotParts.length} 顆；
                   {spot.hasPrevious ? `本週新上榜 ${newCount} 顆。` : '本期為首次快照，下期起可比較新上榜。'}
-                  這份清單與本站 150 顆基準料無關，不互相比對。
+                  這份清單與本站 {activeBenchmarkParts.length} 顆基準料無關，不互相比對。
                 </p>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 640 }}>
+                  <table className="weekly-report-spot-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5, minWidth: 640 }}>
                     <thead>
                       <tr style={{ color: 'var(--text-3)', fontSize: 11.5, textAlign: 'left' }}>
                         <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)' }}>料號</th>
@@ -227,6 +265,7 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                         <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)', textAlign: 'right' }}>參考價（¥）</th>
                         <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)' }}>歸類</th>
                         <th style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)' }}>狀態</th>
+                        <th className="no-print" style={{ padding: '6px 8px', borderBottom: '1px solid var(--hairline)', textAlign: 'right' }}>站內查詢</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -238,6 +277,12 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
                           <td style={{ padding: '7px 8px', borderBottom: '1px solid var(--hairline)', color: p.categoryId ? 'var(--text)' : 'var(--text-3)' }}>{p.categoryLabel}</td>
                           <td style={{ padding: '7px 8px', borderBottom: '1px solid var(--hairline)', color: 'var(--text-2)' }}>
                             {p.isNew ? '本週新上榜' : p.weeksOnList > 1 ? `連續 ${p.weeksOnList} 次在榜` : '在榜'}
+                          </td>
+                          <td className="no-print" style={{ padding: '7px 8px', borderBottom: '1px solid var(--hairline)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <Link href={`/?mpn=${encodeURIComponent(p.mpn)}&qty=1`} className="forecast-part-search-btn">
+                              <Icon name="search" size={11} stroke={2.2} />
+                              <span>回本站查價格與庫存</span>
+                            </Link>
                           </td>
                         </tr>
                       ))}
@@ -253,16 +298,23 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
 
           {(report.lifecycleOngoing?.length ?? 0) > 0 && (
             <ArticleSection eyebrow="長期觀察" title="前幾期已報過、仍在異常狀態的料號">
-              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.8, color: 'var(--text-2)' }}>
-                {report.lifecycleOngoing!.map((item, index) => (
-                  <span key={item.mpn}>
-                    {index > 0 && '；'}
-                    <strong style={{ color: 'var(--text)' }}>{item.mpn}</strong>
-                    {item.manufacturer ? `（${item.manufacturer}）` : ''}
-                    {` ${item.status}，自 ${item.sinceDate} 起`}
-                  </span>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {report.lifecycleOngoing!.map((item) => (
+                  <div key={item.mpn} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, padding: '8px 10px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--hairline)' }}>
+                    <span style={{ fontSize: 13.5, lineHeight: 1.6, color: 'var(--text-2)' }}>
+                      <strong className="mono" style={{ color: 'var(--text)' }}>{item.mpn}</strong>
+                      {item.manufacturer ? `（${item.manufacturer}）` : ''}
+                      {` ${item.status}，自 ${item.sinceDate} 起`}
+                    </span>
+                    <Link href={`/?mpn=${encodeURIComponent(item.mpn)}&qty=1`} className="forecast-part-search-btn forecast-part-search-btn-risk no-print">
+                      <Icon name="search" size={11} stroke={2.2} />
+                      <span>回本站查價格與庫存</span>
+                    </Link>
+                  </div>
                 ))}
-                。這些料不再逐期重寫，請對照 BOM 確認替代方案進度。
+              </div>
+              <p style={{ margin: '10px 0 0', fontSize: 13, lineHeight: 1.7, color: 'var(--text-3)' }}>
+                這些料不再逐期重寫，請對照 BOM 確認替代方案進度。
               </p>
             </ArticleSection>
           )}
@@ -299,14 +351,48 @@ export default async function WeeklyReportPage({ params }: { params: { id: strin
           )}
 
         </div>
+
+        <div className="weekly-report-pager no-print">
+          <div>
+            {olderReport ? (
+              <Link href={olderReport.href} className="weekly-report-nav-btn">
+                <Icon name="chevron-left" size={14} stroke={2.2} />
+                <span>上一期（{olderReport.date}）</span>
+              </Link>
+            ) : (
+              <span className="weekly-report-nav-btn weekly-report-nav-disabled" aria-disabled="true">
+                <Icon name="chevron-left" size={14} stroke={2.2} />
+                <span>已是最早一期</span>
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Link href="/demand-forecast" className="weekly-report-nav-btn">
+              回到缺料預測
+            </Link>
+            <ReportPrintButton />
+            {newerReport ? (
+              <Link href={newerReport.href} className="weekly-report-nav-btn">
+                <span>下一期（{newerReport.date}）</span>
+                <Icon name="chevron-right" size={14} stroke={2.2} />
+              </Link>
+            ) : (
+              <span className="weekly-report-nav-btn weekly-report-nav-disabled" aria-disabled="true">
+                <span>已是最新一期</span>
+                <Icon name="chevron-right" size={14} stroke={2.2} />
+              </span>
+            )}
+          </div>
+        </div>
       </main>
+      <Footer />
     </div>
   );
 }
 
 function ArticleSection({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
   return (
-    <section style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', padding: '22px 24px' }}>
+    <section className="weekly-report-section" style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', padding: '22px 24px' }}>
       <div style={{ color: '#0F766E', fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{eyebrow}</div>
       <h2 style={{ margin: '0 0 14px', fontSize: 22, lineHeight: 1.35, color: 'var(--text)', fontWeight: 900 }}>{title}</h2>
       {children}

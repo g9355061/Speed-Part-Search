@@ -77,14 +77,14 @@ export function buildWeeklyDigest(report: WeeklyReportDetail, siteUrl: string): 
   ${spot?.trend ? `<p style="font-size:13.5px;line-height:1.7;color:#374151;margin:16px 0 0"><strong>現貨市場</strong>　${escapeHtml(spot.trend.text)}</p>` : ''}
   ${ongoing.length > 0 ? `<p style="font-size:13px;line-height:1.7;color:#6b7280;margin:12px 0 0"><strong>長期觀察</strong>　${escapeHtml(ongoing.map((o) => `${o.mpn} ${o.status}（自 ${o.sinceDate}）`).join('；'))}</p>` : ''}
   <p style="margin:20px 0 0"><a href="${escapeHtml(link)}" style="display:inline-block;background:#111827;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:700;font-size:14px">看完整週報</a></p>
-  <p style="font-size:11.5px;color:#9ca3af;margin-top:20px">Speed Part Search 缺料預測系統自動寄送。資料來源：DigiKey / Mouser 料件 API、國際媒體 RSS、公開市場報告、華強烽火指數。</p>
+  <p style="font-size:11.5px;color:#9ca3af;margin-top:20px">SpeedPart. 缺料預測系統自動寄送。資料來源：DigiKey / Mouser 料件 API、國際媒體 RSS、公開市場報告、華強烽火指數。</p>
 </div>`;
 
   return { subject: `【物料預測週報】${report.date}｜${headline}`, text, html };
 }
 
 /** 信件包含網站週報全文；群組 webhook 仍使用 buildWeeklyDigest 的精簡摘要。 */
-export function buildWeeklyEmail(report: WeeklyReportDetail, siteUrl: string): WeeklyDigest {
+export function buildWeeklyEmail(report: WeeklyReportDetail, siteUrl: string, benchmarkCount?: number): WeeklyDigest {
   const headline = report.title.split('｜').slice(2).join('｜') || report.title;
   const link = `${siteUrl.replace(/\/$/, '')}${report.href}`;
   const risk = report.riskLabel ?? RISK_LABEL[report.riskLevel] ?? report.riskLevel;
@@ -138,7 +138,8 @@ export function buildWeeklyEmail(report: WeeklyReportDetail, siteUrl: string): W
     const fmtPct = (v: number | null | undefined) => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
     const trend = spot.trend;
     const trendText = trend ? `${trend.text}（搜索 ${trend.search?.value ?? '—'}、庫存 ${trend.stock?.value ?? '—'}、價格 ${trend.price?.value ?? '—'}；年增 ${fmtPct(trend.search?.yoyPct)}／${fmtPct(trend.stock?.yoyPct)}／${fmtPct(trend.price?.yoyPct)}）` : '';
-    const overview = `華強烽火指數當日熱料共 ${spot.hotParts.length} 顆；${spot.hasPrevious ? `本週新上榜 ${spot.hotParts.filter(p => p.isNew).length} 顆。` : '本期為首次快照，下期起可比較新上榜。'}這份清單與本站 150 顆基準料無關，不互相比對。`;
+    const benchmarkText = typeof benchmarkCount === 'number' && benchmarkCount > 0 ? `本站 ${benchmarkCount} 顆基準料` : '本站基準料';
+    const overview = `華強烽火指數當日熱料共 ${spot.hotParts.length} 顆；${spot.hasPrevious ? `本週新上榜 ${spot.hotParts.filter(p => p.isNew).length} 顆。` : '本期為首次快照，下期起可比較新上榜。'}這份清單與${benchmarkText}無關，不互相比對。`;
     const parts = [...spot.hotParts].sort((a, b) => ((b.isNew ? 10 : 0) + Math.min(b.weeksOnList, 9)) - ((a.isNew ? 10 : 0) + Math.min(a.weeksOnList, 9))).slice(0, 12);
     const status = (p: typeof parts[number]) => p.isNew ? '本週新上榜' : p.weeksOnList > 1 ? `連續 ${p.weeksOnList} 次在榜` : '在榜';
     const cell = (value: string) => `<td style="padding:8px 5px;border-bottom:1px solid #e5e7eb;word-break:break-word">${escapeHtml(value)}</td>`;
@@ -157,6 +158,6 @@ export function buildWeeklyEmail(report: WeeklyReportDetail, siteUrl: string): W
     section('本文參考來源｜想看原文可以從這裡', report.sourceLinks.map(s => `<div style="margin-bottom:14px">${urlLink(s.url, s.title)}<div style="font-size:12px;color:#6b7280;margin-top:4px">${escapeHtml([s.kind, s.source, s.dateLabel].filter(Boolean).join('｜'))}</div></div>`).join(''), report.sourceLinks.flatMap(s => [s.title, [s.kind, s.source, s.dateLabel].filter(Boolean).join('｜'), s.url]));
   }
   text.push(`網站週報：${link}`);
-  const html = `<div style="font-family:Arial,'Noto Sans TC',sans-serif;max-width:720px;margin:0 auto;padding:16px;color:#111827"><div style="border-bottom:2px solid #111827;padding-bottom:10px;font-size:14px;font-weight:700">物料預測週報｜電子零組件供應鏈週刊</div><p style="font-size:12px;color:#6b7280">${escapeHtml(report.date)} 出刊｜${escapeHtml(risk)}</p><h1 style="font-size:24px;line-height:1.4">${escapeHtml(headline)}</h1>${paragraph(report.summary)}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tbody>${sections.join('')}</tbody></table><p style="font-size:12px;color:#6b7280">${urlLink(link, '在網站檢視本期週報')}｜Speed Part Search</p></div>`;
+  const html = `<div style="font-family:Arial,'Noto Sans TC',sans-serif;max-width:720px;margin:0 auto;padding:16px;color:#111827"><div style="border-bottom:2px solid #111827;padding-bottom:10px;font-size:14px;font-weight:700">物料預測週報｜電子零組件供應鏈週刊</div><p style="font-size:12px;color:#6b7280">${escapeHtml(report.date)} 出刊｜${escapeHtml(risk)}</p><h1 style="font-size:24px;line-height:1.4">${escapeHtml(headline)}</h1>${paragraph(report.summary)}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tbody>${sections.join('')}</tbody></table><p style="font-size:12px;color:#6b7280">${urlLink(link, '在網站檢視本期週報')}｜SpeedPart.</p></div>`;
   return { subject: `【物料預測週報】${report.date}｜${headline}`, text: text.join('\n'), html };
 }

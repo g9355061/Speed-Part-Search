@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { DEMAND_CATEGORIES } from './benchmark';
 import { getGenericCache, setGenericCache } from '@/lib/db';
-import { translateToZhTW } from './translate';
+import { isTranslatedZh, translateToZhTW } from './translate';
 import { MARKET_REPORT_SOURCES, type MarketReportSourceConfig } from './market-report-sources';
 import {
   MARKET_REPORTS_SCHEMA_VERSION,
@@ -483,6 +483,9 @@ async function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: 
   const reports: MarketReport[] = [];
   const now = new Date().toISOString();
   const lowerText = text.toLowerCase();
+  const rawArticleTitle = article?.title?.trim() ?? '';
+  const translatedArticleTitle = rawArticleTitle ? await translateToZhTW(rawArticleTitle) : '';
+  const hasZhTitle = !!translatedArticleTitle && isTranslatedZh(translatedArticleTitle);
 
   for (const [catId, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     for (const keyword of keywords) {
@@ -559,14 +562,23 @@ async function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: 
 
         const evidenceTextVal = evidenceFragments[0] || `偵測到關鍵字: ${keyword}`;
         const catNameZh = DEMAND_CATEGORIES.find(c => c.categoryId === catId)?.category || catId;
-        const aiSummary = await summarizeWithGemini(evidenceTextVal, catId, catNameZh);
-        const articleTitleZh = article?.title ? await translateToZhTW(article.title) : '';
+        const [aiSummary, rawEvidenceZh] = await Promise.all([
+          summarizeWithGemini(evidenceTextVal, catId, catNameZh),
+          isTranslatedZh(evidenceTextVal) ? Promise.resolve(evidenceTextVal) : translateToZhTW(evidenceTextVal),
+        ]);
+        const evidenceTextZh = rawEvidenceZh && isTranslatedZh(rawEvidenceZh) ? rawEvidenceZh : undefined;
+        const reportTitle = hasZhTitle
+          ? `${sourceName}：${translatedArticleTitle}`
+          : rawArticleTitle
+            ? `${sourceName}：${rawArticleTitle}`
+            : `${sourceName} — ${catId} 類別情報`;
 
         reports.push({
           id: `auto-${sourceName.toLowerCase().replace(/\s+/g, '-')}-${catId}-${Date.now()}`,
           source: sourceName,
           // 有抓到頁面標題就用真標題（轉繁中）；抓不到才退回佔位字
-          title: articleTitleZh ? `${sourceName}：${articleTitleZh}` : `${sourceName} — ${catId} 類別情報`,
+          title: reportTitle,
+          titleZh: hasZhTitle ? `${sourceName}：${translatedArticleTitle}` : undefined,
           url: sourceUrl,
           publishedAt: article?.publishedAt ?? null,
           fetchedAt: now,
@@ -576,6 +588,7 @@ async function analyzeTextWindowed(text: string, sourceName: string, sourceUrl: 
           riskTypes,
           summaryZh: aiSummary || summaryZh,
           evidenceText: evidenceTextVal,
+          evidenceTextZh,
           confidence,
           status: 'auto',
           extractionMethod: 'html_scrape',
